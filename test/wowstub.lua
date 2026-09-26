@@ -1,0 +1,395 @@
+-- test/wowstub.lua: just enough of the WoW client to load and exercise
+-- the addon headlessly under Lua 5.1.
+local Stub = {}
+
+------------------------------------------------------------------------
+-- Globals the addon expects
+------------------------------------------------------------------------
+function strsplit(delim, str, limit)
+  local out = {}
+  local start = 1
+  while true do
+    local i = string.find(str, delim, start, true)
+    if not i or (limit and #out >= limit - 1) then
+      table.insert(out, string.sub(str, start))
+      break
+    end
+    table.insert(out, string.sub(str, start, i - 1))
+    start = i + #delim
+  end
+  return unpack(out)
+end
+
+function strjoin(delim, ...) return table.concat({ ... }, delim) end
+function tContains(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
+function wipe(t) for k in pairs(t) do t[k] = nil end return t end
+tinsert = table.insert
+tremove = table.remove
+UISpecialFrames = {}
+SlashCmdList = {}
+UIParent = nil
+
+Stub.printed = {}
+DEFAULT_CHAT_FRAME = { AddMessage = function(_, msg) table.insert(Stub.printed, msg) if Stub.echo then print(msg) end end }
+
+Stub.now = 1760000000
+function GetServerTime() return Stub.now end
+time = function() return Stub.now end
+date = function(fmt, t) return os.date(fmt, t) end
+
+function GetCurrentRegion() return 1 end
+function GetNormalizedRealmName() return "ClassicBetaPvP2" end
+function UnitFactionGroup() return "Horde" end
+
+Enum = {
+  AuctionHouseSortOrder = { Price = 0, Name = 1, Level = 2, Bid = 3, Buyout = 4, TimeRemaining = 5 },
+  ItemCommodityStatus = { Unknown = 0, Item = 1, Commodity = 2 },
+  AuctionHouseTimeLeftBand = { Short = 0, Medium = 1, Long = 2, VeryLong = 3 },
+  TooltipDataType = { Item = 0 },
+}
+
+------------------------------------------------------------------------
+-- Item database used by C_Item
+------------------------------------------------------------------------
+Stub.items = {}
+function Stub.DefineItem(id, name, opts)
+  opts = opts or {}
+  Stub.items[id] = { name = name, sell = opts.sell or 0, equip = opts.equip or "", stack = opts.stack or 20, commodity = opts.commodity, quality = opts.quality or 1, ilvl = opts.ilvl or 1, loaded = opts.loaded ~= false }
+end
+
+C_Item = {
+  GetItemInfo = function(id)
+    id = tonumber(string.match(tostring(id), "(%d+)"))
+    local it = Stub.items[id]
+    if not it or not it.loaded then return nil end
+    return it.name, "item:" .. id, it.quality, it.ilvl, 1, "Trade Goods", "Metal", it.stack, it.equip, 134400, it.sell
+  end,
+  GetItemInfoInstant = function(id)
+    id = tonumber(string.match(tostring(id), "(%d+)"))
+    local it = Stub.items[id]
+    if not it then return nil end
+    return id, "Trade Goods", "Metal", it.equip, 134400, 7, 0
+  end,
+  GetDetailedItemLevelInfo = function(link)
+    local id = tonumber(string.match(tostring(link), "item:(%d+)"))
+    local it = Stub.items[id]
+    return it and it.ilvl or 0
+  end,
+  GetItemIconByID = function() return 134400 end,
+  GetItemQualityColor = function(q) return 1, 1, 1, "ffffffff" end,
+  RequestLoadItemDataByID = function(id)
+    Stub.loadRequests = (Stub.loadRequests or 0) + 1
+    local it = Stub.items[id]
+    if it then it.loaded = true end
+  end,
+}
+
+C_CurrencyInfo = { GetCoinTextureString = function(c) return tostring(c) .. "c*" end }
+
+------------------------------------------------------------------------
+-- Timers
+------------------------------------------------------------------------
+Stub.timers = {}
+local function newTimer(delay, fn, iterations)
+  local t = { due = Stub.now + delay, fn = fn, interval = iterations and delay or nil, remaining = iterations, cancelled = false, delay = delay }
+  if iterations == nil and delay ~= nil and t.interval == nil then t.once = true end
+  function t:Cancel() self.cancelled = true end
+  function t:IsCancelled() return self.cancelled end
+  table.insert(Stub.timers, t)
+  return t
+end
+C_Timer = {
+  After = function(delay, fn) newTimer(delay, fn) end,
+  NewTimer = function(delay, fn) return newTimer(delay, fn) end,
+  NewTicker = function(delay, fn, iterations)
+    local t = newTimer(delay, fn)
+    t.once = false
+    t.interval = delay
+    t.remaining = iterations
+    return t
+  end,
+}
+
+Stub.frames = {}
+
+-- Run timers that are due, then one OnUpdate for every shown frame.
+function Stub.RunTimers()
+  local ran = 0
+  for _, f in ipairs(Stub.frames) do
+    if f.shown and f.scripts.OnUpdate then
+      f.scripts.OnUpdate(f, 0.016)
+      ran = ran + 1
+    end
+  end
+  local list = Stub.timers
+  for _, t in ipairs(list) do
+    if not t.cancelled and t.due <= Stub.now then
+      t.fn(t)
+      ran = ran + 1
+      if t.once then
+        t.cancelled = true
+      else
+        t.due = Stub.now + t.interval
+        if t.remaining then
+          t.remaining = t.remaining - 1
+          if t.remaining <= 0 then t.cancelled = true end
+        end
+      end
+    end
+  end
+  local keep = {}
+  for _, t in ipairs(Stub.timers) do if not t.cancelled then table.insert(keep, t) end end
+  Stub.timers = keep
+  return ran
+end
+
+function Stub.Advance(seconds)
+  local target = Stub.now + seconds
+  while Stub.now < target do
+    Stub.now = math.min(target, Stub.now + 1)
+    Stub.RunTimers()
+  end
+end
+
+-- Pump zero-delay tickers until none run
+function Stub.Pump(max)
+  for _ = 1, max or 1000 do
+    if Stub.RunTimers() == 0 then return end
+  end
+end
+
+------------------------------------------------------------------------
+-- Frames: a permissive object that records events and scripts
+------------------------------------------------------------------------
+Stub.eventFrames = {}
+local Frame = {}
+-- Unknown CamelCase names are treated as no-op widget methods; anything
+-- else is a plain data field and reads as nil, as it would in the client.
+Frame.__index = function(t, k)
+  local v = rawget(Frame, k)
+  if v ~= nil then return v end
+  if type(k) == "string" and string.match(k, "^[A-Z]") then
+    return function() return nil end
+  end
+  return nil
+end
+
+local function newObject(kind)
+  local o = setmetatable({ kind = kind, scripts = {}, events = {}, shown = true, children = {}, width = 400, height = 300, text = "", points = {} }, Frame)
+  return o
+end
+
+function Frame:RegisterEvent(e) self.events[e] = true Stub.eventFrames[self] = true end
+function Frame:UnregisterEvent(e) self.events[e] = nil end
+function Frame:SetScript(name, fn) self.scripts[name] = fn end
+function Frame:GetScript(name) return self.scripts[name] end
+function Frame:HookScript(name, fn) local old = self.scripts[name] self.scripts[name] = function(...) if old then old(...) end fn(...) end end
+function Frame:Show() self.shown = true if self.scripts.OnShow then self.scripts.OnShow(self) end end
+function Frame:Hide() self.shown = false end
+function Frame:SetShown(v) if v then self:Show() else self:Hide() end end
+function Frame:IsShown() return self.shown end
+function Frame:IsVisible() return self.shown end
+function Frame:CreateTexture() return newObject("Texture") end
+function Frame:CreateFontString() return newObject("FontString") end
+function Frame:SetText(t) self.text = t end
+function Frame:GetText() return self.text end
+function Frame:SetSize(w, h) self.width, self.height = w, h if self.scripts.OnSizeChanged then self.scripts.OnSizeChanged(self, w, h) end end
+function Frame:SetWidth(w) self.width = w end
+function Frame:SetHeight(h) self.height = h end
+function Frame:GetWidth() return self.width end
+function Frame:GetHeight() return self.height end
+function Frame:SetParent(p) self.parent = p end
+function Frame:GetParent() return self.parent end
+function Frame:SetPoint(...) table.insert(self.points, { ... }) end
+function Frame:SetID(id) self.id = id end
+function Frame:GetID() return self.id end
+function Frame:SetChecked(v) self.checked = v end
+function Frame:GetChecked() return self.checked end
+function Frame:SetValue(v) self.value = v if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
+function Frame:GetValue() return self.value or 0 end
+function Frame:GetFontString() return self.fontString end
+function Frame:GetNormalTexture() return newObject("Texture") end
+function Frame:GetFrameLevel() return 1 end
+function Frame:GetItem() return nil end
+
+function CreateFrame(kind, name, parent, template)
+  if template and Stub.badTemplates and Stub.badTemplates[template] then
+    error("Couldn't find inherited node: " .. template)
+  end
+  local f = newObject(kind)
+  f.name = name
+  f.parent = parent
+  f.template = template
+  table.insert(Stub.frames, f)
+  if template == "UIPanelButtonTemplate" then f.fontString = newObject("FontString") end
+  if name then _G[name] = f end
+  return f
+end
+
+function hooksecurefunc(tbl, name, fn)
+  if type(tbl) == "string" then tbl, name, fn = _G, tbl, name end
+  local orig = tbl[name]
+  tbl[name] = function(...)
+    local r = { orig(...) }
+    fn(...)
+    return unpack(r)
+  end
+end
+
+function Stub.FireEvent(event, ...)
+  for f in pairs(Stub.eventFrames) do
+    if f.events[event] and f.scripts.OnEvent then f.scripts.OnEvent(f, event, ...) end
+  end
+end
+
+------------------------------------------------------------------------
+-- Tooltips
+------------------------------------------------------------------------
+local function newTooltip()
+  local t = newObject("GameTooltip")
+  t.lines = {}
+  function t:AddLine(text) table.insert(self.lines, tostring(text)) end
+  function t:AddDoubleLine(a, b) table.insert(self.lines, tostring(a) .. " | " .. tostring(b)) end
+  function t:ClearLines() self.lines = {} end
+  function t:SetOwner() end
+  function t:SetItemByID(id) self.itemID = id end
+  return t
+end
+GameTooltip = newTooltip()
+ItemRefTooltip = newTooltip()
+TooltipDataProcessor = {
+  AddTooltipPostCall = function(kind, fn) Stub.tooltipHandler = fn end,
+}
+
+------------------------------------------------------------------------
+-- Auction house
+------------------------------------------------------------------------
+Stub.ah = {
+  replicate = {},        -- array of rows { itemID, count, buyout, name, link, hasAllInfo, minBid }
+  browse = {},           -- array of BrowseResultInfo
+  browsePageSize = 3,
+  browseServed = 0,
+  searchResults = {},    -- keyStr -> { commodity = bool, listings = { {unitPrice, quantity, auctionID} } }
+  ready = true,
+  purchases = {},
+  commodityPrice = {},   -- itemID -> quoted unit price
+}
+
+C_AuctionHouse = {
+  MakeItemKey = function(id, ilvl, suffix, species)
+    return { itemID = id, itemLevel = ilvl or 0, itemSuffix = suffix or 0, battlePetSpeciesID = species or 0 }
+  end,
+  GetItemCommodityStatus = function(key)
+    local it = Stub.items[key.itemID]
+    if not it or it.commodity == nil then return Enum.ItemCommodityStatus.Unknown end
+    return it.commodity and Enum.ItemCommodityStatus.Commodity or Enum.ItemCommodityStatus.Item
+  end,
+  IsThrottledMessageSystemReady = function() return Stub.ah.ready end,
+
+  ReplicateItems = function()
+    Stub.ah.replicateCalls = (Stub.ah.replicateCalls or 0) + 1
+    C_Timer.After(1, function() Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE") end)
+  end,
+  GetNumReplicateItems = function() return #Stub.ah.replicate end,
+  GetReplicateItemInfo = function(i)
+    local r = Stub.ah.replicate[i + 1]
+    if not r then return nil end
+    local it = Stub.items[r.itemID]
+    local loaded = it and it.loaded
+    local name = loaded and it.name or nil
+    return name, 134400, r.count, 1, true, 1, "", r.minBid or 0, 0, r.buyout, 0, nil, nil, r.owner, nil, 0, r.itemID, loaded and true or false
+  end,
+  GetReplicateItemLink = function(i)
+    local r = Stub.ah.replicate[i + 1]
+    if not r then return nil end
+    local it = Stub.items[r.itemID]
+    if not (it and it.loaded) then return nil end
+    return r.link or string.format("|cffffffff|Hitem:%d:0:0:0:0:0:%d:0:60:0:0:0:0|h[%s]|h|r", r.itemID, r.suffix or 0, it.name)
+  end,
+  GetReplicateItemTimeLeft = function() return 3 end,
+
+  SendBrowseQuery = function(query)
+    Stub.ah.lastQuery = query
+    Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browsePageSize)
+    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED") end)
+  end,
+  GetBrowseResults = function()
+    local out = {}
+    for i = 1, Stub.ah.browseServed do out[i] = Stub.ah.browse[i] end
+    return out
+  end,
+  HasFullBrowseResults = function() return Stub.ah.browseServed >= #Stub.ah.browse end,
+  RequestMoreBrowseResults = function()
+    Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browseServed + Stub.ah.browsePageSize)
+    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", {}) end)
+  end,
+
+  SendSearchQuery = function(itemKey)
+    Stub.ah.searchCalls = (Stub.ah.searchCalls or 0) + 1
+    local keyStr = tostring(itemKey.itemID)
+    if (itemKey.itemLevel or 0) ~= 0 or (itemKey.itemSuffix or 0) ~= 0 then
+      keyStr = string.format("%d:%d:%d", itemKey.itemID, itemKey.itemLevel or 0, itemKey.itemSuffix or 0)
+    end
+    local res = Stub.ah.searchResults[keyStr]
+    Stub.ah.currentSearch = res
+    C_Timer.After(1, function()
+      if res and res.commodity then
+        Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", itemKey.itemID)
+      else
+        Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", itemKey)
+      end
+    end)
+  end,
+  GetNumCommoditySearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
+  GetCommoditySearchResultInfo = function(itemID, i)
+    local l = Stub.ah.currentSearch.listings[i]
+    return { itemID = itemID, unitPrice = l[1], quantity = l[2], auctionID = l[3] or i, timeLeftSeconds = 3600, containsOwnerItem = l.mine or false }
+  end,
+  GetNumItemSearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
+  GetItemSearchResultInfo = function(itemKey, i)
+    local l = Stub.ah.currentSearch.listings[i]
+    return { itemKey = itemKey, buyoutAmount = l[1], quantity = l[2] or 1, auctionID = l[3] or i, timeLeft = 2, owners = { "Someone" }, containsOwnerItem = l.mine or false }
+  end,
+
+  StartCommoditiesPurchase = function(itemID, qty)
+    Stub.ah.started = { itemID = itemID, qty = qty }
+    local unit = Stub.ah.commodityPrice[itemID]
+    C_Timer.After(1, function()
+      if unit then Stub.FireEvent("COMMODITY_PRICE_UPDATED", unit, unit * qty)
+      else Stub.FireEvent("COMMODITY_PRICE_UNAVAILABLE") end
+    end)
+  end,
+  ConfirmCommoditiesPurchase = function(itemID, qty)
+    table.insert(Stub.ah.purchases, { itemID = itemID, qty = qty })
+    C_Timer.After(1, function() Stub.FireEvent("COMMODITY_PURCHASE_SUCCEEDED") end)
+  end,
+  CancelCommoditiesPurchase = function() Stub.ah.cancelled = (Stub.ah.cancelled or 0) + 1 end,
+  PlaceBid = function(auctionID, amount)
+    table.insert(Stub.ah.purchases, { auctionID = auctionID, amount = amount })
+    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", auctionID) end)
+  end,
+}
+
+------------------------------------------------------------------------
+-- Loading the addon in TOC order
+------------------------------------------------------------------------
+function Stub.LoadAddon(root)
+  local ns = {}
+  local toc = io.open(root .. "/AuctionHound.toc")
+  local files = {}
+  for line in toc:lines() do
+    line = line:gsub("\r", "")
+    if line ~= "" and not line:match("^#") then
+      table.insert(files, (line:gsub("\\", "/")))
+    end
+  end
+  toc:close()
+  for _, f in ipairs(files) do
+    local chunk, err = loadfile(root .. "/" .. f)
+    if not chunk then error(err) end
+    chunk("AuctionHound", ns)
+  end
+  return ns
+end
+
+return Stub

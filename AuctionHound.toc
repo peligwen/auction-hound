@@ -1,0 +1,19 @@
+## Interface: 16001
+## Title: Auction Hound
+## Notes: A slim auction house companion for WoW Forever: price history, discerning snipes, market connections.
+## Author: peligwen
+## Version: 0.1.0
+## SavedVariables: AuctionHoundDB
+## IconTexture: Interface\Icons\Ability_Tracking
+
+Util.lua
+Core.lua
+Store.lua
+Market.lua
+Data\Conversions.lua
+Priors.lua
+Scan.lua
+Snipe.lua
+Tooltip.lua
+UI\Widgets.lua
+UI\Frame.lua
