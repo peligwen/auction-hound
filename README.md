@@ -27,14 +27,28 @@ the checklist below).
   snipe usable in launch week.
 - **Connections.** Smelting, leather, hides and bolts, with input cost,
   output value, spread per craft and gold per hour at your labor rate.
+- **Fan.** Post one item as a series of batches at spaced prices: x
+  units per batch, z batches, y percent apart. Scans only show what
+  sellers ask; the one sure sign of what buyers pay is a sale of your
+  own, so each batch is a probe. Linear spacing puts the batches at even
+  steps. Bell spacing keeps the same range but places them at normal
+  quantiles, so most sit near the center where the clearing price most
+  likely is, with a few out at the tails. One click posts one batch.
+- **Own sales.** Every batch is tracked. A sold status or a shrinking
+  quantity in your auction list, an auction that vanishes before it
+  could expire, or a seller invoice in the mailbox each mark units sold
+  at that price; an auction that vanishes after its time marks them
+  unsold. The result is a sold / unsold bracket per item, shown in the
+  Item view, the tooltip and `/hound stats`, and the next fan centers on
+  the best price buyers actually paid.
 - **Tooltips.** Market, floor, 30-day mean, trend and estimated units
-  moved per day on every item tooltip.
+  moved per day on every item tooltip, plus your own sold / unsold line.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
-  a window) with three views: Snipe, Markets, Item. Sortable tables, a
-  bar graph of daily value with floor and volume, sparklines per row.
+  a window) with four views: Snipe, Markets, Item, Fan. Sortable tables,
+  a bar graph of daily value with floor and volume, sparklines per row.
 
 Deferred on purpose: guild sync, the neutral auction house, disenchant
-tables, own-sales tracking.
+tables.
 
 ## Install
 
@@ -65,6 +79,14 @@ trusting the numbers:
 4. Run a snipe pass and buy one cheap commodity. The chat line should
    show the quoted unit price and the ledger entry.
 5. `/reload`, then `/hound debug`. The item count must survive.
+6. Open the Fan tab, pick a cheap commodity from your bags, and post one
+   batch. The chat line should name the auction id. Then open the
+   Blizzard Auctions tab: the batch should show as active in the Fan
+   view's "Your posts" table. If posting fails with a hardware-event
+   error, bind a key to a macro with `/hound post` and post from that.
+7. Sell something. The next time you open the auction house (or check
+   your mail with the addon loaded), the Fan view and `/hound stats`
+   should show it under "yours".
 
 ## Commands
 
@@ -72,14 +94,25 @@ trusting the numbers:
 /hound                 toggle the window
 /hound scan            full scan (once per 15 minutes, at the AH)
 /hound snipe           run a snipe pass (at the AH)
-/hound stats <link>    stored stats for an item
+/hound stats <link>    stored stats for an item, and what you sold it for
 /hound key <link>      the history key for a link
+/hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center] [12h|24h|48h]
+                       plan a fan for an item in your bags; alone, show the plan
+/hound post            post the next batch of the fan (bind it to a key)
 /hound labor <g/h>     your time, used for gold per hour
 /hound cut <pct>       auction house cut, default 5
 /hound discount <pct>  minimum discount for a snipe candidate, default 25
 /hound debug rep [n]   print raw full-scan rows
-/hound wipe            erase this market's history
+/hound wipe            erase this market's history (your own posts are kept)
 ```
+
+A fan by example: `/hound fan [Copper Ore] 10 5 5 bell` posts five
+batches of ten, five percent apart, bunched toward the center. Center
+defaults to the best price you sold the item for in the last two weeks,
+else the market value; `above` or `below` puts the center at the cheap
+or the dear end instead of the middle. Then `/hound post` five times, or
+click Post in the Fan view. Blizzard requires a hardware event for each
+auction, so batches never post on their own.
 
 ## How the pieces fit
 
@@ -89,6 +122,7 @@ Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
 Snipe.lua    candidates, confirmation, scoring, buying, ledger
+Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window
 Data/        conversion recipes with classic item ids
@@ -96,7 +130,9 @@ Data/        conversion recipes with classic item ids
 
 History is scoped by region, ruleset and faction, for example
 `US-ClassicBetaPvP2-Horde`. Commodities are keyed by item id; equippable
-items by `id:level:suffix` so suffix variants never share a record.
+items by `id:level:suffix` so suffix variants never share a record. Your
+own posts live in the same market record, as plain tables, for 30 days
+after they resolve.
 
 ### Scoring
 

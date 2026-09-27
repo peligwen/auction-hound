@@ -258,6 +258,58 @@ function Store.Ledger(entry)
   while #H.db.ledger > 500 do table.remove(H.db.ledger, 1) end
 end
 
+------------------------------------------------------------------------
+-- Our own posts, per market. Plain tables: there are few of them and
+-- they are the one record of what buyers actually paid.
+------------------------------------------------------------------------
+Store.KEEP_POSTS = 400
+Store.KEEP_POST_DAYS = 30
+
+local function postList()
+  local m = market()
+  if not m then return nil end
+  m.posts = m.posts or {}
+  return m.posts
+end
+
+-- All posts, or those for one key, oldest first.
+function Store.Posts(key)
+  local list = postList()
+  if not list then return {} end
+  if not key then return list end
+  local out = {}
+  for _, p in ipairs(list) do
+    if p.key == key then table.insert(out, p) end
+  end
+  return out
+end
+
+local function resolved(p)
+  return p.status == "sold" or p.status == "expired" or p.status == "cancelled" or p.status == "failed"
+end
+
+function Store.PrunePosts(now)
+  local list = postList()
+  if not list then return end
+  now = now or H.Now()
+  local cutoff = now - Store.KEEP_POST_DAYS * 86400
+  local i = 1
+  while i <= #list do
+    if resolved(list[i]) and list[i].t < cutoff then table.remove(list, i) else i = i + 1 end
+  end
+  while #list > Store.KEEP_POSTS do table.remove(list, 1) end
+end
+
+function Store.AddPost(post)
+  local list = postList()
+  if not list then return end
+  for _, p in ipairs(list) do
+    if p == post then return end
+  end
+  table.insert(list, post)
+  Store.PrunePosts(post.t)
+end
+
 -- Test hook: drop the decode cache without touching saved data.
 function Store._ResetCache()
   cache = {}

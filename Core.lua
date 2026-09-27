@@ -11,6 +11,12 @@ H.DEFAULTS = {
   tooltip = true,        -- add Hound lines to item tooltips
   keepDays = 90,         -- daily history retention
   keepPoints = 120,      -- scan-level points kept per item
+  fanPerBatch = 5,       -- units per batch when fanning a listing
+  fanStep = 0.05,        -- price gap between batches, fraction of the center
+  fanBatches = 5,        -- batches per fan
+  fanShape = "linear",   -- linear | bell
+  fanSpread = "around",  -- around | above | below the center
+  postDuration = 3,      -- 1 = 12h, 2 = 24h, 3 = 48h
 }
 
 H.atAH = false
@@ -48,6 +54,7 @@ function H.InitDB()
   H.marketKey = H.MarketKey()
   db.markets[H.marketKey] = db.markets[H.marketKey] or { items = {}, scans = {} }
   H.market = db.markets[H.marketKey]
+  H.market.posts = H.market.posts or {}
   H.db = db
   return db
 end
@@ -108,9 +115,62 @@ commands.help = function()
   H.Print("  /hound snipe      run a snipe pass (at the auction house)")
   H.Print("  /hound stats <link or id>   show stored stats")
   H.Print("  /hound key <link>           show the history key for a link")
+  H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
+  H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
+  H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
   H.Print("  /hound labor <gold per hour> / cut <percent> / discount <percent>")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
-  H.Print("  /hound wipe       erase this market's history")
+  H.Print("  /hound wipe       erase this market's history (your own posts are kept)")
+end
+
+commands.fan = function(rest)
+  local Fan = H.Fan
+  if not rest or rest == "" then Fan.Describe() return end
+  local link, id = linkFromArgs(rest)
+  if not link then
+    id = tonumber(string.match(rest, "^%s*(%d+)"))
+    if id then link = "item:" .. id end
+  end
+  if not link then H.Print("usage: /hound fan <item link or id> [per batch] [step %] [batches] [bell] [above|below] [center]") return end
+  local tail
+  if id then
+    tail = string.gsub(rest, "^%s*%d+", "", 1)
+  else
+    tail = string.gsub(rest, "|c%x+|Hitem:[^|]+|h%[[^%]]*%]|h|r", "", 1)
+  end
+  local key = id and (H.KeyForItemID(id) or tostring(id)) or H.KeyFromLink(link)
+  if not key then H.Print("could not read that link") return end
+  local o = { key = key, itemID = H.ItemIDFromKey(key) }
+  local nums = {}
+  for tok in string.gmatch(tail, "%S+") do
+    local l = string.lower(tok)
+    local hours = string.match(l, "^(%d+)h$")
+    if l == "bell" or l == "linear" then
+      o.shape = l
+    elseif l == "around" or l == "above" or l == "below" then
+      o.spread = l
+    elseif hours then
+      local h = tonumber(hours)
+      o.duration = h <= 12 and 1 or (h <= 24 and 2 or 3)
+    elseif string.match(l, "^[%d%.]+%%$") then
+      table.insert(nums, tonumber(string.match(l, "^([%d%.]+)%%$")))
+    elseif tonumber(l) then
+      table.insert(nums, tonumber(l))
+    elseif string.match(l, "^[%d%.]+[gsc]") then
+      o.center = H.ParseMoney(l)
+    end
+  end
+  if nums[1] then o.perBatch = nums[1] end
+  if nums[2] then o.step = nums[2] / 100 end
+  if nums[3] then o.batches = nums[3] end
+  local plan, err = Fan.Setup(o)
+  if not plan then H.Print(err) return end
+  Fan.Describe()
+  if H.UI and H.UI.ShowFan and H.UI.IsShown and H.UI.IsShown() then H.UI.ShowFan(key) end
+end
+
+commands.post = function()
+  H.Fan.PostNext()
 end
 
 commands.scan = function()
@@ -127,14 +187,18 @@ commands.stats = function(rest)
   local key = id and tostring(id) or H.KeyFromLink(link)
   if not key then H.Print("could not read that link") return end
   local rec = H.Store.Get(key)
-  if not rec then H.Printf("no history for %s", key) return end
-  local st = H.Market.Stats(rec)
+  local cl = H.Market.Clearing(H.Store.Posts(key))
+  if not rec and not cl then H.Printf("no history for %s", key) return end
   H.Printf("%s [%s]", H.ItemName(H.ItemIDFromKey(key)), key)
-  H.Printf("  market %s  min %s  30d %s  listed %s  trend %s  stability %s",
-    H.Money(st.market or 0), H.Money(st.min or 0), H.Money(st.hist or 0),
-    tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
-  H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
-    st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
+  if rec then
+    local st = H.Market.Stats(rec)
+    H.Printf("  market %s  min %s  30d %s  listed %s  trend %s  stability %s",
+      H.Money(st.market or 0), H.Money(st.min or 0), H.Money(st.hist or 0),
+      tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
+    H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
+      st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
+  end
+  if cl then H.Printf("  yours: %s", H.Fan.ClearingLine(cl)) end
 end
 
 commands.key = function(rest)

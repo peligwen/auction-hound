@@ -63,6 +63,27 @@ function UI.EditBox(parent, width, onChange)
   return e
 end
 
+-- A button that steps through a short list of options on each click.
+function UI.CycleButton(parent, width, options, onChange)
+  local b = UI.Button(parent, options[1], width, 22)
+  b.options = options
+  b.index = 1
+  function b:SetValue(v)
+    for i, o in ipairs(self.options) do
+      if o == v then self.index = i end
+    end
+    self:SetText(self.options[self.index])
+    if self.plainText then self.plainText:SetText(self.options[self.index]) end
+  end
+  function b:GetValue() return self.options[self.index] end
+  b:SetScript("OnClick", function(self)
+    self.index = self.index % #self.options + 1
+    self:SetValue(self.options[self.index])
+    if onChange then onChange(self:GetValue(), self.index) end
+  end)
+  return b
+end
+
 function UI.Divider(parent)
   local t = parent:CreateTexture(nil, "ARTWORK")
   t:SetHeight(1)

@@ -45,8 +45,83 @@ Enum = {
   AuctionHouseSortOrder = { Price = 0, Name = 1, Level = 2, Bid = 3, Buyout = 4, TimeRemaining = 5 },
   ItemCommodityStatus = { Unknown = 0, Item = 1, Commodity = 2 },
   AuctionHouseTimeLeftBand = { Short = 0, Medium = 1, Long = 2, VeryLong = 3 },
+  AuctionStatus = { Active = 0, Sold = 1 },
   TooltipDataType = { Item = 0 },
 }
+
+------------------------------------------------------------------------
+-- Bags and mail
+------------------------------------------------------------------------
+NUM_BAG_SLOTS = 4
+Stub.bags = {}         -- [bag][slot] = { itemID, count, suffix }
+Stub.bagSlots = 16
+
+function Stub.SetBag(bag, slot, itemID, count, opts)
+  Stub.bags[bag] = Stub.bags[bag] or {}
+  if not itemID or (count or 0) <= 0 then
+    Stub.bags[bag][slot] = nil
+  else
+    Stub.bags[bag][slot] = { itemID = itemID, count = count, suffix = opts and opts.suffix or 0 }
+  end
+end
+
+function Stub.BagCount(itemID)
+  local n = 0
+  for _, slots in pairs(Stub.bags) do
+    for _, s in pairs(slots) do if s.itemID == itemID then n = n + s.count end end
+  end
+  return n
+end
+
+local function stackLink(s)
+  local it = Stub.items[s.itemID]
+  return string.format("|cffffffff|Hitem:%d:0:0:0:0:0:%d:0:60:0:0:0:0|h[%s]|h|r", s.itemID, s.suffix or 0, it and it.name or "?")
+end
+
+-- Take units out of the bags, the given slot first, then any other
+-- stack of the same item. Returns the units actually removed.
+local function takeFromBags(bag, slot, qty)
+  local s = Stub.bags[bag] and Stub.bags[bag][slot]
+  if not s then return 0 end
+  local itemID, taken = s.itemID, 0
+  local function take(b, sl, st)
+    local n = math.min(st.count, qty - taken)
+    st.count = st.count - n
+    taken = taken + n
+    if st.count == 0 then Stub.bags[b][sl] = nil end
+  end
+  take(bag, slot, s)
+  for b, slots in pairs(Stub.bags) do
+    for sl, st in pairs(slots) do
+      if taken < qty and st.itemID == itemID then take(b, sl, st) end
+    end
+  end
+  return taken
+end
+
+C_Container = {
+  GetContainerNumSlots = function(bag) return Stub.bagSlots end,
+  GetContainerItemInfo = function(bag, slot)
+    local s = Stub.bags[bag] and Stub.bags[bag][slot]
+    if not s then return nil end
+    return { itemID = s.itemID, stackCount = s.count, hyperlink = stackLink(s), isLocked = false, iconFileID = 134400 }
+  end,
+}
+
+ItemLocation = {
+  CreateFromBagAndSlot = function(_, bag, slot)
+    return { bagID = bag, slotIndex = slot, IsValid = function() return true end }
+  end,
+}
+
+Stub.mail = {}         -- array of { invoiceType, itemName, bid, buyout, count }
+function GetInboxNumItems() return #Stub.mail, #Stub.mail end
+function GetInboxInvoiceInfo(i)
+  local m = Stub.mail[i]
+  if not m then return nil end
+  return m.invoiceType, m.itemName, m.playerName or "Buyer", m.bid or 0, m.buyout or 0, m.deposit or 0,
+    m.consignment or 0, 0, 0, 0, m.count or 1, m.commerce or false
+end
 
 ------------------------------------------------------------------------
 -- Item database used by C_Item
@@ -273,7 +348,44 @@ Stub.ah = {
   ready = true,
   purchases = {},
   commodityPrice = {},   -- itemID -> quoted unit price
+  posted = {},           -- our posts: { auctionID, itemID, qty, unit, duration, commodity, bag, slot }
+  owned = {},            -- OwnedAuctionInfo rows returned by GetOwnedAuctions
+  nextAuctionID = 9000,
+  ownedQueries = 0,
 }
+
+local function postAuction(loc, duration, qty, unit, commodity)
+  local s = Stub.bags[loc.bagID] and Stub.bags[loc.bagID][loc.slotIndex]
+  if not s then Stub.FireEvent("AUCTION_HOUSE_SHOW_ERROR", 1) return end
+  local itemID, suffix = s.itemID, s.suffix or 0
+  local it = Stub.items[itemID]
+  local taken = takeFromBags(loc.bagID, loc.slotIndex, qty)
+  if taken < qty then
+    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_SHOW_ERROR", 1) end)
+    return
+  end
+  Stub.ah.nextAuctionID = Stub.ah.nextAuctionID + 1
+  local id = Stub.ah.nextAuctionID
+  table.insert(Stub.ah.posted, { auctionID = id, itemID = itemID, qty = qty, unit = unit, duration = duration, commodity = commodity, bag = loc.bagID, slot = loc.slotIndex })
+  local ilvl = (suffix ~= 0 or (it and it.equip ~= "")) and (it and it.ilvl or 0) or 0
+  table.insert(Stub.ah.owned, {
+    auctionID = id, itemKey = C_AuctionHouse.MakeItemKey(itemID, ilvl, suffix), status = Enum.AuctionStatus.Active,
+    quantity = qty, buyoutAmount = unit, timeLeftSeconds = duration * 12 * 3600, timeLeft = 3,
+  })
+  C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", id) end)
+end
+
+function Stub.RemoveOwned(auctionID)
+  for i, a in ipairs(Stub.ah.owned) do
+    if a.auctionID == auctionID then table.remove(Stub.ah.owned, i) return true end
+  end
+  return false
+end
+
+function Stub.Owned(auctionID)
+  for _, a in ipairs(Stub.ah.owned) do if a.auctionID == auctionID then return a end end
+  return nil
+end
 
 C_AuctionHouse = {
   MakeItemKey = function(id, ilvl, suffix, species)
@@ -367,6 +479,31 @@ C_AuctionHouse = {
   PlaceBid = function(auctionID, amount)
     table.insert(Stub.ah.purchases, { auctionID = auctionID, amount = amount })
     C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", auctionID) end)
+  end,
+
+  PostCommodity = function(loc, duration, qty, unit) postAuction(loc, duration, qty, unit, true) end,
+  PostItem = function(loc, duration, qty, bid, buyout) postAuction(loc, duration, qty, buyout, false) end,
+  CalculateCommodityDeposit = function(itemID, duration, qty) return qty * duration end,
+  CalculateItemDeposit = function(loc, duration, qty) return 100 * duration end,
+  IsSellItemValid = function(loc) return true end,
+  QueryOwnedAuctions = function(sorts)
+    Stub.ah.ownedQueries = Stub.ah.ownedQueries + 1
+    Stub.ah.ownedServed = Stub.ah.ownedPageSize and math.min(#Stub.ah.owned, Stub.ah.ownedPageSize) or #Stub.ah.owned
+    C_Timer.After(1, function() Stub.FireEvent("OWNED_AUCTIONS_UPDATED") end)
+  end,
+  GetOwnedAuctions = function()
+    if not Stub.ah.ownedPageSize then return Stub.ah.owned end
+    local out = {}
+    for i = 1, math.min(Stub.ah.ownedServed or 0, #Stub.ah.owned) do out[i] = Stub.ah.owned[i] end
+    return out
+  end,
+  HasFullOwnedAuctionResults = function()
+    return not Stub.ah.ownedPageSize or (Stub.ah.ownedServed or 0) >= #Stub.ah.owned
+  end,
+  RequestMoreOwnedAuctions = function()
+    Stub.ah.ownedMore = (Stub.ah.ownedMore or 0) + 1
+    Stub.ah.ownedServed = math.min(#Stub.ah.owned, (Stub.ah.ownedServed or 0) + Stub.ah.ownedPageSize)
+    C_Timer.After(1, function() Stub.FireEvent("OWNED_AUCTIONS_UPDATED") end)
   end,
 }
 

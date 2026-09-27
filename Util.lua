@@ -129,6 +129,27 @@ end
 
 H.PlainMoney = plainMoney
 
+-- Money typed by a person: "1g 20s 5c", "1.5g", "45s", or a bare number
+-- of copper. Returns copper, or nil when nothing readable is there.
+function H.ParseMoney(str)
+  if type(str) == "number" then return H.Round(str) end
+  str = string.lower(string.gsub(tostring(str or ""), "%s", ""))
+  if str == "" then return nil end
+  if string.match(str, "^%d+$") then return tonumber(str) end
+  local total, any = 0, false
+  for num, unit in string.gmatch(str, "([%d%.]+)([gsc])") do
+    local v = tonumber(num)
+    if v then
+      any = true
+      if unit == "g" then total = total + v * 10000
+      elseif unit == "s" then total = total + v * 100
+      else total = total + v end
+    end
+  end
+  if not any then return nil end
+  return H.Round(total)
+end
+
 function H.Pct(x, signed)
   if x == nil then return "-" end
   local v = H.Round(x * 100)
@@ -297,10 +318,13 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
   for _, fn in ipairs(list) do fn(...) end
 end)
 
+-- An event this client does not know is reported once and its handlers
+-- simply never run, rather than aborting the file that asked for it.
 function H.RegisterEvent(event, fn)
   if not eventHandlers[event] then
     eventHandlers[event] = {}
-    eventFrame:RegisterEvent(event)
+    local ok = pcall(eventFrame.RegisterEvent, eventFrame, event)
+    if not ok then H.Print("this client has no " .. event .. " event; that feature is off") end
   end
   table.insert(eventHandlers[event], fn)
 end

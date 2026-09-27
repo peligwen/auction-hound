@@ -185,6 +185,50 @@ function Market.Confidence(st)
   return 0.6 * d + 0.4 * s
 end
 
+------------------------------------------------------------------------
+-- What buyers paid us: the outcomes of our own posts for one key over
+-- the last 30 days. Returns nil when there is nothing to say.
+--
+--   soldUnits, soldMax, soldMin, soldMean, lastSoldAt
+--   inferredUnits   sales deduced from an auction vanishing early
+--   unsoldUnits, unsoldMin   units that expired, and the cheapest price
+--                            that failed to sell
+--   activeUnits     still listed
+--   n               posts counted
+------------------------------------------------------------------------
+Market.CLEARING_DAYS = 30
+
+function Market.Clearing(posts, now)
+  now = now or H.Now()
+  local cl = { soldUnits = 0, inferredUnits = 0, unsoldUnits = 0, n = 0 }
+  local wsum = 0
+  for _, p in ipairs(posts or {}) do
+    local counted = p.status == "active" or p.status == "sold" or p.status == "expired"
+    if counted and now - p.t <= Market.CLEARING_DAYS * 86400 then
+      cl.n = cl.n + 1
+      local sold = p.sold or 0
+      if sold > 0 then
+        cl.soldUnits = cl.soldUnits + sold
+        wsum = wsum + sold * p.unit
+        if p.inferred then cl.inferredUnits = cl.inferredUnits + sold end
+        if not cl.soldMax or p.unit > cl.soldMax then cl.soldMax = p.unit end
+        if not cl.soldMin or p.unit < cl.soldMin then cl.soldMin = p.unit end
+        if p.soldAt and (not cl.lastSoldAt or p.soldAt > cl.lastSoldAt) then cl.lastSoldAt = p.soldAt end
+      end
+      if p.status == "expired" and sold < p.qty then
+        cl.unsoldUnits = cl.unsoldUnits + (p.qty - sold)
+        if not cl.unsoldMin or p.unit < cl.unsoldMin then cl.unsoldMin = p.unit end
+      end
+      if p.status == "active" then
+        cl.activeUnits = (cl.activeUnits or 0) + (p.qty - sold)
+      end
+    end
+  end
+  if cl.n == 0 then return nil end
+  if cl.soldUnits > 0 then cl.soldMean = H.Round(wsum / cl.soldUnits) end
+  return cl
+end
+
 -- Daily series for graphs: chronological array of { day, mv, min, qty, s }.
 function Market.DailySeries(rec, numDays, now)
   now = now or H.Now()

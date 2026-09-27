@@ -4,23 +4,31 @@ local ADDON, H = ...
 local function addLines(tooltip, itemID, link)
   if not H.db or not H.Settings().tooltip then return end
   local key = link and H.KeyFromLink(link, itemID) or tostring(itemID)
-  local rec = key and H.Store.Get(key)
-  if not rec then return end
-  local st = H.Market.Stats(rec)
-  if not st.market then return end
+  if not key then return end
+  local rec = H.Store.Get(key)
+  local st = rec and H.Market.Stats(rec) or nil
+  if st and not st.market then st = nil end
+  local cl = H.Market.Clearing(H.Store.Posts(key))
+  if cl and cl.soldUnits == 0 and cl.unsoldUnits == 0 then cl = nil end
+  if not st and not cl then return end
   tooltip:AddLine(" ")
-  tooltip:AddDoubleLine("|cffe6b800Hound|r market", H.Money(st.market), 1, 0.82, 0, 1, 1, 1)
-  if st.min then
-    tooltip:AddDoubleLine("  floor / listed", string.format("%s / %d", H.Money(st.min), st.qty or 0), 0.8, 0.8, 0.8, 1, 1, 1)
+  if st then
+    tooltip:AddDoubleLine("|cffe6b800Hound|r market", H.Money(st.market), 1, 0.82, 0, 1, 1, 1)
+    if st.min then
+      tooltip:AddDoubleLine("  floor / listed", string.format("%s / %d", H.Money(st.min), st.qty or 0), 0.8, 0.8, 0.8, 1, 1, 1)
+    end
+    if st.hist then
+      tooltip:AddDoubleLine("  30 day", H.Money(st.hist), 0.8, 0.8, 0.8, 1, 1, 1)
+    end
+    local parts = {}
+    if st.trend then table.insert(parts, "trend " .. H.Pct(st.trend, true)) end
+    if st.moved then table.insert(parts, string.format("~%d/day", H.Round(st.moved))) end
+    table.insert(parts, string.format("%d scans", st.samples))
+    tooltip:AddDoubleLine("  " .. table.concat(parts, ", "), H.Ago(st.age), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
   end
-  if st.hist then
-    tooltip:AddDoubleLine("  30 day", H.Money(st.hist), 0.8, 0.8, 0.8, 1, 1, 1)
+  if cl then
+    tooltip:AddDoubleLine(st and "  yours" or "|cffe6b800Hound|r yours", H.Fan.ClearingLine(cl), 0.8, 0.8, 0.8, 0.4, 0.9, 0.4)
   end
-  local parts = {}
-  if st.trend then table.insert(parts, "trend " .. H.Pct(st.trend, true)) end
-  if st.moved then table.insert(parts, string.format("~%d/day", H.Round(st.moved))) end
-  table.insert(parts, string.format("%d scans", st.samples))
-  tooltip:AddDoubleLine("  " .. table.concat(parts, ", "), H.Ago(st.age), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
 end
 
 local function onTooltip(tooltip, data)
