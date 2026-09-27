@@ -113,6 +113,7 @@ ItemLocation = {
     return { bagID = bag, slotIndex = slot, IsValid = function() return true end }
   end,
 }
+NUM_TOTAL_EQUIPPED_BAG_SLOTS = 5
 
 Stub.mail = {}         -- array of { invoiceType, itemName, bid, buyout, count }
 function GetInboxNumItems() return #Stub.mail, #Stub.mail end
@@ -142,7 +143,7 @@ C_Item = {
   GetItemInfoInstant = function(id)
     id = tonumber(string.match(tostring(id), "(%d+)"))
     local it = Stub.items[id]
-    if not it then return nil end
+    if not it or not it.loaded then return nil end
     return id, "Trade Goods", "Metal", it.equip, 134400, 7, 0
   end,
   GetDetailedItemLevelInfo = function(link)
@@ -391,10 +392,26 @@ C_AuctionHouse = {
   MakeItemKey = function(id, ilvl, suffix, species)
     return { itemID = id, itemLevel = ilvl or 0, itemSuffix = suffix or 0, battlePetSpeciesID = species or 0 }
   end,
-  GetItemCommodityStatus = function(key)
-    local it = Stub.items[key.itemID]
+  -- Takes a bag location, as the client does. Passing an item key here
+  -- was the first error the beta raised, so the stub raises it too.
+  GetItemCommodityStatus = function(loc)
+    if type(loc) ~= "table" or loc.bagID == nil or loc.slotIndex == nil then
+      error("bad argument #1 to 'GetItemCommodityStatus' (Usage: local isCommodity = C_AuctionHouse.GetItemCommodityStatus(item))")
+    end
+    local s = Stub.bags[loc.bagID] and Stub.bags[loc.bagID][loc.slotIndex]
+    local it = s and Stub.items[s.itemID]
     if not it or it.commodity == nil then return Enum.ItemCommodityStatus.Unknown end
     return it.commodity and Enum.ItemCommodityStatus.Commodity or Enum.ItemCommodityStatus.Item
+  end,
+  -- nil until the item is cached, like the client.
+  GetItemKeyInfo = function(key)
+    Stub.ah.keyInfoCalls = (Stub.ah.keyInfoCalls or 0) + 1
+    local it = Stub.items[key.itemID]
+    if not it or not it.loaded or it.commodity == nil then return nil end
+    return {
+      itemName = it.name, isCommodity = it.commodity, isEquipment = it.equip ~= "",
+      quality = it.quality, iconFileID = 134400, isPet = false, battlePetLink = nil, appearanceLink = nil,
+    }
   end,
   IsThrottledMessageSystemReady = function() return Stub.ah.ready end,
 

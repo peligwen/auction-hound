@@ -196,13 +196,41 @@ function H.ItemKeyFromString(key)
   return { itemID = id, itemLevel = ilvl, itemSuffix = suffix, battlePetSpeciesID = species }
 end
 
--- True when the auction house treats this item as a commodity. Unknown
--- status is reported as nil so callers can wait for item data.
+-- True when the auction house treats this item as a commodity, false
+-- when it sells as single listings, nil while the client has no item
+-- key info yet (it arrives with ITEM_KEY_ITEM_INFO_RECEIVED once the
+-- item is cached). Note that GetItemCommodityStatus wants a bag
+-- location, not an item key; H.CommodityStatusAt covers that path.
 function H.CommodityStatus(itemID)
-  if not (C_AuctionHouse and C_AuctionHouse.GetItemCommodityStatus) then return nil end
-  local status = C_AuctionHouse.GetItemCommodityStatus(C_AuctionHouse.MakeItemKey(itemID))
-  if status == Enum.ItemCommodityStatus.Commodity then return true end
-  if status == Enum.ItemCommodityStatus.Item then return false end
+  local AH = C_AuctionHouse
+  if not (itemID and AH and AH.GetItemKeyInfo and AH.MakeItemKey) then return nil end
+  local ok, info = pcall(AH.GetItemKeyInfo, AH.MakeItemKey(itemID))
+  if not ok or type(info) ~= "table" or info.isCommodity == nil then return nil end
+  return info.isCommodity and true or false
+end
+
+-- Same answer for an item sitting in the bags, asked by location. This
+-- is what the Blizzard sell frame uses, so it is the one to trust when
+-- posting.
+function H.CommodityStatusAt(location)
+  local AH = C_AuctionHouse
+  local E = Enum and Enum.ItemCommodityStatus
+  if not (location and E and AH and AH.GetItemCommodityStatus) then return nil end
+  local ok, status = pcall(AH.GetItemCommodityStatus, location)
+  if not ok then return nil end
+  if status == E.Commodity then return true end
+  if status == E.Item then return false end
+  return nil
+end
+
+-- Largest stack the item forms, or nil while the item is not cached.
+-- Stackable and not equippable is a fair guess at commodity status when
+-- the auction house has not said.
+function H.MaxStack(itemID)
+  if C_Item and C_Item.GetItemInfo then
+    local stack = select(8, C_Item.GetItemInfo(itemID))
+    if stack and stack > 0 then return stack end
+  end
   return nil
 end
 

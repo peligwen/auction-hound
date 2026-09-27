@@ -199,7 +199,7 @@ end
 -- Returns { [key] = { key, itemID, count, stacks = { { bag, slot, count } } } }
 function Fan.Bags()
   local out = {}
-  local last = NUM_BAG_SLOTS or 4
+  local last = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
   for bag = 0, last do
     for slot = 1, numSlots(bag) do
       local itemID, count, link, locked = slotInfo(bag, slot)
@@ -226,9 +226,16 @@ function Fan.BagCount(key)
   return e and e.count or 0, e
 end
 
-local function isCommodity(itemID)
-  local c = H.CommodityStatus(itemID)
+-- Commodity or item decides which post call to make. Ask about the bag
+-- stack first (the sell frame's own check), then the item key, then
+-- guess from the stack size.
+local function isCommodity(itemID, entry)
+  local c
+  if entry and entry.stacks[1] then c = H.CommodityStatusAt(locationFor(entry.stacks[1])) end
+  if c == nil then c = H.CommodityStatus(itemID) end
   if c ~= nil then return c end
+  local stack = H.MaxStack(itemID)
+  if stack then return stack > 1 and not H.IsEquippable(itemID) end
   return not H.IsEquippable(itemID)
 end
 
@@ -306,7 +313,7 @@ function Fan.Setup(o)
   plan.duration = o.duration or S.postDuration or 3
   if not Fan.DURATIONS[plan.duration] then plan.duration = 3 end
   plan.avail = count
-  plan.isCommodity = isCommodity(itemID)
+  plan.isCommodity = isCommodity(itemID, entry)
   for _, b in ipairs(plan.batches) do b.deposit = deposit(plan, b, entry) end
 
   S.fanStep, S.fanBatches, S.fanPerBatch = plan.step, plan.requested, plan.perBatch
@@ -647,9 +654,9 @@ end
 function Fan.Describe()
   local plan = Fan.plan
   if not plan then H.Print("no fan planned; /hound fan <link> [per batch] [step %] [batches] [bell] [above|below]") return end
-  H.Printf("fan for %s: %d batches of %d, %s %s, center %s (%s), %s to %s",
-    plan.name, #plan.batches, plan.perBatch, plan.shape, plan.spread, H.Money(plan.center), plan.centerSrc,
-    H.Money(plan.low or 0), H.Money(plan.high or 0))
+  H.Printf("fan for %s (%s): %d batches of %d, %s %s, center %s (%s), %s to %s",
+    plan.name, plan.isCommodity and "commodity" or "item", #plan.batches, plan.perBatch, plan.shape, plan.spread,
+    H.Money(plan.center), plan.centerSrc, H.Money(plan.low or 0), H.Money(plan.high or 0))
   for _, b in ipairs(plan.batches) do
     H.Printf("  %d. %d at %s  %s%s", b.i, b.qty, H.Money(b.unit), Fan.BatchStatus(b), b.belowVendor and "  (under vendor)" or "")
   end

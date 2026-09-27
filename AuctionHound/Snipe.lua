@@ -16,6 +16,7 @@ local AH = C_AuctionHouse
 Snipe.results = {}
 Snipe.running = false
 Snipe.pending = nil
+Snipe.BUY_TIMEOUT = 15    -- seconds before a purchase with no reply is dropped
 
 ------------------------------------------------------------------------
 -- Reference price: market history when it is deep enough, priors when
@@ -272,16 +273,58 @@ end
 -- Buying. Commodities re-quote before confirming; items buy out the
 -- cheapest confirmed listing.
 ------------------------------------------------------------------------
+local function settle(p)
+  if p.timer then p.timer:Cancel() end
+  if Snipe.pending == p then Snipe.pending = nil end
+end
+
+local function armBuyTimeout(p)
+  p.timer = C_Timer.NewTimer(Snipe.BUY_TIMEOUT, function()
+    if Snipe.pending ~= p then return end
+    settle(p)
+    H.Printf("no reply from the auction house for %s; check your bags before trying again", p.row.name or p.row.key)
+    H.Events:Fire("SCAN_STATUS")
+  end)
+end
+
+-- The confirm step normally runs from the quote event. If this client
+-- insists on a hardware event for it, the purchase waits for the next
+-- click on Buy instead.
+local function confirmCommodity(p)
+  local ok = pcall(AH.ConfirmCommoditiesPurchase, p.row.itemID, p.qty)
+  if ok then
+    p.needsConfirm = nil
+    return true
+  end
+  p.needsConfirm = true
+  if p.timer then p.timer:Cancel() p.timer = nil end
+  H.Printf("quoted %s each; the client wants a click to confirm, press Buy again", H.Money(p.quoted))
+  H.Events:Fire("SCAN_STATUS")
+  return false
+end
+
 function Snipe.Buy(row, qty)
   if not H.atAH then H.Print("open the auction house first") return false end
-  if Snipe.pending then H.Print("a purchase is already in flight") return false end
+  local p = Snipe.pending
+  if p then
+    if p.needsConfirm and p.row == row then
+      armBuyTimeout(p)
+      return confirmCommodity(p)
+    end
+    H.Print("a purchase is already in flight")
+    return false
+  end
   qty = math.max(1, math.min(qty or row.dealQty, row.dealQty))
   if row.isCommodity then
-    Snipe.pending = { row = row, qty = qty, maxUnit = row.maxUnit, t = H.Now() }
+    p = { row = row, qty = qty, maxUnit = row.maxUnit, t = H.Now() }
+    Snipe.pending = p
+    armBuyTimeout(p)
     AH.StartCommoditiesPurchase(row.itemID, qty)
   else
     if not row.auctionID then H.Print("no auction id for that listing") return false end
-    Snipe.pending = { row = row, qty = 1, t = H.Now() }
+    p = { row = row, qty = 1, t = H.Now() }
+    Snipe.pending = p
+    armBuyTimeout(p)
     AH.PlaceBid(row.auctionID, row.unit)
   end
   H.Events:Fire("SCAN_STATUS")
@@ -295,13 +338,13 @@ end
 
 H.RegisterEvent("COMMODITY_PRICE_UPDATED", function(unitPrice, totalPrice)
   local p = Snipe.pending
-  if not p or not p.row.isCommodity then return end
+  if not p or not p.row.isCommodity or p.needsConfirm then return end
   if unitPrice and unitPrice <= p.maxUnit then
     p.quoted = unitPrice
-    AH.ConfirmCommoditiesPurchase(p.row.itemID, p.qty)
+    confirmCommodity(p)
   else
     if AH.CancelCommoditiesPurchase then AH.CancelCommoditiesPurchase() end
-    Snipe.pending = nil
+    settle(p)
     H.Printf("price moved to %s, above the %s limit; not buying", H.Money(unitPrice or 0), H.Money(p.maxUnit))
     Snipe.Remove(p.row.key)
     H.Events:Fire("SCAN_STATUS")
@@ -311,7 +354,7 @@ end)
 H.RegisterEvent("COMMODITY_PRICE_UNAVAILABLE", function()
   local p = Snipe.pending
   if not p then return end
-  Snipe.pending = nil
+  settle(p)
   H.Print("those units are gone")
   Snipe.Remove(p.row.key)
   H.Events:Fire("SCAN_STATUS")
@@ -320,7 +363,7 @@ end)
 H.RegisterEvent("COMMODITY_PURCHASE_SUCCEEDED", function()
   local p = Snipe.pending
   if not p then return end
-  Snipe.pending = nil
+  settle(p)
   recordPurchase(p, p.quoted or p.row.unit, p.qty)
   Snipe.Remove(p.row.key)
   H.Events:Fire("SCAN_STATUS")
@@ -329,7 +372,7 @@ end)
 H.RegisterEvent("COMMODITY_PURCHASE_FAILED", function()
   local p = Snipe.pending
   if not p then return end
-  Snipe.pending = nil
+  settle(p)
   H.Print("commodity purchase failed")
   H.Events:Fire("SCAN_STATUS")
 end)
@@ -338,22 +381,23 @@ H.RegisterEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", function(auctionID)
   local p = Snipe.pending
   if not p or p.row.isCommodity then return end
   if auctionID and p.row.auctionID and auctionID ~= p.row.auctionID then return end
-  Snipe.pending = nil
+  settle(p)
   recordPurchase(p, p.row.unit, 1)
   Snipe.Remove(p.row.key)
   H.Events:Fire("SCAN_STATUS")
 end)
 
 H.RegisterEvent("AUCTION_HOUSE_SHOW_ERROR", function()
-  if Snipe.pending then
-    Snipe.pending = nil
+  local p = Snipe.pending
+  if p then
+    settle(p)
     H.Print("the auction house refused that purchase")
     H.Events:Fire("SCAN_STATUS")
   end
 end)
 
 H.Events:On("AH_CLOSED", function()
-  Snipe.pending = nil
+  if Snipe.pending then settle(Snipe.pending) end
   Snipe.running = false
   Snipe.queue = nil
 end)

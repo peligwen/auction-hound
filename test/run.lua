@@ -43,7 +43,7 @@ Stub.DefineItem(15001, "Wolf Bracers", { sell = 500, equip = "INVTYPE_WRIST", co
 Stub.DefineItem(9999, "Slow To Load", { sell = 1, commodity = true, loaded = false })
 Stub.DefineItem(7777, "Junk Gizmo", { sell = 5000, commodity = true })
 
-local H = Stub.LoadAddon(".")
+local H = Stub.LoadAddon("AuctionHound")
 Stub.FireEvent("ADDON_LOADED", "AuctionHound")
 Stub.FireEvent("PLAYER_LOGIN")
 
@@ -61,6 +61,20 @@ eq(H.KeyFromLink("|cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h
 eq(H.KeyForItemID(2770), "2770", "key for commodity id")
 eq(H.KeyForItemID(15001), nil, "equippable needs a link")
 eq(H.ItemIDFromKey("15001:20:-14"), 15001, "item id from key")
+eq(H.CommodityStatus(2770), true, "commodity status from item key info")
+eq(H.CommodityStatus(15001), false, "item status from item key info")
+eq(H.CommodityStatus(9999), nil, "commodity status unknown until the item is cached")
+eq(H.CommodityStatus(nil), nil, "commodity status of nothing")
+check(not pcall(C_AuctionHouse.GetItemCommodityStatus, C_AuctionHouse.MakeItemKey(2770)),
+  "stub rejects an item key for GetItemCommodityStatus, as the client does")
+Stub.SetBag(4, 1, 2770, 3)
+eq(H.CommodityStatusAt(ItemLocation:CreateFromBagAndSlot(4, 1)), true, "commodity status by bag location")
+Stub.SetBag(4, 1, 15001, 1)
+eq(H.CommodityStatusAt(ItemLocation:CreateFromBagAndSlot(4, 1)), false, "item status by bag location")
+Stub.SetBag(4, 1, nil)
+eq(H.CommodityStatusAt(ItemLocation:CreateFromBagAndSlot(4, 1)), nil, "empty slot has no status")
+eq(H.MaxStack(2770), 20, "max stack from item info")
+eq(H.MaxStack(9999), nil, "max stack unknown until cached")
 eq(H.DayLabel(H.DayIndex(Stub.now)), os.date("%m/%d", H.DayIndex(Stub.now) * 86400 + 43200), "day label")
 
 ------------------------------------------------------------------------
@@ -222,6 +236,7 @@ do
   check(Store.Get("15001:20:-15") ~= nil, "other suffix stored separately")
   eq(Store.Get("15001:20:-14").pts[1].min, 50000, "item floor by variant")
   check(Store.Get("9999") ~= nil, "late-loading item resolved on retry")
+  check((Stub.loadRequests or 0) >= 1, "late-loading item was requested from the server")
   eq(Store.Get("2771").pts[1].qty, 30000, "three thousand rows aggregated")
   local last = Store.LastScan()
   eq(last.kind, "full", "scan logged")
@@ -375,6 +390,35 @@ do
   eq(H.Scan.state, "browsing", "browse in flight")
   Stub.Advance(31)
   eq(H.Scan.state, "idle", "watchdog reset the browse")
+
+  -- a purchase that never answers is dropped
+  local silent = { key = "2770", itemID = 2770, name = "Copper Ore", isCommodity = true, dealQty = 5, unit = 40, maxUnit = 75 }
+  local realStart = C_AuctionHouse.StartCommoditiesPurchase
+  C_AuctionHouse.StartCommoditiesPurchase = function() end
+  eq(H.Snipe.Buy(silent, 5), true, "silent buy starts")
+  eq(H.Snipe.Buy(silent, 5), false, "second buy refused while one is in flight")
+  Stub.Advance(H.Snipe.BUY_TIMEOUT + 1)
+  check(H.Snipe.pending == nil, "purchase timeout clears the pending buy")
+  C_AuctionHouse.StartCommoditiesPurchase = realStart
+
+  -- the confirm step wants a hardware event: the next click confirms
+  local purchasesBefore = #Stub.ah.purchases
+  local realConfirm = C_AuctionHouse.ConfirmCommoditiesPurchase
+  C_AuctionHouse.ConfirmCommoditiesPurchase = function() error("requires a hardware event") end
+  Stub.ah.commodityPrice[2770] = 45
+  Stub.printed = {}
+  eq(H.Snipe.Buy(silent, 5), true, "guarded buy starts")
+  Stub.Advance(1)
+  check(H.Snipe.pending ~= nil and H.Snipe.pending.needsConfirm, "purchase waits for a click to confirm")
+  check(string.find(table.concat(Stub.printed, "\n"), "press Buy again", 1, true), "asks for another click")
+  eq(#Stub.ah.purchases, purchasesBefore, "nothing bought yet")
+  C_AuctionHouse.ConfirmCommoditiesPurchase = realConfirm
+  eq(H.Snipe.Buy(silent, 5), true, "second click confirms")
+  eq(#Stub.ah.purchases, purchasesBefore + 1, "purchase confirmed from the click")
+  eq(Stub.ah.purchases[#Stub.ah.purchases].qty, 5, "confirmed quantity")
+  Stub.Advance(1)
+  check(H.Snipe.pending == nil, "guarded purchase settled")
+  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].unit, 45, "ledger unit is the quote")
 end
 
 ------------------------------------------------------------------------
@@ -748,6 +792,7 @@ do
   Stub.printed = {}
   SlashCmdList.HOUND("fan")
   check(#Stub.printed >= 3, "fan command describes the plan")
+  check(string.find(Stub.printed[1] or "", "(commodity)", 1, true), "plan line names the commodity: " .. tostring(Stub.printed[1]))
   Stub.printed = {}
   SlashCmdList.HOUND("stats 2770")
   check(string.find(table.concat(Stub.printed, "\n"), "yours:"), "stats prints own sales")

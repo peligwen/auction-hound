@@ -27,7 +27,7 @@ local function statusLine()
   elseif S.state == "searching" and H.Snipe.queue then
     table.insert(parts, string.format("confirming %d / %d", H.Snipe.queue.index - 1, math.min(#H.Snipe.queue.cands, H.Snipe.queue.limit)))
   elseif H.Snipe.pending then
-    table.insert(parts, "buying")
+    table.insert(parts, H.Snipe.pending.needsConfirm and "quoted, press Buy to confirm" or "buying")
   elseif H.Fan and H.Fan.pending then
     table.insert(parts, "posting")
   else
