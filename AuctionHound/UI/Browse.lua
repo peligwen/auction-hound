@@ -8,14 +8,40 @@
 local ADDON, H = ...
 
 local UI = H.UI
-local B = { pages = 0, wrapped = setmetatable({}, { __mode = "k" }) }
+local B = { pages = 0 }
 UI.Browse = B
+
+------------------------------------------------------------------------
+-- Blizzard's item lists take a layout function that adds their columns
+-- to a table builder. Wrapping it runs theirs, then addColumn(tb,
+-- owner) for ours, which is then moved in front of the last column so
+-- the edge column keeps its place. Returns false when the list has no
+-- layout yet.
+------------------------------------------------------------------------
+local wrapped = setmetatable({}, { __mode = "k" })
+
+function UI.HookListLayout(list, owner, addColumn)
+  local orig = list.tableBuilderLayoutFunction
+  if type(orig) ~= "function" or wrapped[orig] then return false end
+  local function layout(tb)
+    orig(tb)
+    local col = addColumn(tb, owner)
+    local cols = col and tb.GetColumns and tb:GetColumns()
+    if type(cols) == "table" and #cols >= 2 and cols[#cols] == col then
+      table.remove(cols)
+      table.insert(cols, #cols, col)
+    end
+  end
+  wrapped[layout] = true
+  list:SetTableBuilderLayout(layout)
+  return true
+end
 
 B.STRIP_HEIGHT = 24
 B.COLUMN_WIDTH = 104
 
 ------------------------------------------------------------------------
--- The cell. UI/Browse.xml mixes this into AuctionHoundBrowseCellTemplate.
+-- The cell. UI/Cells.xml mixes this into AuctionHoundBrowseCellTemplate.
 ------------------------------------------------------------------------
 AuctionHoundBrowseCellMixin = {}
 
@@ -31,28 +57,14 @@ function AuctionHoundBrowseCellMixin:Populate(rowData)
 end
 
 ------------------------------------------------------------------------
--- The column, appended to Blizzard's layout and moved in front of the
--- favorite star so the star keeps the edge.
+-- The column, in front of the favorite star.
 ------------------------------------------------------------------------
 local function addColumn(tb, owner)
-  local col = tb:AddUnsortableFixedWidthColumn(owner, 0, B.COLUMN_WIDTH, 10, 0, "Hound", "AuctionHoundBrowseCellTemplate")
-  local cols = tb.GetColumns and tb:GetColumns()
-  if type(cols) == "table" and #cols >= 2 and cols[#cols] == col then
-    table.remove(cols)
-    table.insert(cols, #cols, col)
-  end
-  return col
+  return tb:AddUnsortableFixedWidthColumn(owner, 0, B.COLUMN_WIDTH, 10, 0, "Hound", "AuctionHoundBrowseCellTemplate")
 end
 
 local function wrapLayout(list, owner)
-  local orig = list.tableBuilderLayoutFunction
-  if type(orig) ~= "function" or B.wrapped[orig] then return end
-  local function layout(tb)
-    orig(tb)
-    addColumn(tb, owner)
-  end
-  B.wrapped[layout] = true
-  list:SetTableBuilderLayout(layout)
+  UI.HookListLayout(list, owner, addColumn)
 end
 
 ------------------------------------------------------------------------
@@ -284,5 +296,9 @@ H.Events:On("AH_CLOSED", function()
   pendingSend = nil
 end)
 H.Events:On("SETTINGS_CHANGED", function()
+  if B.list then B.Rebuild() end
+end)
+-- A scan changes the references, and pages paused for it can resume.
+H.Events:On("SCAN_DONE", function()
   if B.list then B.Rebuild() end
 end)

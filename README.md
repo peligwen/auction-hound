@@ -26,6 +26,15 @@ the checklist below is where that stands.
   load without scrolling. The usual category tree, search box and
   filters do the narrowing; clicking a row buys through Blizzard's
   frames as always.
+- **Auctions tab.** A Total column on Blizzard's list of your auctions:
+  buyout times units, so a stack reads as what it brings in.
+- **History.** Every auction of yours the addon has seen, with what
+  became of it: active, sold, expired or cancelled, units and gold. Fan
+  batches and auctions posted from Blizzard's own Sell tab alike; the
+  owned list is read once per visit and anything new is adopted.
+- **Auto scan.** A checkbox beside the scan timer starts a full scan
+  whenever the house allows one, every fifteen minutes while you stand
+  at the auctioneer.
 - **Snipe.** The older batch pass: browses the whole AH for floors under
   reference, confirms the best candidates with a targeted search, and
   scores each from one to five with plain-language reasons. Buys
@@ -55,12 +64,13 @@ the checklist below is where that stands.
 - **Tooltips.** Market, floor, 30-day mean, trend and estimated units
   moved per day on every item tooltip, plus your own sold / unsold line.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
-  a window) with four views. Snipe runs passes and buys. Markets lists
+  a window) with five views. Snipe runs passes and buys. Markets lists
   every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
   double-clicking a row elsewhere or typing a name, id or link into its
-  find box. Fan plans and posts batches. Sortable tables, a bar graph of
-  daily value with floor and volume, sparklines per row.
+  find box. Fan plans and posts batches. History lists your auctions
+  and their outcomes. Sortable tables, a bar graph of daily value with
+  floor and volume, sparklines per row.
 
 Deferred on purpose: guild sync, the neutral auction house, disenchant
 tables.
@@ -147,6 +157,21 @@ the left edge, so the view buttons now start to the right of it.
 13. **Sales.** Open. Sell something. The next time you open the auction
     house (or check your mail with the addon loaded), the Fan view and
     `/hound stats` should show it under "yours".
+14. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab,
+    a Total column sits before Time Left. For a commodity stack it must
+    read units times the unit price shown beside it. If this client
+    lets a non-commodity stack, post one and report whether its
+    Buyout column shows the unit price or the whole stack; the total
+    assumes the unit price.
+15. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
+    status line. With the timer at zero a scan starts at once; leave
+    the house open and the next one should start by itself when the
+    timer runs out. Untick it and confirm nothing starts.
+16. **History.** Open, and new. Open the History view. Every auction
+    you have up should be listed as active, including ones posted from
+    Blizzard's Sell tab, after the house has been open a few seconds.
+    Sell, cancel or let one expire, and the row should change on the
+    next visit. The line at the top sums the last thirty days.
 
 ## Commands
 
@@ -189,7 +214,8 @@ Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
-             the Buy tab column (Browse.xml is its cell) and filter strip
+             the Buy tab column and filter strip, the Auctions tab total
+             column (Cells.xml holds both cells)
 Data/        conversion recipes with classic item ids
 ```
 
@@ -228,8 +254,9 @@ lua5.1 test/run.lua        # or: lua5.1 test/run.lua -v
 auction house calls and events. It loads the addon from `AuctionHound/`
 in TOC order; XML files are read for the mixin and font strings each
 template declares, so a cell template and its mixin must agree.
-`test/run.lua` runs the full scan, snipe, purchase, tooltip, slash
-command, Buy tab column and filter, and UI construction paths. Where the beta has
+`test/run.lua` runs the full scan, auto scan, snipe, purchase, tooltip,
+slash command, Buy tab column and filter, Auctions tab column, auction
+adoption and history, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly.
 

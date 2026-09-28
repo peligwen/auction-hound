@@ -1,4 +1,4 @@
--- UI/Frame.lua: the panel, its three views, the AH tab and the window.
+-- UI/Frame.lua: the panel, its five views, the AH tab and the window.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -55,6 +55,7 @@ end
 
 function UI.UpdateStatus()
   if statusText then statusText:SetText(statusLine()) end
+  if UI.autoScanBox then UI.autoScanBox:SetChecked(H.Settings().autoScan and true or false) end
 end
 
 ------------------------------------------------------------------------
@@ -691,6 +692,84 @@ local function buildFanView(parent)
 end
 
 ------------------------------------------------------------------------
+-- History view: every auction of yours the addon has seen, fan batches
+-- and Blizzard posts alike, with what became of each.
+------------------------------------------------------------------------
+local HISTORY_FILTERS = { "All", "Active", "Sold", "Expired", "Cancelled" }
+
+local function historyMatches(p, f)
+  if f == "All" then return true end
+  if f == "Active" then return p.status == "active" or p.status == "pending" end
+  if f == "Sold" then return p.status == "sold" or (p.sold or 0) > 0 end
+  if f == "Expired" then return p.status == "expired" end
+  if f == "Cancelled" then return p.status == "cancelled" end
+  return true
+end
+
+local function buildHistoryView(parent)
+  local v = CreateFrame("Frame", nil, parent)
+  v:SetAllPoints()
+
+  local filter = UI.CycleButton(v, 90, HISTORY_FILTERS, function() v:Refresh() end)
+  filter:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
+  v.filter = filter
+  local refreshBtn = UI.Button(v, "Refresh", 70, 22, function()
+    if not H.Fan.RefreshOwned(true) then H.Print("open the auction house to check your auctions") end
+  end)
+  refreshBtn:SetPoint("LEFT", filter, "RIGHT", 6, 0)
+  local summary = UI.Text(v, "GameFontDisableSmall", "", "LEFT")
+  summary:SetPoint("LEFT", refreshBtn, "RIGHT", 12, 0)
+  summary:SetPoint("RIGHT", v, "RIGHT", -4, 0)
+  v.summary = summary
+
+  local cols = {
+    { key = "t", title = "When", width = 70, value = function(r) return r.p.t end, desc = true,
+      text = function(r, raw) return H.Ago(H.Now() - raw) end },
+    { key = "item", title = "Item", width = 190, kind = "item", value = function(r) return r.name end },
+    { key = "qty", title = "Units", width = 46, align = "RIGHT", kind = "int", value = function(r) return r.p.qty end },
+    { key = "unit", title = "Unit", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.p.unit end },
+    { key = "total", title = "Total", width = 84, align = "RIGHT", kind = "money", value = function(r) return (r.p.unit or 0) * (r.p.qty or 0) end, desc = true },
+    { key = "sold", title = "Sold", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.p.sold or 0 end,
+      color = function(r, raw) if raw and raw > 0 then return 0.4, 0.9, 0.4 end return 0.6, 0.6, 0.6 end },
+    { key = "status", title = "Status", width = 120, value = function(r) return H.Fan.PostStatus(r.p) end,
+      color = function(r, raw) return statusColor(raw) end },
+  }
+  local tbl = UI.CreateTable(v, cols, {
+    sortKey = "t", sortDesc = true,
+    onDouble = function(row) UI.ShowItem(row.itemKey) end,
+    tooltip = function(row, frame)
+      if not GameTooltip then return end
+      GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+      GameTooltip:SetItemByID(row.itemID)
+      GameTooltip:Show()
+    end,
+  })
+  tbl:SetPoint("TOPLEFT", filter, "BOTTOMLEFT", 0, -6)
+  tbl:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+  v.table = tbl
+
+  function v:Refresh()
+    local posts = H.Store.Posts() or {}
+    local rows = {}
+    local f = filter:GetValue()
+    for _, p in ipairs(posts) do
+      if historyMatches(p, f) then
+        table.insert(rows, {
+          key = "p" .. tostring(p.id), itemKey = p.key, itemID = p.itemID,
+          name = p.name or H.ItemName(p.itemID), p = p,
+        })
+      end
+    end
+    tbl:SetData(rows)
+    summary:SetText(H.Fan.SummaryLine(H.Fan.PostSummary(posts)))
+  end
+
+  H.Events:On("FAN_UPDATED", function() if v:IsShown() then v:Refresh() end end)
+  H.Events:On("AH_OPENED", function() if v:IsShown() then v:Refresh() end end)
+  return v
+end
+
+------------------------------------------------------------------------
 -- Panel
 ------------------------------------------------------------------------
 local tabButtons = {}
@@ -742,15 +821,27 @@ function UI.EnsurePanel()
   panel.header = header
 
   local x = 0
-  for _, def in ipairs({ { "snipe", "Snipe" }, { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" } }) do
-    local b = UI.Button(header, def[2], 76, 22, function() UI.ShowView(def[1]) end)
+  for _, def in ipairs({ { "snipe", "Snipe" }, { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" }, { "history", "History" } }) do
+    local b = UI.Button(header, def[2], 64, 22, function() UI.ShowView(def[1]) end)
     b:SetPoint("TOPLEFT", header, "TOPLEFT", x, 0)
     tabButtons[def[1]] = b
-    x = x + 80
+    x = x + 67
   end
 
+  -- auto scan sits at the right end, beside the scan timer in the
+  -- status line; the label is anchored first so the pair right-aligns
+  local autoBox = UI.CheckButton(header, "auto scan", function(checked)
+    H.Settings().autoScan = checked and true or false
+    if checked then H.Scan.AutoTick() end
+    UI.UpdateStatus()
+  end)
+  autoBox.label:ClearAllPoints()
+  autoBox.label:SetPoint("RIGHT", panel, "TOPRIGHT", -4, -11)
+  autoBox:SetPoint("RIGHT", autoBox.label, "LEFT", -1, 0)
+  UI.autoScanBox = autoBox
+
   statusText = UI.Text(panel, "GameFontDisableSmall", "", "RIGHT")
-  statusText:SetPoint("RIGHT", panel, "TOPRIGHT", -2, -11)
+  statusText:SetPoint("RIGHT", autoBox, "LEFT", -10, 0)
   statusText:SetPoint("LEFT", header, "TOPLEFT", x + 6, -11)
 
   local line = UI.Divider(panel)
@@ -766,6 +857,8 @@ function UI.EnsurePanel()
   views.markets = buildMarketsView(body)
   views.item = buildItemView(body)
   views.fan = buildFanView(body)
+  views.history = buildHistoryView(body)
+  UI.views = views
 
   H.Events:On("SCAN_STATUS", UI.UpdateStatus)
   H.Events:On("SCAN_DONE", UI.UpdateStatus)

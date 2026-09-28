@@ -452,38 +452,75 @@ end
 
 local SOLD = (Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold) or 1
 
+-- Seconds an auction can still run, from the exact figure when the
+-- client gives one, else the top of its time-left band.
+local BAND_SECONDS = { [0] = 30 * 60, [1] = 2 * 3600, [2] = 12 * 3600, [3] = 48 * 3600 }
+
+local function remaining(a)
+  if a.timeLeftSeconds and a.timeLeftSeconds > 0 then return a.timeLeftSeconds end
+  return BAND_SECONDS[a.timeLeft] or 48 * 3600
+end
+
+-- An auction of ours the store has never seen, posted from Blizzard's
+-- own Sell tab or before the addon was installed. It joins the posts so
+-- the history covers every auction, with the buyout read as the unit
+-- price, the way the Auctions tab shows it. One already sold joins as
+-- a sale without a chat line.
+local function adopt(a, key, now)
+  local unit = a.buyoutAmount
+  if not H.db or not unit or unit <= 0 then return false end
+  local itemID = a.itemKey.itemID
+  local qty = a.quantity or 1
+  local post = {
+    id = "a" .. tostring(a.auctionID), t = now, key = key, itemID = itemID, name = H.ItemName(itemID),
+    qty = qty, unit = unit, dur = remaining(a), status = "active", sold = 0,
+    auctionID = a.auctionID, adopted = true,
+  }
+  if a.status == SOLD then
+    post.status = "sold"
+    post.sold = qty
+    post.soldAt = now
+    H.Store.Ledger({ t = now, key = key, itemID = itemID, qty = qty, unit = unit, kind = "sale" })
+  end
+  H.Store.AddPost(post)
+  return true
+end
+
 -- partial: the list is one page of several, so an auction that is not
 -- in it may simply be on a later page.
 function Fan.Reconcile(owned, now, partial)
   now = now or H.Now()
-  local posts = H.Store.Posts()
-  if not posts or #posts == 0 then return 0 end
+  local posts = H.Store.Posts() or {}
   owned = owned or {}
   local byID = {}
   for _, a in ipairs(owned) do
     if a.auctionID then byID[a.auctionID] = a end
   end
 
-  -- adopt auctions we posted but never got an id for
+  -- Auctions the list knows and we do not: a fan batch that never got
+  -- its id back, else one to adopt.
+  local changed = 0
   for _, a in ipairs(owned) do
     if a.auctionID and a.itemKey then
       local known = false
       for _, p in ipairs(posts) do if p.auctionID == a.auctionID then known = true break end end
       if not known then
         local key = H.KeyString(a.itemKey)
+        local matched = false
         for _, p in ipairs(posts) do
           if not p.auctionID and (p.status == "failed" or p.status == "pending") and p.key == key
             and p.unit == a.buyoutAmount and now - p.t <= 3600 then
             p.auctionID = a.auctionID
             p.status = "active"
+            matched = true
             break
           end
         end
+        if not matched and adopt(a, key, now) then changed = changed + 1 end
       end
     end
   end
 
-  local changed = 0
   for _, p in ipairs(posts) do
     if p.status == "active" and p.auctionID then
       local a = byID[p.auctionID]
@@ -561,8 +598,10 @@ function Fan.RefreshOwned(force, retries)
   return true
 end
 
+-- Every visit asks for the owned list once, so auctions posted from
+-- Blizzard's Sell tab are adopted and the history stays current.
 H.Events:On("AH_OPENED", function()
-  C_Timer.After(2, function() Fan.RefreshOwned() end)
+  C_Timer.After(2, function() Fan.RefreshOwned(true) end)
 end)
 
 H.Events:On("AH_CLOSED", function()
@@ -633,6 +672,44 @@ end
 function Fan.BatchStatus(b)
   if b.post and b.post.status ~= "pending" then return Fan.PostStatus(b.post) end
   return b.status
+end
+
+------------------------------------------------------------------------
+-- Totals over recent posts for the History view: units and gold sold,
+-- units that expired, were cancelled, or are still listed.
+------------------------------------------------------------------------
+function Fan.PostSummary(posts, now, days)
+  now = now or H.Now()
+  local cutoff = now - (days or H.Market.CLEARING_DAYS) * 86400
+  local s = { sold = 0, gold = 0, expired = 0, cancelled = 0, active = 0, n = 0, days = days or H.Market.CLEARING_DAYS }
+  for _, p in ipairs(posts or {}) do
+    if (p.t or 0) >= cutoff then
+      s.n = s.n + 1
+      local sold = p.sold or 0
+      local left = math.max(0, (p.qty or 0) - sold)
+      s.sold = s.sold + sold
+      s.gold = s.gold + sold * (p.unit or 0)
+      if p.status == "expired" then
+        s.expired = s.expired + left
+      elseif p.status == "cancelled" then
+        s.cancelled = s.cancelled + left
+      elseif p.status == "active" or p.status == "pending" then
+        s.active = s.active + left
+      end
+    end
+  end
+  return s
+end
+
+function Fan.SummaryLine(s)
+  if not s or s.n == 0 then return "no auctions recorded yet" end
+  local parts = {}
+  if s.sold > 0 then table.insert(parts, string.format("sold %d for %s", s.sold, H.Money(s.gold))) end
+  if s.expired > 0 then table.insert(parts, string.format("%d expired", s.expired)) end
+  if s.cancelled > 0 then table.insert(parts, string.format("%d cancelled", s.cancelled)) end
+  if s.active > 0 then table.insert(parts, string.format("%d listed", s.active)) end
+  if #parts == 0 then table.insert(parts, string.format("%d auctions", s.n)) end
+  return string.format("%d days: %s", s.days, table.concat(parts, "  |  "))
 end
 
 function Fan.ClearingLine(cl, now)

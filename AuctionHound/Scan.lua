@@ -239,6 +239,22 @@ function Scan.Finish()
   H.Events:Fire("SCAN_DONE", "full")
 end
 
+------------------------------------------------------------------------
+-- Auto scan: with the setting on, a full scan starts whenever one is
+-- allowed while the auction house is open. Checked every few seconds
+-- and shortly after the house opens.
+------------------------------------------------------------------------
+Scan.AUTO_INTERVAL = 20
+
+function Scan.AutoTick()
+  if not H.Settings().autoScan then return false end
+  if not Scan.FullScanReady() then return false end
+  return Scan.StartFull()
+end
+
+Scan.autoTicker = C_Timer.NewTicker(Scan.AUTO_INTERVAL, Scan.AutoTick)
+H.Events:On("AH_OPENED", function() C_Timer.After(3, Scan.AutoTick) end)
+
 function Scan.DebugReplicate(n)
   local total = AH.GetNumReplicateItems and AH.GetNumReplicateItems() or 0
   H.Printf("replicate rows available: %d", total)

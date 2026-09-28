@@ -529,6 +529,8 @@ C_AuctionHouse = {
     for i = 1, math.min(Stub.ah.ownedServed or 0, #Stub.ah.owned) do out[i] = Stub.ah.owned[i] end
     return out
   end,
+  GetNumOwnedAuctions = function() return #C_AuctionHouse.GetOwnedAuctions() end,
+  GetOwnedAuctionInfo = function(i) return C_AuctionHouse.GetOwnedAuctions()[i] end,
   HasFullOwnedAuctionResults = function()
     return not Stub.ah.ownedPageSize or (Stub.ah.ownedServed or 0) >= #Stub.ah.owned
   end,
@@ -545,13 +547,10 @@ C_AuctionHouse = {
 -- two methods the addon hooks. Render() runs the layout and populates a
 -- cell per row and column the way the client's table builder would.
 ------------------------------------------------------------------------
-function Stub.NewBrowseFrame()
-  local br = CreateFrame("Frame")
-  br.browseResults = {}
+function Stub.NewItemList()
   local list = CreateFrame("Frame")
   list.Background = newObject("Texture")
   list.textureHeightClassic = 414
-  br.ItemList = list
 
   function list:SetDataProvider(started, getEntry, getNum, full)
     self.searchStartedFunc, self.getEntry, self.getNumEntries, self.hasFullResultsFunc = started, getEntry, getNum, full
@@ -586,6 +585,14 @@ function Stub.NewBrowseFrame()
     end
     return { columns = tb.columns, rows = rows }
   end
+  return list
+end
+
+function Stub.NewBrowseFrame()
+  local br = CreateFrame("Frame")
+  br.browseResults = {}
+  local list = Stub.NewItemList()
+  br.ItemList = list
 
   function br:SetupTableBuilder(extra)
     self.ItemList:SetTableBuilderLayout(function(tb)
@@ -608,6 +615,22 @@ function Stub.NewBrowseFrame()
   list:SetDataProvider(function() return true end, function(i) return br.browseResults[i] end, function() return #br.browseResults end, C_AuctionHouse.HasFullBrowseResults)
   br:SetupTableBuilder(nil)
   return br
+end
+
+-- Blizzard's Auctions tab: the list of your own auctions with its
+-- four columns and the owned auction data provider.
+function Stub.NewAuctionsFrame()
+  local af = CreateFrame("Frame")
+  local list = Stub.NewItemList()
+  af.AllAuctionsList = list
+  list:SetTableBuilderLayout(function(tb)
+    tb:AddFillColumn(af, 0, 1.0, 10, 0, "name", "AuctionHouseTableCellAuctionsItemDisplayTemplate")
+    tb:AddFixedWidthColumn(af, 0, 120, 10, 0, "bid", "AuctionHouseTableCellAllAuctionsBidTemplate")
+    tb:AddFixedWidthColumn(af, 0, 120, 10, 0, "buyout", "AuctionHouseTableCellAllAuctionsBuyoutTemplate")
+    tb:AddFixedWidthColumn(af, 0, 50, 0, 10, "time", "AuctionHouseTableCellTimeLeftTemplate")
+  end)
+  list:SetDataProvider(function() return true end, C_AuctionHouse.GetOwnedAuctionInfo, C_AuctionHouse.GetNumOwnedAuctions, C_AuctionHouse.HasFullOwnedAuctionResults)
+  return af
 end
 
 ------------------------------------------------------------------------

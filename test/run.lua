@@ -1129,6 +1129,126 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Auctions tab total, auto scan, and the auction history
+------------------------------------------------------------------------
+do
+  local F = H.Fan
+  H.atAH = true
+
+  -- Total column on Blizzard's list of your auctions
+  Stub.ah.ownedPageSize = nil
+  Stub.ah.owned = {
+    { auctionID = 8101, itemKey = C_AuctionHouse.MakeItemKey(2770), status = 0, quantity = 20, buyoutAmount = 150, timeLeftSeconds = 3600 },
+    { auctionID = 8102, itemKey = C_AuctionHouse.MakeItemKey(2771), status = 0, quantity = 1, bidAmount = 900, timeLeftSeconds = 3600 },
+  }
+  AuctionHouseFrame.AuctionsFrame = Stub.NewAuctionsFrame()
+  ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
+  check(ok, "auctions tab hook: " .. tostring(err))
+  check(H.UI.Auctions.installed, "total column installed")
+  local r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
+  eq(#r.columns, 5, "total column added")
+  eq(r.columns[4].header, "Total", "total column sits before time left")
+  eq(r.columns[5].template, "AuctionHouseTableCellTimeLeftTemplate", "time left keeps the edge")
+  eq(r.rows[1][4].Text.text, H.Money(150 * 20), "total is buyout times units")
+  eq(r.rows[2][4].Text.text, "", "no buyout, no total")
+
+  -- auto scan: off by default, and only when a scan is allowed
+  Stub.ah.replicate = {}
+  AuctionHoundDB.lastFull = Stub.now - H.Scan.FULL_INTERVAL - 1
+  H.Settings().autoScan = false
+  eq(H.Scan.AutoTick(), false, "auto scan stays off")
+  eq(H.Scan.state, "idle", "no scan started while off")
+  local box = H.UI.autoScanBox
+  check(box ~= nil, "auto scan box exists")
+  box:SetChecked(true)
+  box.scripts.OnClick(box)
+  eq(H.Settings().autoScan, true, "box turns auto scan on")
+  eq(H.Scan.state, "replicating", "a ready scan starts from the click")
+  Stub.Advance(2) Stub.Pump()
+  eq(H.Scan.state, "idle", "auto scan finished")
+  eq(H.Scan.AutoTick(), false, "not ready again yet")
+  AuctionHoundDB.lastFull = Stub.now - H.Scan.FULL_INTERVAL - 1
+  Stub.Advance(H.Scan.AUTO_INTERVAL + 1)
+  check(H.Scan.state ~= "idle" or AuctionHoundDB.lastFull >= Stub.now - 5, "ticker started the next scan")
+  Stub.Advance(2) Stub.Pump()
+  eq(H.Scan.state, "idle", "ticker scan finished")
+  H.Settings().autoScan = false
+  H.UI.UpdateStatus()
+  eq(box.checked, false, "box follows the setting")
+
+  -- adoption: an auction of ours the store never saw joins the posts
+  local before = #H.Store.Posts()
+  Stub.ah.owned = {
+    { auctionID = 8201, itemKey = C_AuctionHouse.MakeItemKey(2770), status = 0, quantity = 5, buyoutAmount = 700, timeLeftSeconds = 3600 },
+    { auctionID = 8202, itemKey = C_AuctionHouse.MakeItemKey(2771), status = 0, quantity = 1, bidAmount = 900 },
+    { auctionID = 8203, itemKey = C_AuctionHouse.MakeItemKey(2840), status = Enum.AuctionStatus.Sold, quantity = 3, buyoutAmount = 500, timeLeft = 2 },
+  }
+  local printed = #Stub.printed
+  local ledger = #AuctionHoundDB.ledger
+  check(F.Reconcile(Stub.ah.owned, Stub.now) >= 2, "adoption counts as a change")
+  local posts = H.Store.Posts()
+  eq(#posts, before + 2, "two auctions adopted, the bid-only one skipped")
+  local adopted, soldOne
+  for _, p in ipairs(posts) do
+    if p.auctionID == 8201 then adopted = p end
+    if p.auctionID == 8203 then soldOne = p end
+  end
+  check(adopted and adopted.adopted and adopted.status == "active", "active auction adopted as active")
+  eq(adopted.unit, 700, "adopted unit is the buyout")
+  eq(adopted.qty, 5, "adopted units")
+  eq(adopted.dur, 3600, "remaining time from the exact figure")
+  check(soldOne and soldOne.status == "sold" and soldOne.sold == 3, "sold auction adopted as a sale")
+  eq(soldOne.dur, 12 * 3600, "remaining time from the band")
+  eq(#Stub.printed, printed, "adopted sale is quiet")
+  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "adopted sale in the ledger")
+  eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile adopts nothing")
+  -- gone before it could expire: bought
+  Stub.RemoveOwned(8201)
+  F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE)
+  eq(adopted.status, "sold", "adopted auction that vanished early counts as sold")
+  check(adopted.inferred, "the sale is marked inferred")
+
+  -- summary over recent posts
+  local now = Stub.now
+  local sample = {
+    { t = now - 100, qty = 5, unit = 100, sold = 5, status = "sold" },
+    { t = now - 200, qty = 10, unit = 50, sold = 6, status = "expired" },
+    { t = now - 300, qty = 3, unit = 20, sold = 0, status = "cancelled" },
+    { t = now - 400, qty = 2, unit = 30, sold = 0, status = "active" },
+    { t = now - 40 * 86400, qty = 9, unit = 999, sold = 9, status = "sold" },
+  }
+  local sm = F.PostSummary(sample, now)
+  eq(sm.n, 4, "summary counts the last 30 days")
+  eq(sm.sold, 11, "summary units sold")
+  eq(sm.gold, 5 * 100 + 6 * 50, "summary gold sold")
+  eq(sm.expired, 4, "summary units expired")
+  eq(sm.cancelled, 3, "summary units cancelled")
+  eq(sm.active, 2, "summary units listed")
+  local line = F.SummaryLine(sm)
+  check(string.find(line, "^30 days: sold 11 for "), "summary line leads with sales: " .. line)
+  check(string.find(line, "4 expired", 1, true) and string.find(line, "3 cancelled", 1, true) and string.find(line, "2 listed", 1, true), "summary line has every count")
+  eq(F.SummaryLine(F.PostSummary({}, now)), "no auctions recorded yet", "empty summary")
+
+  -- the History view
+  ok, err = pcall(H.UI.ShowView, "history")
+  check(ok, "history view: " .. tostring(err))
+  local hv = H.UI.views.history
+  eq(#hv.table.data, #H.Store.Posts(), "history lists every post")
+  local soldCount = 0
+  for _, p in ipairs(H.Store.Posts()) do if p.status == "sold" or (p.sold or 0) > 0 then soldCount = soldCount + 1 end end
+  hv.filter:SetValue("Sold")
+  hv:Refresh()
+  eq(#hv.table.data, soldCount, "sold filter keeps the sales")
+  hv.filter:SetValue("Cancelled")
+  hv:Refresh()
+  for _, row in ipairs(hv.table.data) do eq(row.p.status, "cancelled", "cancelled filter keeps only cancelled") end
+  hv.filter:SetValue("All")
+  hv:Refresh()
+  check(string.find(hv.summary.text, "days:", 1, true), "history shows the summary: " .. hv.summary.text)
+  H.UI.ShowView("snipe")
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

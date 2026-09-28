@@ -5,6 +5,7 @@ H.DEFAULTS = {
   cut = 0.05,            -- auction house cut on the faction AH
   minDiscount = 0.25,    -- snipe candidates must sit at least this far under reference
   snipePages = 40,       -- browse pages per snipe pass
+  autoScan = false,      -- start a full scan whenever one is allowed at the AH
   confirmTop = 12,       -- candidates confirmed with a targeted search per pass
   browseSort = false,    -- Buy tab: order rows by discount off reference
   browseDeals = false,   -- Buy tab: only rows under reference by the minimum discount
