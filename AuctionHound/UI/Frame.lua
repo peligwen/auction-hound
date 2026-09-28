@@ -339,6 +339,7 @@ local function statusColor(text)
   if string.find(text, "sold", 1, true) then return 0.4, 0.9, 0.4 end
   if string.find(text, "expired", 1, true) or text == "failed" then return 0.9, 0.4, 0.4 end
   if text == "active" or text == "posting" then return 1, 1, 1 end
+  if text == "bought" then return 0.45, 0.85, 1.0 end
   return 0.6, 0.6, 0.6
 end
 
@@ -594,12 +595,13 @@ end
 -- History view: every auction of yours the addon has seen, fan batches
 -- and Blizzard posts alike, with what became of each.
 ------------------------------------------------------------------------
-local HISTORY_FILTERS = { "All", "Active", "Sold", "Expired", "Cancelled" }
+local HISTORY_FILTERS = { "All", "Active", "Sold", "Bought", "Expired", "Cancelled" }
 
 local function historyMatches(p, f)
   if f == "All" then return true end
   if f == "Active" then return p.status == "active" or p.status == "pending" end
   if f == "Sold" then return p.status == "sold" or (p.sold or 0) > 0 end
+  if f == "Bought" then return p.status == "bought" end
   if f == "Expired" then return p.status == "expired" end
   if f == "Cancelled" then return p.status == "cancelled" end
   return true
@@ -627,9 +629,9 @@ local function buildHistoryView(parent)
     { key = "item", title = "Item", width = 190, kind = "item", value = function(r) return r.name end },
     { key = "qty", title = "Units", width = 46, align = "RIGHT", kind = "int", value = function(r) return r.p.qty end },
     { key = "unit", title = "Unit", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.p.unit end },
-    { key = "total", title = "Total", width = 84, align = "RIGHT", kind = "money", value = function(r) return (r.p.unit or 0) * (r.p.qty or 0) end, desc = true },
+    { key = "total", title = "Total", width = 84, align = "RIGHT", kind = "money", value = function(r) return r.p.total or (r.p.unit or 0) * (r.p.qty or 0) end, desc = true },
     { key = "dep", title = "Deposit", width = 62, align = "RIGHT", kind = "money", value = function(r) return r.p.deposit end },
-    { key = "sold", title = "Sold", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.p.sold or 0 end,
+    { key = "sold", title = "Sold", width = 44, align = "RIGHT", kind = "int", value = function(r) if r.p.status == "bought" then return nil end return r.p.sold or 0 end,
       color = function(r, raw) if raw and raw > 0 then return 0.4, 0.9, 0.4 end return 0.6, 0.6, 0.6 end },
     { key = "status", title = "Status", width = 120, value = function(r) return H.Fan.PostStatus(r.p) end,
       color = function(r, raw) return statusColor(raw) end },
@@ -648,8 +650,11 @@ local function buildHistoryView(parent)
   tbl:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
   v.table = tbl
 
+  -- your auctions and your purchases, one table: a purchase is a row
+  -- with the status "bought", what you paid in Unit and Total
   function v:Refresh()
     local posts = H.Store.Posts() or {}
+    local buys = H.Store.Buys() or {}
     local rows = {}
     local f = filter:GetValue()
     for _, p in ipairs(posts) do
@@ -660,11 +665,20 @@ local function buildHistoryView(parent)
         })
       end
     end
+    for _, b in ipairs(buys) do
+      if historyMatches(b, f) then
+        table.insert(rows, {
+          key = "b" .. tostring(b.id), itemKey = b.key, itemID = b.itemID,
+          name = b.name or H.ItemName(b.itemID), p = b,
+        })
+      end
+    end
     tbl:SetData(rows)
-    summary:SetText(H.Fan.SummaryLine(H.Fan.PostSummary(posts)))
+    summary:SetText(H.Fan.SummaryLine(H.Fan.PostSummary(posts), H.Buy.Summary(buys)))
   end
 
   H.Events:On("FAN_UPDATED", function() if v:IsShown() then v:Refresh() end end)
+  H.Events:On("BUY_RECORDED", function() if v:IsShown() then v:Refresh() end end)
   H.Events:On("AH_OPENED", function() if v:IsShown() then v:Refresh() end end)
   return v
 end

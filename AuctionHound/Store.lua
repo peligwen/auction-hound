@@ -310,6 +310,50 @@ function Store.AddPost(post)
   Store.PrunePosts(post.t)
 end
 
+------------------------------------------------------------------------
+-- Our purchases, per market: plain tables like the posts, what we paid.
+------------------------------------------------------------------------
+Store.KEEP_BUYS = 400
+Store.KEEP_BUY_DAYS = 30
+
+local function buyList()
+  local m = market()
+  if not m then return nil end
+  m.buys = m.buys or {}
+  return m.buys
+end
+
+-- All purchases, or those for one key, oldest first.
+function Store.Buys(key)
+  local list = buyList()
+  if not list then return {} end
+  if not key then return list end
+  local out = {}
+  for _, b in ipairs(list) do
+    if b.key == key then table.insert(out, b) end
+  end
+  return out
+end
+
+function Store.PruneBuys(now)
+  local list = buyList()
+  if not list then return end
+  now = now or H.Now()
+  local cutoff = now - Store.KEEP_BUY_DAYS * 86400
+  local i = 1
+  while i <= #list do
+    if (list[i].t or 0) < cutoff then table.remove(list, i) else i = i + 1 end
+  end
+  while #list > Store.KEEP_BUYS do table.remove(list, 1) end
+end
+
+function Store.AddBuy(b)
+  local list = buyList()
+  if not list then return end
+  table.insert(list, b)
+  Store.PruneBuys(b.t)
+end
+
 -- Test hook: drop the decode cache without touching saved data.
 function Store._ResetCache()
   cache = {}

@@ -1194,10 +1194,22 @@ do
   eq(adopted.qty, 5, "adopted units")
   eq(adopted.dur, 3600, "remaining time from the exact figure")
   check(soldOne and soldOne.status == "sold" and soldOne.sold == 3, "sold auction adopted as a sale")
+  eq(soldOne.unit, 167, "a sold auction's buyout is the whole sum: the unit is its share")
   eq(soldOne.dur, 12 * 3600, "remaining time from the band")
   eq(#Stub.printed, printed, "adopted sale is quiet")
   eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "adopted sale in the ledger")
   eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile adopts nothing")
+  -- a batch that sold before its id came back: the owned list shows the
+  -- whole sum, and the post is matched by it rather than adopted twice
+  local quick = { id = "q1", t = Stub.now, key = "2841", itemID = 2841, name = "Bronze Bar", qty = 4, unit = 777, status = "pending", sold = 0 }
+  H.Store.AddPost(quick)
+  table.insert(Stub.ah.owned, { auctionID = 8204, itemKey = C_AuctionHouse.MakeItemKey(2841), status = Enum.AuctionStatus.Sold, quantity = 4, buyoutAmount = 4 * 777, timeLeft = 2 })
+  local n = #H.Store.Posts()
+  F.Reconcile(Stub.ah.owned, Stub.now)
+  eq(#H.Store.Posts(), n, "the sold batch is not adopted a second time")
+  eq(quick.auctionID, 8204, "the batch took the auction's id")
+  eq(quick.status, "sold", "and reads as sold")
+  eq(quick.sold, 4, "in full")
   -- gone before it could expire: bought
   Stub.RemoveOwned(8201)
   F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE)
@@ -1402,6 +1414,188 @@ do
   cell:OnEnter()
   check(string.find(table.concat(GameTooltip.lines, "\n"), "deposit not recorded", 1, true), "tooltip says when the deposit is unknown")
   cell:OnLeave()
+
+  -- a sold auction waiting in the mail shows its buyout as the whole sum
+  cell:Populate({ auctionID = 424243, quantity = 20, buyoutAmount = 3000, status = Enum.AuctionStatus.Sold })
+  eq(cell.Text.text, H.Money(3000), "a sold auction's total is its buyout, not times units again")
+  GameTooltip:ClearLines()
+  cell:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "sold, the whole auction | " .. H.Money(3000), 1, true), "tooltip says the buyout is the whole auction")
+  cell:OnLeave()
+  cell:Populate({ auctionID = 424244, quantity = 20, buyoutAmount = 150, status = Enum.AuctionStatus.Active })
+  eq(cell.Text.text, H.Money(3000), "an open auction's total is still buyout times units")
+end
+
+------------------------------------------------------------------------
+-- Purchases: noted from the house's calls and listed in the History
+-- view, and the shift-double-click that makes them
+------------------------------------------------------------------------
+do
+  local Buy, LU = H.Buy, H.UI.Ladder
+  local cf, itf = AuctionHouseFrame.CommoditiesBuyFrame, AuctionHouseFrame.ItemBuyFrame
+  H.atAH = true
+  Stub.ah.purchases = {}
+  eq(#H.Store.Buys(), 0, "no purchases yet")
+
+  -- a commodity through the house's own flow: quote, then confirm
+  Stub.ah.commodityPrice[2770] = 95
+  C_AuctionHouse.StartCommoditiesPurchase(2770, 50)
+  Stub.Advance(1) Stub.Pump()
+  eq(Buy.commodity and Buy.commodity.total, 95 * 50, "the quote is noted")
+  eq(#H.Store.Buys(), 0, "nothing recorded before the confirm")
+  C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 50)
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 1, "the purchase is recorded on success")
+  local b = H.Store.Buys()[1]
+  eq(b.key, "2770", "keyed by the item")
+  eq(b.qty, 50, "units bought")
+  eq(b.total, 95 * 50, "what was paid")
+  eq(b.unit, 95, "per unit")
+  eq(b.status, "bought", "status")
+  check(b.commodity, "marked as a commodity")
+  eq(Buy.commodity, nil, "nothing pending after")
+  check(string.find(Stub.printed[#Stub.printed], "bought 50 x Copper Ore for " .. H.Money(4750), 1, true), "chat names the purchase: " .. Stub.printed[#Stub.printed])
+  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "buy", "purchase in the ledger")
+  -- a purchase that fails leaves nothing
+  C_AuctionHouse.StartCommoditiesPurchase(2770, 5)
+  Stub.Advance(1) Stub.Pump()
+  Stub.FireEvent("COMMODITY_PURCHASE_FAILED")
+  eq(Buy.commodity, nil, "a failed purchase is dropped")
+  Stub.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+  eq(#H.Store.Buys(), 1, "and a stray success records nothing")
+  -- a cancelled quote is forgotten
+  C_AuctionHouse.StartCommoditiesPurchase(2770, 5)
+  Stub.Advance(1) Stub.Pump()
+  C_AuctionHouse.CancelCommoditiesPurchase()
+  eq(Buy.commodity, nil, "a cancelled purchase is dropped")
+  -- a confirm the quote never reached is said, not recorded
+  C_AuctionHouse.StartCommoditiesPurchase(2770, 5)
+  C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 5)
+  Stub.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+  check(string.find(Stub.printed[#Stub.printed], "no price to note", 1, true), "a confirm without a quote is said")
+  eq(#H.Store.Buys(), 1, "and not recorded")
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 1, "the late quote and success record nothing either")
+
+  -- an item: the search names the auction, the bid at its buyout buys it
+  local key = C_AuctionHouse.MakeItemKey(15001, 20, -14)
+  Stub.ah.currentSearch = { listings = { { 60000, 1, 801 }, { 65000, 1, 802 }, { nil, 1, 803 } } }
+  itf:SetItemKey(key)
+  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", key)
+  check(Buy.Seen(801) and Buy.Seen(801).buyout == 60000, "auctions from the search are known by id")
+  eq(Buy.NoteBid(801, 50000), false, "a bid under the buyout is not a purchase")
+  C_AuctionHouse.PlaceBid(801, 60000)
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 2, "the buyout is recorded when the house completes it")
+  b = H.Store.Buys()[2]
+  eq(b.key, "15001:20:-14", "keyed by the variant")
+  eq(b.total, 60000, "what was paid")
+  eq(b.qty, 1, "one unit")
+  eq(b.auctionID, 801, "the auction noted")
+  check(string.find(Stub.printed[#Stub.printed], "bought Wolf Bracers for " .. H.Money(60000), 1, true), "chat names the item: " .. Stub.printed[#Stub.printed])
+  C_AuctionHouse.PlaceBid(802, 40000)
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 2, "a plain bid records nothing")
+  eq(Buy.NoteBid(999, 100), false, "an auction no search listed is not followed")
+
+  -- the History view lists them, and the summary counts them
+  ok, err = pcall(H.UI.ShowView, "history")
+  check(ok, "history view with purchases: " .. tostring(err))
+  local hv = H.UI.views.history
+  hv.filter:SetValue("Bought")
+  hv:Refresh()
+  eq(#hv.table.data, 2, "bought filter lists every purchase")
+  eq(hv.table.data[1].p.status, "bought", "row carries the purchase")
+  eq(H.Fan.PostStatus(hv.table.data[1].p), "bought", "status text")
+  hv.table:Layout()
+  hv.table:Refresh(true)
+  local rr = hv.table.rows[1]
+  eq(rr.cells[8].text, "bought", "status cell reads bought")
+  check(rr.cells[7].text ~= "0", "a purchase has no sold count")
+  eq(rr.cells[5].text, H.MoneyExact(60000), "total cell shows what was paid")
+  hv.filter:SetValue("Sold")
+  hv:Refresh()
+  for _, row in ipairs(hv.table.data) do check(row.p.status ~= "bought", "sold filter leaves purchases out") end
+  hv.filter:SetValue("All")
+  hv:Refresh()
+  check(string.find(hv.summary.text, "bought 51 for " .. H.Money(4750 + 60000), 1, true), "summary counts the purchases: " .. hv.summary.text)
+  local bs = Buy.Summary(H.Store.Buys(), Stub.now)
+  eq(bs.units, 51, "purchase summary units")
+  eq(bs.spent, 64750, "purchase summary gold")
+  eq(H.Fan.SummaryLine(nil, bs), "30 days: bought 51 for " .. H.Money(64750), "summary line with purchases alone")
+  eq(H.Fan.SummaryLine(H.Fan.PostSummary({}, Stub.now), Buy.Summary({}, Stub.now)), "no auctions recorded yet", "nothing at all")
+  H.UI.ShowView("markets")
+
+  -- shift-double-click on the item list buys the auction outright
+  Stub.ah.currentSearch = { listings = { { 60000, 1, 811 }, { 65000, 1, 812 }, { nil, 1, 813 } } }
+  itf:SetItemKey(key)
+  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", key)
+  local r = itf.ItemList:Render()
+  local row = r.rowFrames[1]
+  check(row.scripts.OnDoubleClick ~= nil, "auction rows answer a double-click")
+  eq(row.houndKind, "item", "the row knows its list")
+  local n = #Stub.ah.purchases
+  Stub.shift = false
+  row.scripts.OnDoubleClick(row)
+  eq(#Stub.ah.purchases, n, "a plain double-click buys nothing")
+  Stub.shift = true
+  Stub.money = 100
+  row.scripts.OnDoubleClick(row)
+  eq(#Stub.ah.purchases, n, "no purchase without the gold")
+  check(string.find(Stub.printed[#Stub.printed], "not enough gold", 1, true), "and it says so")
+  Stub.money = nil
+  row.scripts.OnDoubleClick(row)
+  eq(#Stub.ah.purchases, n + 1, "shift-double-click places the bid")
+  eq(Stub.ah.purchases[n + 1].auctionID, 811, "on that auction")
+  eq(Stub.ah.purchases[n + 1].amount, 60000, "at its buyout")
+  check(string.find(Stub.printed[#Stub.printed], "buying Wolf Bracers for " .. H.Money(60000), 1, true), "chat says what is being bought")
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 3, "and the purchase is recorded")
+  local bidOnly = r.rowFrames[3]
+  bidOnly.scripts.OnDoubleClick(bidOnly)
+  eq(#Stub.ah.purchases, n + 1, "a bid-only auction is not bought")
+  check(string.find(Stub.printed[#Stub.printed], "no buyout", 1, true), "and it says so")
+  -- rows are reused as the list scrolls: a repopulated row buys its new listing
+  r.rows[2][5]:Populate(C_AuctionHouse.GetItemSearchResultInfo(key, 1))
+  eq(r.rowFrames[2].houndRow.auctionID, 811, "the row follows its cell's listing")
+
+  -- on the commodity list the house's own Buy button is pressed for
+  -- the units selected, and its dialog confirms
+  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30 }, { 95, 20 }, { 200, 500 } } }
+  cf:SetItemIDAndPrice(2770, 90)
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
+  r = cf.ItemList:Render()
+  row = r.rowFrames[2]
+  check(row.scripts.OnDoubleClick ~= nil, "commodity rows answer a double-click")
+  eq(row.houndKind, "commodity", "the row knows its list")
+  Stub.ah.buyClicks = 0
+  cf.BuyDisplay:SetQuantity(0)
+  row.scripts.OnDoubleClick(row)
+  eq(Stub.ah.buyClicks, 0, "nothing selected, nothing pressed")
+  check(string.find(Stub.printed[#Stub.printed], "select the units first", 1, true), "and it says so")
+  cf.BuyDisplay:SetQuantity(50)          -- the client's first click selected two rows
+  Stub.ah.commodityPrice[2770] = 95
+  row.scripts.OnDoubleClick(row)
+  eq(Stub.ah.buyClicks, 1, "the house's Buy button is pressed")
+  eq(Stub.ah.started and Stub.ah.started.qty, 50, "for the units selected")
+  check(string.find(Stub.printed[#Stub.printed], "50 units", 1, true), "chat points at the house's dialog")
+  Stub.Advance(1) Stub.Pump()                              -- the quote lands in the dialog
+  C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 50)     -- the click in it
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), 4, "the purchase is recorded")
+  eq(H.Store.Buys()[4].total, 95 * 50, "at the quoted total")
+  Stub.shift = false
+  row.scripts.OnDoubleClick(row)
+  eq(Stub.ah.buyClicks, 1, "a plain double-click presses nothing")
+  -- a client without the button says so
+  Stub.shift = true
+  local saved = cf.BuyDisplay.BuyButton
+  cf.BuyDisplay.BuyButton = nil
+  row.scripts.OnDoubleClick(row)
+  check(string.find(Stub.printed[#Stub.printed], "Buy button was not found", 1, true), "a missing Buy button is reported")
+  cf.BuyDisplay.BuyButton = saved
+  Stub.shift = false
+  Stub.ah.purchases = {}
 end
 
 ------------------------------------------------------------------------

@@ -550,14 +550,16 @@ end
 
 -- An auction of ours the store has never seen, posted from Blizzard's
 -- own Sell tab or before the addon was installed. It joins the posts so
--- the history covers every auction, with the buyout read as the unit
--- price, the way the Auctions tab shows it. One already sold joins as
--- a sale without a chat line.
+-- the history covers every auction, with the buyout read the way the
+-- owned list gives it: the unit price while the auction is up, the
+-- whole sum once it has sold. One already sold joins as a sale without
+-- a chat line.
 local function adopt(a, key, now)
   local unit = a.buyoutAmount
   if not H.db or not unit or unit <= 0 then return false end
   local itemID = a.itemKey.itemID
   local qty = a.quantity or 1
+  if a.status == SOLD and qty > 1 then unit = H.Round(unit / qty) end
   local post = {
     id = "a" .. tostring(a.auctionID), t = now, key = key, itemID = itemID, name = H.ItemName(itemID),
     qty = qty, unit = unit, dur = remaining(a), status = "active", sold = 0,
@@ -590,7 +592,8 @@ function Fan.Reconcile(owned, now, partial)
   end
 
   -- Auctions the list knows and we do not: a fan batch that never got
-  -- its id back, else one to adopt.
+  -- its id back (matched by its unit price, or by the whole sum once
+  -- it has sold), else one to adopt.
   local changed = 0
   for _, a in ipairs(owned) do
     if a.auctionID and a.itemKey then
@@ -600,8 +603,9 @@ function Fan.Reconcile(owned, now, partial)
         local key = H.KeyString(a.itemKey)
         local matched = false
         for _, p in ipairs(posts) do
+          local sum = a.status == SOLD and p.unit * (p.qty or 1) or p.unit
           if not p.auctionID and (p.status == "failed" or p.status == "pending") and p.key == key
-            and p.unit == a.buyoutAmount and now - p.t <= 3600 then
+            and sum == a.buyoutAmount and now - p.t <= 3600 then
             p.auctionID = a.auctionID
             p.status = "active"
             matched = true
@@ -793,15 +797,19 @@ function Fan.PostSummary(posts, now, days)
   return s
 end
 
-function Fan.SummaryLine(s)
-  if not s or s.n == 0 then return "no auctions recorded yet" end
+-- s from PostSummary; b, optional, from Buy.Summary over the same days.
+function Fan.SummaryLine(s, b)
+  local n = (s and s.n or 0) + (b and b.n or 0)
+  if n == 0 then return "no auctions recorded yet" end
   local parts = {}
-  if s.sold > 0 then table.insert(parts, string.format("sold %d for %s", s.sold, H.Money(s.gold))) end
-  if s.expired > 0 then table.insert(parts, string.format("%d expired", s.expired)) end
-  if s.cancelled > 0 then table.insert(parts, string.format("%d cancelled", s.cancelled)) end
-  if s.active > 0 then table.insert(parts, string.format("%d listed", s.active)) end
-  if #parts == 0 then table.insert(parts, string.format("%d auctions", s.n)) end
-  return string.format("%d days: %s", s.days, table.concat(parts, "  |  "))
+  if s and s.sold > 0 then table.insert(parts, string.format("sold %d for %s", s.sold, H.Money(s.gold))) end
+  if b and b.units > 0 then table.insert(parts, string.format("bought %d for %s", b.units, H.Money(b.spent))) end
+  if s and s.expired > 0 then table.insert(parts, string.format("%d expired", s.expired)) end
+  if s and s.cancelled > 0 then table.insert(parts, string.format("%d cancelled", s.cancelled)) end
+  if s and s.active > 0 then table.insert(parts, string.format("%d listed", s.active)) end
+  if #parts == 0 then table.insert(parts, string.format("%d auctions", n)) end
+  local days = (s and s.days) or (b and b.days) or H.Market.CLEARING_DAYS
+  return string.format("%d days: %s", days, table.concat(parts, "  |  "))
 end
 
 function Fan.ClearingLine(cl, now)

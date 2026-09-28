@@ -6,7 +6,8 @@
 -- reference, the deal depth, the next price step and the ladder's own
 -- value. The commodity list is too narrow for a column, so its units
 -- figure takes the verdict's color instead; the item list gets a
--- discount column.
+-- discount column. On both lists a shift-double-click buys the listing
+-- under the cursor.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -92,6 +93,7 @@ local function hookQuantityCells()
   hooksecurefunc(mixin, "Populate", function(cell, rowData)
     local frame = LU.commodityFrame
     if not frame or cell.owner ~= frame.ItemList or not cell.Text then return end
+    LU.WatchRow(cell, "commodity", rowData)
     local verdict, low = H.Ladder.Verdict(LU.current.commodity, rowData and rowData.unitPrice)
     local color = H.Ladder.Color(verdict, low)
     if color then cell.Text:SetTextColor(color[1], color[2], color[3]) end
@@ -127,6 +129,7 @@ function AuctionHoundLadderCellMixin:Init(owner)
 end
 
 function AuctionHoundLadderCellMixin:Populate(rowData)
+  LU.WatchRow(self, "item", rowData)
   local L = LU.current.item
   local p = type(rowData) == "table" and rowData.buyoutAmount or nil
   if not p or p <= 0 then
@@ -203,6 +206,81 @@ local function installItem(ah)
   end
   LU.block.item = block
   return true
+end
+
+------------------------------------------------------------------------
+-- Shift-double-click on a listing buys it. An item goes straight to
+-- its buyout: the double-click is the hardware event the house wants
+-- for a bid. A commodity row is already selected by the first click,
+-- with every unit up to it in the buy display, so the house's own Buy
+-- button is pressed for it and its dialog quotes the total: the house
+-- wants a second hardware event for the confirm, and that is the one
+-- click left. Every purchase is noted by Buy.lua either way.
+------------------------------------------------------------------------
+local watched = setmetatable({}, { __mode = "k" })
+
+local function shiftHeld()
+  return type(IsShiftKeyDown) == "function" and IsShiftKeyDown() == true
+end
+
+-- Buys one auction of the item list outright. Returns true, or false
+-- and why not.
+function LU.BuyItem(rowData)
+  if type(rowData) ~= "table" or not rowData.auctionID then return false, "no auction under the cursor" end
+  local buyout = rowData.buyoutAmount
+  if not buyout or buyout <= 0 then return false, "that auction has no buyout" end
+  if type(GetMoney) == "function" and (GetMoney() or 0) < buyout then
+    return false, "not enough gold for " .. H.Money(buyout)
+  end
+  local itemID = type(rowData.itemKey) == "table" and rowData.itemKey.itemID
+  H.Printf("buying %s for %s", itemID and H.ItemName(itemID) or "the auction", H.Money(buyout))
+  AH.PlaceBid(rowData.auctionID, buyout)
+  return true
+end
+
+-- Presses the house's Buy button for the units selected in the
+-- commodity buy display. Returns true, or false and why not.
+function LU.BuyCommodity()
+  local frame = LU.commodityFrame
+  local display = type(frame) == "table" and frame.BuyDisplay
+  local button = type(display) == "table" and display.BuyButton
+  if type(button) ~= "table" or type(button.Click) ~= "function" then
+    return false, "the house's Buy button was not found; use it by hand"
+  end
+  local qty = type(display.GetQuantity) == "function" and display:GetQuantity() or nil
+  if qty == 0 or (button.IsEnabled and not button:IsEnabled()) then
+    return false, "select the units first"
+  end
+  H.Printf("%s: the house's dialog quotes the total, confirm it there", qty and (qty .. " units") or "buying")
+  button:Click()
+  return true
+end
+
+local function onDoubleClick(row)
+  if not shiftHeld() then return end
+  local ok, why
+  if row.houndKind == "item" then
+    ok, why = LU.BuyItem(row.houndRow)
+  else
+    ok, why = LU.BuyCommodity()
+  end
+  if not ok and why then H.Print(why) end
+end
+
+-- Called as a cell is populated: the row behind it learns its listing
+-- and, once, answers a double-click. Rows are reused as the list
+-- scrolls, so the listing is refreshed every time.
+function LU.WatchRow(cell, kind, rowData)
+  local row = type(cell) == "table" and cell.GetParent and cell:GetParent()
+  if type(row) ~= "table" then return end
+  row.houndKind, row.houndRow = kind, rowData
+  if watched[row] then return end
+  watched[row] = true
+  if row.GetScript and row:GetScript("OnDoubleClick") then
+    row:HookScript("OnDoubleClick", onDoubleClick)
+  elseif row.SetScript then
+    row:SetScript("OnDoubleClick", onDoubleClick)
+  end
 end
 
 ------------------------------------------------------------------------

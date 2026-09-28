@@ -290,6 +290,10 @@ function Frame:SetPoint(...) table.insert(self.points, { ... }) end
 function Frame:SetID(id) self.id = id end
 function Frame:GetID() return self.id end
 function Frame:SetChecked(v) self.checked = v end
+function Frame:Click(button) local fn = self.scripts.OnClick if fn then fn(self, button or "LeftButton") end end
+function Frame:IsEnabled() return self.enabled ~= false end
+function Frame:Enable() self.enabled = true end
+function Frame:Disable() self.enabled = false end
 function Frame:GetChecked() return self.checked end
 function Frame:SetValue(v) self.value = v if self.scripts.OnValueChanged then self.scripts.OnValueChanged(self, v) end end
 function Frame:GetValue() return self.value or 0 end
@@ -329,6 +333,9 @@ end
 function CreateFromMixins(...)
   return Mixin({}, ...)
 end
+
+function IsShiftKeyDown() return Stub.shift == true end
+function GetMoney() return Stub.money or 100000000 end
 
 function ExecuteFrameScript(frame, name, ...)
   local fn = frame:GetScript(name)
@@ -736,6 +743,17 @@ end
 function Stub.NewCommoditiesBuyFrame()
   local frame = CreateFrame("Frame")
   frame.BuyDisplay = CreateFrame("Frame")
+  -- the display holds the units selected in the list (the client sets
+  -- them from a row click) and its Buy button asks the house for a
+  -- quote on them; the client's dialog then confirms
+  frame.BuyDisplay.quantity = 0
+  function frame.BuyDisplay:SetQuantity(q) self.quantity = q end
+  function frame.BuyDisplay:GetQuantity() return self.quantity end
+  frame.BuyDisplay.BuyButton = CreateFrame("Button", nil, frame.BuyDisplay)
+  frame.BuyDisplay.BuyButton:SetScript("OnClick", function()
+    Stub.ah.buyClicks = (Stub.ah.buyClicks or 0) + 1
+    C_AuctionHouse.StartCommoditiesPurchase(frame.itemID, frame.BuyDisplay.quantity)
+  end)
   local list = Stub.NewItemList()
   frame.ItemList = list
   list:SetTableBuilderLayout(function(tb)

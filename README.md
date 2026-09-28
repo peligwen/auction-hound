@@ -32,7 +32,9 @@ the checklist below is where that stands.
   category tree, search box and filters do the narrowing; clicking a
   row buys through Blizzard's frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
-  buyout times units. Hovering the total shows the house's cut, the
+  buyout times units for an auction still up; a sold auction waiting
+  in the mail already shows the whole sum, and the total reads it as
+  such. Hovering the total shows the house's cut, the
   deposit paid and what is left after both. The Bid column is hidden,
   so item names get its room. The deposit is noted whenever an auction
   is posted, from the Fan view or from Blizzard's own Sell tab, and
@@ -45,10 +47,17 @@ the checklist below is where that stands.
   the verdict's color, green for a deal and amber under reference; the
   item list gets a discount column. A floor far under the next step is
   flagged in blue as low in the list, reference or not.
+  Shift-double-click a listing to buy it: an item is bought out on the
+  spot, and a commodity row hands the units selected up to it to the
+  house's own Buy button, whose dialog quotes the total for one more
+  click.
 - **History.** Every auction of yours the addon has seen, with what
   became of it: active, sold, expired or cancelled, units and gold. Fan
   batches and auctions posted from Blizzard's own Sell tab alike; the
-  owned list is read once per visit and anything new is adopted.
+  owned list is read once per visit and anything new is adopted. Every
+  purchase of yours too, commodity or item, with the units and what
+  you paid, under its own filter; the summary line sums sales and
+  purchases over thirty days.
 - **Auto scan.** A checkbox beside the scan timer starts a full scan
   whenever the house allows one, every fifteen minutes while you stand
   at the auctioneer.
@@ -169,14 +178,16 @@ the left edge, so the view buttons now start to the right of it.
 12. **Sales.** Open. Sell something. The next time you open the auction
     house (or check your mail with the addon loaded), the Fan view and
     `/hound stats` should show it under "yours".
-13. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab
-    the columns read Name, Buyout, Total, Time Left: the Bid column is
-    gone. For a commodity stack the total must read units times the
-    unit price shown beside it. If this client lets a non-commodity
-    stack, post one and report whether its Buyout column shows the unit
-    price or the whole stack; the total assumes the unit price. Hover
-    a row anywhere along it, and again over the total: the row should
-    light up both times without an error.
+13. **Auctions tab total.** Open. On Blizzard's Auctions tab the
+    columns read Name, Buyout, Total, Time Left: the Bid column is
+    gone. For a commodity stack still up the total must read units
+    times the unit price shown beside it. Found in the beta: a sold
+    auction waiting in the mail shows its buyout as the whole sum, and
+    the total used to multiply it by the units again; it now reads it
+    as it is, so a sold row's Total must equal its Buyout, and the
+    hover says "sold, the whole auction". Hover a row anywhere along
+    it, and again over the total: the row should light up both times
+    without an error.
 14. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
     status line. With the timer at zero a scan starts at once; leave
     the house open and the next one should start by itself when the
@@ -219,6 +230,23 @@ the left edge, so the view buttons now start to the right of it.
     With Depth on, hover the cell: the ladder should name history, not
     the estimate. `/hound estimates on` brings them back and the box
     follows. Report if the box overlaps the status line.
+20. **Purchases.** Open, and new. Buy a commodity through the house's
+    own dialog and an item through its Buyout button. Chat should say
+    "bought N x item for X" each time, and the History view should
+    list both under the "Bought" filter with the units and the price
+    paid, the summary line adding "bought N for X". A bid under the
+    buyout should record nothing. Report if a purchase goes unnoted,
+    or is noted twice.
+21. **Quick buyout.** Open, and new. On the item buy frame,
+    shift-double-click an auction: it should be bought out at once,
+    chat saying "buying ... for X" and then "bought ...". On the
+    commodity buy frame, click a row so the units up to it fill the
+    quantity, then shift-double-click it: the house's own confirm
+    dialog should open with that quantity, and one click there buys.
+    A plain double-click must do nothing on either list. Report if
+    nothing happens with shift held (the double-click never reached
+    the row), if the dialog opens with the wrong quantity, or if the
+    house complains about a hardware event.
 
 ## Commands
 
@@ -262,6 +290,7 @@ Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
+Buy.lua      purchases noted from the house's calls, for the History view
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
@@ -308,7 +337,8 @@ template declares, so a cell template and its mixin must agree.
 `test/run.lua` runs the full scan, auto scan, reference, tooltip,
 slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
-auction adoption and history, and UI construction paths. Where the beta has
+auction adoption and history, purchases and the quick buyout, and UI
+construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly.
 

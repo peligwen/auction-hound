@@ -1,6 +1,8 @@
--- UI/Auctions.lua: a Total column on Blizzard's Auctions tab, buyout
--- times units for each of your auctions. The list shows the buyout as
--- a unit price, so the product is what the whole auction brings in.
+-- UI/Auctions.lua: a Total column on Blizzard's Auctions tab, what
+-- each of your auctions brings in. The list shows an open auction's
+-- buyout as the unit price, so the product with its units is the
+-- total; a sold auction waiting in the mail shows its buyout as the
+-- whole sum already, and that is shown as it is.
 -- Hovering a total shows the house's cut, the deposit paid and what
 -- is left after both. The Bid column goes: it repeats the buyout for
 -- anything posted without a separate bid, and the room is better
@@ -25,13 +27,17 @@ function AuctionHoundTotalCellMixin:Init(owner)
   self.owner = owner
 end
 
--- total, cut and what is left, or nil for an auction without a buyout
+local SOLD = Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold
+
+-- total, cut, what is left and whether the auction has sold, or nil for
+-- an auction without a buyout
 function A.Figures(rowData)
   local buyout = type(rowData) == "table" and rowData.buyoutAmount or nil
   if not buyout or buyout <= 0 then return nil end
-  local total = buyout * (rowData.quantity or 1)
+  local sold = SOLD ~= nil and rowData.status == SOLD or false
+  local total = sold and buyout or buyout * (rowData.quantity or 1)
   local cut = H.Round(total * (H.Settings().cut or 0))
-  return total, cut, total - cut
+  return total, cut, total - cut, sold
 end
 
 function AuctionHoundTotalCellMixin:Populate(rowData)
@@ -43,11 +49,11 @@ end
 function AuctionHoundTotalCellMixin:OnEnter()
   UI.RowScript(self, "OnEnter")
   local r = self.rowData
-  local total, cut, net = A.Figures(r)
+  local total, cut, net, sold = A.Figures(r)
   if not total or not GameTooltip then return end
   GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
   GameTooltip:AddLine("|cffe6b800Hound|r total", 1, 1, 1)
-  GameTooltip:AddDoubleLine("buyout x units", H.Money(total), 0.8, 0.8, 0.8, 1, 1, 1)
+  GameTooltip:AddDoubleLine(sold and "sold, the whole auction" or "buyout x units", H.Money(total), 0.8, 0.8, 0.8, 1, 1, 1)
   GameTooltip:AddDoubleLine(string.format("cut %d%%", H.Round((H.Settings().cut or 0) * 100)), "-" .. H.Money(cut), 0.8, 0.8, 0.8, 1, 1, 1)
   local post = H.Fan.PostForAuction and H.Fan.PostForAuction(r.auctionID)
   if post and post.deposit then
