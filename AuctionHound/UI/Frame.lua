@@ -539,6 +539,7 @@ local function buildFanView(parent)
       color = function(r, raw) return statusColor(raw) end },
   }
   local planTbl = UI.CreateTable(right, planCols, { sortKey = "i" })
+  v.planTbl = planTbl
   planTbl:SetPoint("TOPLEFT", centerLabel, "BOTTOMLEFT", -4, -8)
   planTbl:SetPoint("RIGHT", right, "RIGHT", 0, 0)
   planTbl:SetHeight(18 + 7 * 16)

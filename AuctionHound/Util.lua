@@ -115,6 +115,24 @@ function H.MoneyShort(copper)
   return out
 end
 
+-- Exact form for tables, no padding and no empty parts: 12g 34s 56c,
+-- 12g 56c, 45s 99c, 8c. Nothing is rounded away.
+function H.MoneyExact(copper)
+  copper = H.Round(copper or 0)
+  local neg = copper < 0
+  if neg then copper = -copper end
+  local g = math.floor(copper / 10000)
+  local s = math.floor((copper % 10000) / 100)
+  local c = copper % 100
+  local parts = {}
+  if g > 0 then table.insert(parts, g .. "g") end
+  if s > 0 then table.insert(parts, s .. "s") end
+  if c > 0 or #parts == 0 then table.insert(parts, c .. "c") end
+  local out = table.concat(parts, " ")
+  if neg then out = "-" .. out end
+  return out
+end
+
 -- Long form with coin icons when the client offers them.
 function H.Money(copper)
   copper = H.Round(copper or 0)

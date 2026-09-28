@@ -278,6 +278,7 @@ function Frame:CreateFontString() return newObject("FontString") end
 function Frame:SetText(t) self.text = t end
 function Frame:SetTextColor(r, g, b) self.color = { r, g, b } end
 function Frame:GetText() return self.text end
+function Frame:GetStringWidth() return #tostring(self.text or "") * 6 end
 function Frame:SetSize(w, h) self.width, self.height = w, h if self.scripts.OnSizeChanged then self.scripts.OnSizeChanged(self, w, h) end end
 function Frame:SetWidth(w) self.width = w end
 function Frame:SetHeight(h) self.height = h end

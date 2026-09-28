@@ -190,11 +190,30 @@ local function compare(a, b)
   return tostring(a) < tostring(b)
 end
 
+-- Money in a table cell: the exact figure when it fits the column,
+-- else the same without the copper, else the short form. A price is
+-- only ever rounded on screen when there is no room for it.
+function UI.SetMoney(fs, copper, width)
+  copper = H.Round(copper or 0)
+  local fits = function()
+    local w = fs.GetStringWidth and fs:GetStringWidth()
+    return not width or type(w) ~= "number" or w <= width
+  end
+  fs:SetText(H.MoneyExact(copper))
+  if fits() then return end
+  if copper >= 10000 or copper <= -10000 then
+    local whole = copper < 0 and -math.floor(-copper / 100) * 100 or math.floor(copper / 100) * 100
+    fs:SetText(H.MoneyExact(whole))
+    if fits() then return end
+  end
+  fs:SetText(H.MoneyShort(copper))
+end
+
 local function cellText(col, row, raw)
   if col.text then return col.text(row, raw) end
   if raw == nil then return "-" end
   local kind = col.kind or "text"
-  if kind == "money" then return H.MoneyShort(raw) end
+  if kind == "money" then return H.MoneyExact(raw) end
   if kind == "int" then return tostring(H.Round(raw)) end
   if kind == "pct" then return H.Pct(raw) end
   if kind == "spct" then return H.Pct(raw, true) end
@@ -442,7 +461,11 @@ function UI.CreateTable(parent, cols, opts)
               cell.icon:SetTexture(data.icon or H.ItemIcon(data.itemID) or 134400)
               cell.text:SetText(col.text and col.text(data, raw) or raw or "")
             else
-              cell:SetText(cellText(col, data, raw))
+              if col.kind == "money" and not col.text and raw ~= nil then
+                UI.SetMoney(cell, raw, col.width - 8)
+              else
+                cell:SetText(cellText(col, data, raw))
+              end
               if col.color then
                 local r, g, b = col.color(data, raw)
                 cell:SetTextColor(r or 1, g or 1, b or 1)

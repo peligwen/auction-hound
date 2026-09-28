@@ -65,7 +65,10 @@ the checklist below is where that stands.
   quantiles, so most sit near the center where the clearing price most
   likely is, with a few out at the tails. A step of zero posts every
   batch at the same price, which is how to re-list and get back to the
-  front of the queue at that price. One click posts one batch.
+  front of the queue at that price. One click posts one batch. Every
+  money column in Hound's tables shows the exact figure down to the
+  copper wherever the column has room; only a figure too wide for its
+  column drops the copper, then rounds.
 - **Own sales.** Every batch is tracked. A sold status or a shrinking
   quantity in your auction list, an auction that vanishes before it
   could expire, or a seller invoice in the mailbox each mark units sold
