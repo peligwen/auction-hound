@@ -471,6 +471,15 @@ do
   eq(below.batches[4].unit, 1000, "below ends at the center")
   eq(below.batches[1].unit, 850, "below starts three steps down")
 
+  local flat = F.Plan({ center = 1000, step = 0, batches = 3, perBatch = 10, shape = "bell" })
+  eq(#flat.batches, 3, "zero step keeps every batch")
+  eq(flat.batches[1].unit, 1000, "zero step first batch at the center")
+  eq(flat.batches[2].unit, 1000, "zero step second batch at the center")
+  eq(flat.batches[3].unit, 1000, "zero step third batch at the center")
+  eq(flat.low, flat.high, "zero step has no range")
+  local neg = F.Plan({ center = 1000, step = -0.05, batches = 3, perBatch = 10 })
+  eq(neg.batches[3].unit, 1000, "negative step reads as zero")
+
   local one = F.Plan({ center = 1000, step = 0.05, batches = 1, perBatch = 10 })
   eq(#one.batches, 1, "single batch")
   eq(one.batches[1].unit, 1000, "single batch at the center")
@@ -785,6 +794,9 @@ do
   eq(H.Fan.plan.spread, "above", "fan command spread")
   eq(H.Fan.plan.center, 200, "fan command center")
   eq(H.Fan.plan.batches[1].unit, 200, "above fan starts at the center")
+  SlashCmdList.HOUND("fan 2770 5 0 3")
+  near(H.Fan.plan.step, 0, 1e-9, "fan command accepts a zero step")
+  eq(H.Fan.plan.batches[1].unit, H.Fan.plan.batches[3].unit, "zero step fan is flat")
   SlashCmdList.HOUND("fan |cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h|r 5 5% 2 24h")
   eq(H.Fan.plan.duration, 2, "fan command duration")
   near(H.Fan.plan.step, 0.05, 1e-9, "fan command percent step")
@@ -826,6 +838,14 @@ do
   UIParent = CreateFrame("Frame", "UIParent")
   local ok, err = pcall(H.UI.EnsurePanel)
   check(ok, "panel builds: " .. tostring(err))
+  ok, err = pcall(H.UI.ShowView, "item")
+  check(ok, "item view explains itself before an item is picked: " .. tostring(err))
+  eq(H.UI.FindKey("2770"), "2770", "find by item id")
+  eq(H.UI.FindKey("copper ore"), "2770", "find by name")
+  eq(H.UI.FindKey("  Tin O "), "2771", "find by part of a name")
+  eq(H.UI.FindKey("|cffffffff|Hitem:15001:0:0:0:0:0:-14:0:60:0:0:0:0|h[Wolf Bracers]|h|r"), "15001:20:-14", "find by link")
+  eq(H.UI.FindKey("no such thing"), nil, "find nothing")
+  eq(H.UI.FindKey(""), nil, "find with nothing typed")
   ok, err = pcall(H.UI.Toggle)
   check(ok, "window toggles: " .. tostring(err))
   ok, err = pcall(H.UI.ShowView, "markets")
@@ -864,15 +884,37 @@ do
   AuctionHouseFrame = CreateFrame("Frame", "AuctionHouseFrame")
   AuctionHouseFrame.Tabs = { CreateFrame("Button"), CreateFrame("Button"), CreateFrame("Button") }
   AuctionHouseFrame.displayMode = nil
-  function AuctionHouseFrame:SetDisplayMode(mode) self.displayMode = mode end
+  -- the Blizzard frame only moves the highlight for modes in this table
+  local buyMode = { "SearchBar" }
+  AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1 }
+  AuctionHouseFrame.selectedTab = 1
+  function AuctionHouseFrame:SetDisplayMode(mode)
+    self.displayMode = mode
+    local tab = self.tabsForDisplayMode and self.tabsForDisplayMode[mode]
+    if tab then PanelTemplates_SetTab(self, tab) end
+  end
   PanelTemplates_SetNumTabs = function() end
+  PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id end
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "auction house hook: " .. tostring(err))
   eq(#AuctionHouseFrame.Tabs, 4, "tab added")
+  eq(AuctionHouseFrame.tabsForDisplayMode[H.UI.displayMode], 4, "hound mode registered with the frame")
   AuctionHouseFrame:SetDisplayMode(H.UI.displayMode)
   check(AuctionHoundPanel.shown, "panel shown in the auction house")
-  AuctionHouseFrame:SetDisplayMode({ "SearchBar" })
+  eq(AuctionHouseFrame.selectedTab, 4, "hound tab highlighted")
+  local hp = AuctionHoundPanel.header.points
+  eq(hp[#hp - 1][1], "TOPLEFT", "header anchored at the top left")
+  eq(hp[#hp - 1][4], H.UI.AH_INSETS.header, "header starts clear of the portrait")
+  AuctionHouseFrame:SetDisplayMode(buyMode)
   check(not AuctionHoundPanel.shown, "panel hidden on another tab")
+  eq(AuctionHouseFrame.selectedTab, 1, "buy tab highlighted again")
+  -- a frame without the mode table still gets the highlight from the hook
+  AuctionHouseFrame.tabsForDisplayMode = nil
+  AuctionHouseFrame.selectedTab = 1
+  AuctionHouseFrame:SetDisplayMode(H.UI.displayMode)
+  eq(AuctionHouseFrame.selectedTab, 4, "hound tab highlighted without the mode table")
+  AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1 }
+  AuctionHouseFrame:SetDisplayMode(buyMode)
 
   -- template missing: tab creation fails gracefully
   H.UI.ahHooked = false

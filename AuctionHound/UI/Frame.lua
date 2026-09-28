@@ -3,8 +3,11 @@ local ADDON, H = ...
 
 local UI = H.UI
 
--- Where the panel sits inside the Blizzard auction house frame.
-UI.AH_INSETS = { left = 8, top = 30, right = 8, bottom = 34 }
+-- Where the panel sits inside the Blizzard auction house frame. The
+-- frame's portrait (the auctioneer) hangs 62px down its left edge, so
+-- the row of view buttons starts to the right of it; the body below is
+-- clear of it already.
+UI.AH_INSETS = { left = 8, top = 30, right = 8, bottom = 34, header = 52 }
 UI.WINDOW_SIZE = { 780, 500 }
 
 local panel, window
@@ -258,6 +261,30 @@ local function buildItemView(parent)
   local fanBtn = UI.Button(v, "Fan", 50, 22, function() if v.key then UI.ShowFan(v.key) end end)
   fanBtn:SetPoint("RIGHT", back, "LEFT", -4, 0)
 
+  -- find box: part of a name, an item id, or a link (shift-click one in)
+  local find = UI.EditBox(v, 170)
+  find:SetPoint("RIGHT", fanBtn, "LEFT", -12, 0)
+  find:SetScript("OnEnterPressed", function(self)
+    local text = self:GetText()
+    local key = UI.FindKey(text)
+    if key then
+      self:SetText("")
+      self:ClearFocus()
+      UI.ShowItem(key)
+    else
+      v.err = "nothing scanned matches \"" .. tostring(text) .. "\""
+      v:Refresh()
+    end
+  end)
+  local findLabel = UI.Text(v, "GameFontDisableSmall", "find", "LEFT")
+  findLabel:SetPoint("RIGHT", find, "LEFT", -8, 0)
+  if type(ChatEdit_InsertLink) == "function" and hooksecurefunc then
+    hooksecurefunc("ChatEdit_InsertLink", function(link)
+      if link and find:HasFocus() then find:SetText(link) end
+    end)
+  end
+  v.find = find
+
   local statsLeft = UI.Text(v, "GameFontHighlightSmall", "", "LEFT")
   statsLeft:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -8)
   statsLeft:SetWidth(330)
@@ -313,12 +340,26 @@ local function buildItemView(parent)
   conn:SetPoint("TOPLEFT", connTitle, "BOTTOMLEFT", 0, -2)
   conn:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
 
+  -- With no item chosen the view says what it is for.
+  function v:Refresh()
+    if self.key then self:Show_(self.key) return end
+    icon:SetTexture(134400)
+    name:SetText("Item")
+    keyText:SetText(self.err or "one item's history, anchors and connections  |  " .. H.marketKey)
+    self.err = nil
+    statsLeft:SetText("Pick an item: double-click a row in Snipe or Markets, pick one in the Fan tab's bag list, or type part of a name, an item id or a link in the find box and press Enter.")
+    statsRight:SetText("Shows market value, floor, 30 day mean, trend, units moved, the daily graph, vendor and crafting anchors, what it is made from and what it makes, and what you sold it for.")
+    graph:SetSeries({})
+    conn:SetData({})
+  end
+
   function v:Show_(key)
     self.key = key
     local itemID = H.ItemIDFromKey(key)
     icon:SetTexture(H.ItemIcon(itemID) or 134400)
     name:SetText(H.ColoredName(itemID))
-    keyText:SetText("key " .. key .. "  |  " .. H.marketKey)
+    keyText:SetText((self.err and (self.err .. "  |  ") or "") .. "key " .. key .. "  |  " .. H.marketKey)
+    self.err = nil
     local rec = H.Store.Get(key)
     local st = rec and H.Market.Stats(rec) or nil
     if st and st.market then
@@ -356,6 +397,31 @@ local function buildItemView(parent)
   end
 
   return v
+end
+
+-- The history key for what a person typed: a link, an item id, or part
+-- of a name among the items scanned in this market. Returns nil when
+-- nothing matches.
+function UI.FindKey(text)
+  text = string.match(tostring(text or ""), "^%s*(.-)%s*$")
+  if text == "" then return nil end
+  if string.find(text, "|Hitem:", 1, true) then return H.KeyFromLink(text) end
+  local id = tonumber(text)
+  if id then return H.KeyForItemID(id) or tostring(id) end
+  local q = string.lower(text)
+  local best, bestLen
+  for _, key in ipairs(H.Store.Keys()) do
+    local n = string.lower(H.ItemName(H.ItemIDFromKey(key)))
+    if n == q then return key end
+    if string.find(n, q, 1, true) and (not bestLen or #n < bestLen) then best, bestLen = key, #n end
+  end
+  if best then return best end
+  if H.db and H.db.names then
+    for itemID, n in pairs(H.db.names) do
+      if string.lower(n) == q then return H.KeyForItemID(itemID) or tostring(itemID) end
+    end
+  end
+  return nil
 end
 
 function UI.SeriesFor(rec)
@@ -669,17 +735,23 @@ function UI.EnsurePanel()
   panel = CreateFrame("Frame", "AuctionHoundPanel", UIParent)
   panel:Hide()
 
+  local header = CreateFrame("Frame", nil, panel)
+  header:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, 0)
+  header:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+  header:SetHeight(22)
+  panel.header = header
+
   local x = 0
   for _, def in ipairs({ { "snipe", "Snipe" }, { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" } }) do
-    local b = UI.Button(panel, def[2], 76, 22, function() UI.ShowView(def[1]) end)
-    b:SetPoint("TOPLEFT", panel, "TOPLEFT", x, 0)
+    local b = UI.Button(header, def[2], 76, 22, function() UI.ShowView(def[1]) end)
+    b:SetPoint("TOPLEFT", header, "TOPLEFT", x, 0)
     tabButtons[def[1]] = b
     x = x + 80
   end
 
   statusText = UI.Text(panel, "GameFontDisableSmall", "", "RIGHT")
   statusText:SetPoint("RIGHT", panel, "TOPRIGHT", -2, -11)
-  statusText:SetPoint("LEFT", panel, "TOPLEFT", x + 6, -11)
+  statusText:SetPoint("LEFT", header, "TOPLEFT", x + 6, -11)
 
   local line = UI.Divider(panel)
   line:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -26)
@@ -747,6 +819,11 @@ local function placePanel(parent, insets)
   panel:ClearAllPoints()
   panel:SetPoint("TOPLEFT", parent, "TOPLEFT", insets.left, -insets.top)
   panel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -insets.right, insets.bottom)
+  if panel.header then
+    panel.header:ClearAllPoints()
+    panel.header:SetPoint("TOPLEFT", panel, "TOPLEFT", insets.header or 0, 0)
+    panel.header:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, 0)
+  end
 end
 
 function UI.Toggle()
@@ -797,12 +874,17 @@ local function hookAuctionHouse()
     if not tab:GetScript("OnClick") then
       tab:SetScript("OnClick", function() ah:SetDisplayMode(UI.displayMode) end)
     end
+    if type(ah.tabsForDisplayMode) == "table" then ah.tabsForDisplayMode[UI.displayMode] = id end
     UI.ahTab = tab
   end)
   if not ok then
     H.Print("could not add the auction house tab (" .. tostring(err) .. "); use /hound for the window")
   end
 
+  -- SetDisplayMode only moves the tab highlight (and the title) for
+  -- modes in its own table, so a click on Hound would leave the old
+  -- tab lit. Registering the mode lets the frame treat ours like its
+  -- own; the explicit select covers a client without that table.
   hooksecurefunc(ah, "SetDisplayMode", function(frame, mode)
     if mode == UI.displayMode then
       if window and window:IsShown() then window:Hide() end
@@ -810,6 +892,9 @@ local function hookAuctionHouse()
       holder:Show()
       panel:Show()
       UI.UpdateStatus()
+      if UI.ahTab and PanelTemplates_SetTab and frame.selectedTab ~= UI.ahTab:GetID() then
+        pcall(PanelTemplates_SetTab, frame, UI.ahTab:GetID())
+      end
       if frame.SetTitle then pcall(frame.SetTitle, frame, "Auction Hound") end
     else
       holder:Hide()

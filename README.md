@@ -33,7 +33,9 @@ the checklist below is where that stands.
   own, so each batch is a probe. Linear spacing puts the batches at even
   steps. Bell spacing keeps the same range but places them at normal
   quantiles, so most sit near the center where the clearing price most
-  likely is, with a few out at the tails. One click posts one batch.
+  likely is, with a few out at the tails. A step of zero posts every
+  batch at the same price, which is how to re-list and get back to the
+  front of the queue at that price. One click posts one batch.
 - **Own sales.** Every batch is tracked. A sold status or a shrinking
   quantity in your auction list, an auction that vanishes before it
   could expire, or a seller invoice in the mailbox each mark units sold
@@ -44,8 +46,12 @@ the checklist below is where that stands.
 - **Tooltips.** Market, floor, 30-day mean, trend and estimated units
   moved per day on every item tooltip, plus your own sold / unsold line.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
-  a window) with four views: Snipe, Markets, Item, Fan. Sortable tables,
-  a bar graph of daily value with floor and volume, sparklines per row.
+  a window) with four views. Snipe runs passes and buys. Markets lists
+  every item with history. Item is one item in depth: stats, the daily
+  graph, anchors, connections and your own sales, reached by
+  double-clicking a row elsewhere or typing a name, id or link into its
+  find box. Fan plans and posts batches. Sortable tables, a bar graph of
+  daily value with floor and volume, sparklines per row.
 
 Deferred on purpose: guild sync, the neutral auction house, disenchant
 tables.
@@ -64,51 +70,63 @@ tables.
 ## First session checklist
 
 The addon was written against the documented retail 12.x auction house
-API and tested headlessly. The first beta session found one call with
-the wrong argument (`GetItemCommodityStatus` wants a bag location, not
-an item key; commodity status now comes from `GetItemKeyInfo`). Work
-down this list in order and report the first thing that breaks; each
-step exercises one more client call than the one before.
+API and tested headlessly. Each step below exercises one more client
+call than the one before. Work down the list in order and report the
+first thing that breaks. Anything not marked verified is open, however
+plausible it looks.
 
-1. **Open the auction house.** No error, the Hound tab is there, and the
-   panel fits inside the frame. Adjust `UI.AH_INSETS` at the top of
-   `AuctionHound/UI/Frame.lua` if it overlaps the title or the money
-   bar.
-2. **Full scan.** `/hound scan`, then `/hound debug rep 5` prints raw
-   rows. Check that row `[0]` exists (indices are 0-based) and whether
-   `buyout` for a stack is the total or the per-unit price. If it is per
-   unit, set `Scan.REPLICATE_BUYOUT_IS_TOTAL = false` in
-   `AuctionHound/Scan.lua`. The chat summary should report few or no
-   unresolved rows.
-3. **Keys.** `/hound key <link>` for an "of the X" green must match the
-   key the Markets view shows for the same item after the scan, or
-   history and snipe will not line up for gear. For an item you have
-   never seen this session the key may print as `nil` once; run it
-   again after the item loads.
-4. **Tooltips.** Hover a scanned item in your bags: the Hound market
-   line appears. Hover something never scanned: no lines, no error.
-5. **Snipe pass.** Run one and let it finish; the results table fills
-   and the status line counts confirmations. Then buy one cheap
+Found so far in the beta: `GetItemCommodityStatus` wants a bag location,
+not an item key (commodity status now comes from `GetItemKeyInfo`); the
+auction house frame only moves its tab highlight for its own modes, so
+the Hound tab is now selected by hand; the frame's portrait hangs down
+the left edge, so the view buttons now start to the right of it.
+
+1. **Open the auction house.** Verified: no error, the Hound tab is
+   there. Re-check after the fixes above: the Hound tab stays lit while
+   the panel is up, and nothing sits under the portrait. Adjust
+   `UI.AH_INSETS` at the top of `AuctionHound/UI/Frame.lua` if anything
+   still overlaps.
+2. **Full scan.** Open: a scan ran and stored items, but the price
+   check has not been done. `/hound debug rep 5` prints raw rows. Check
+   that row `[0]` exists (indices are 0-based) and whether `buyout` for
+   a stack is the total or the per-unit price. If it is per unit, set
+   `Scan.REPLICATE_BUYOUT_IS_TOTAL = false` in `AuctionHound/Scan.lua`.
+   The chat summary should report few or no unresolved rows.
+3. **Keys.** Open. `/hound key <link>` for an "of the X" green must
+   match the key the Markets view shows for the same item after the
+   scan, or history and snipe will not line up for gear. For an item
+   you have never seen this session the key may print as `nil` once;
+   run it again after the item loads.
+4. **Tooltips.** Open. Hover a scanned item in your bags: the Hound
+   market line appears. Hover something never scanned: no lines, no
+   error.
+5. **Snipe pass.** Open. Run one and let it finish; the results table
+   fills and the status line counts confirmations. Then buy one cheap
    commodity. The chat line should show the quoted unit price and the
    ledger entry. If the client refuses the confirm step without a
    click, the chat says "press Buy again": press it, and report that it
    needed the second click. Then buy one non-commodity (a green) by
    auction id.
-6. **Persistence.** `/reload`, then `/hound debug`. The item count must
-   survive.
-7. **Fan, commodity.** Open the Fan tab, pick a cheap commodity from
-   your bags, and post one batch (`/hound fan [Copper Ore] 5 5 2` then
-   `/hound post` works too). The plan line names it a `commodity`. The
-   chat line after posting should name the batch. If posting fails with
-   a hardware-event error, bind a key to a macro with `/hound post` and
-   post from that.
-8. **Fan, item.** Do the same with a green from your bags. The plan
-   line names it an `item`, and each batch posts one unit.
-9. **Your posts.** Open the Blizzard Auctions tab, then the Fan view:
-   the batches show as active in the "Your posts" table. Cancel one from
-   the Blizzard tab; it should flip to cancelled.
-10. **Sales.** Sell something. The next time you open the auction house
-    (or check your mail with the addon loaded), the Fan view and
+6. **Persistence.** Verified: the item count survives `/reload`.
+7. **Item view.** Open, and new: with nothing picked it now explains
+   itself. Type part of a name in its find box and press Enter; then
+   shift-click a link into the box.
+8. **Fan, commodity.** Open. Open the Fan tab, pick a cheap commodity
+   from your bags, and post one batch (`/hound fan [Copper Ore] 5 5 2`
+   then `/hound post` works too). The plan line names it a `commodity`.
+   The chat line after posting should name the batch. If posting fails
+   with a hardware-event error, bind a key to a macro with `/hound
+   post` and post from that.
+9. **Fan, item.** Open. Do the same with a green from your bags. The
+   plan line names it an `item`, and each batch posts one unit.
+10. **Fan, flat.** Open. A step of `0` posts every batch at the center
+    price. Post two batches of the same commodity that way and confirm
+    the Blizzard Auctions tab shows two separate auctions at one price.
+11. **Your posts.** Open. Open the Blizzard Auctions tab, then the Fan
+    view: the batches show as active in the "Your posts" table. Cancel
+    one from the Blizzard tab; it should flip to cancelled.
+12. **Sales.** Open. Sell something. The next time you open the auction
+    house (or check your mail with the addon loaded), the Fan view and
     `/hound stats` should show it under "yours".
 
 ## Commands
@@ -133,9 +151,10 @@ A fan by example: `/hound fan [Copper Ore] 10 5 5 bell` posts five
 batches of ten, five percent apart, bunched toward the center. Center
 defaults to the best price you sold the item for in the last two weeks,
 else the market value; `above` or `below` puts the center at the cheap
-or the dear end instead of the middle. Then `/hound post` five times, or
-click Post in the Fan view. Blizzard requires a hardware event for each
-auction, so batches never post on their own.
+or the dear end instead of the middle. A step of `0` puts every batch at
+the center price. Then `/hound post` five times, or click Post in the
+Fan view. Blizzard requires a hardware event for each auction, so
+batches never post on their own.
 
 ## How the pieces fit
 

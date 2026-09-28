@@ -84,7 +84,9 @@ end
 
 -- Build a plan.
 --   center    anchor price in copper
---   step      gap between batches as a fraction of center
+--   step      gap between batches as a fraction of center; zero puts
+--             every batch at the center, which is how to re-list at
+--             one price and land at the front of the queue again
 --   batches   z
 --   perBatch  x
 --   shape     linear | bell
@@ -92,12 +94,13 @@ end
 --             cheapest batch) | below (center is the dearest)
 --   avail     units on hand; batches beyond it are shortened or dropped
 --   vendor    vendor sell price, to flag batches that would lose money
--- Batches come back cheapest first, every unit price distinct.
+-- Batches come back cheapest first, every unit price distinct unless
+-- the step is zero.
 function Fan.Plan(o)
   local z = math.max(1, math.floor(o.batches or 1))
   local x = math.max(1, math.floor(o.perBatch or 1))
   local center = o.center
-  local stepFrac = o.step or 0
+  local stepFrac = math.max(0, o.step or 0)
   local step = stepFrac * center
   local shape = o.shape == "bell" and "bell" or "linear"
   local spread = o.spread
@@ -111,7 +114,7 @@ function Fan.Plan(o)
   local prev
   for i = 1, z do
     local unit = math.max(1, H.Round(center + (pos[i] + shift) * step))
-    if prev and unit <= prev then unit = prev + 1 end
+    if stepFrac > 0 and prev and unit <= prev then unit = prev + 1 end
     prev = unit
     local qty = x
     if left then
