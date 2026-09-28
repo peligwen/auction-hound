@@ -1,9 +1,10 @@
 -- UI/Auctions.lua: a Total column on Blizzard's Auctions tab, buyout
--- times units for each of your auctions, with the house's cut beside
--- it in grey. The list shows the buyout as a unit price, so the
--- product is what the whole auction brings in. The deposit lives in
--- the cell's tooltip and in the History view, since Blizzard's list
--- has no room for another column without crushing the item names.
+-- times units for each of your auctions. The list shows the buyout as
+-- a unit price, so the product is what the whole auction brings in.
+-- Hovering a total shows the house's cut, the deposit paid and what
+-- is left after both. The Bid column goes: it repeats the buyout for
+-- anything posted without a separate bid, and the room is better
+-- spent on item names.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -14,8 +15,11 @@ A.COLUMN_WIDTH = 150
 
 ------------------------------------------------------------------------
 -- The cell. UI/Cells.xml mixes this into AuctionHoundTotalCellTemplate.
+-- It takes the mouse for its tooltip, so hovering is passed on to the
+-- row underneath the way Blizzard's own tooltip cells do; clicks fall
+-- through to the row by themselves.
 ------------------------------------------------------------------------
-AuctionHoundTotalCellMixin = {}
+AuctionHoundTotalCellMixin = UI.CellMixin()
 
 function AuctionHoundTotalCellMixin:Init(owner)
   self.owner = owner
@@ -32,17 +36,19 @@ end
 
 function AuctionHoundTotalCellMixin:Populate(rowData)
   self.rowData = rowData
-  local total, cut = A.Figures(rowData)
-  if not total then
-    self.Text:SetText("")
-    self.Sub:SetText("")
-    return
+  local total = A.Figures(rowData)
+  self.Text:SetText(total and H.Money(total) or "")
+end
+
+local function rowScript(cell, name)
+  local row = cell:GetParent()
+  if row and type(ExecuteFrameScript) == "function" then
+    ExecuteFrameScript(row, name)
   end
-  self.Text:SetText(H.Money(total))
-  self.Sub:SetText(cut > 0 and ("(-" .. H.Money(cut) .. ")") or "")
 end
 
 function AuctionHoundTotalCellMixin:OnEnter()
+  rowScript(self, "OnEnter")
   local r = self.rowData
   local total, cut, net = A.Figures(r)
   if not total or not GameTooltip then return end
@@ -62,17 +68,39 @@ function AuctionHoundTotalCellMixin:OnEnter()
 end
 
 function AuctionHoundTotalCellMixin:OnLeave()
+  rowScript(self, "OnLeave")
   if GameTooltip then GameTooltip:Hide() end
 end
 
--- the cell takes the mouse for its tooltip, so pass a click on to the
--- row underneath
-function AuctionHoundTotalCellMixin:OnMouseUp(button)
-  local row = self:GetParent()
-  if row and row.Click then row:Click(button or "LeftButton") end
+------------------------------------------------------------------------
+-- The columns: Bid out, Total in before Time Left.
+------------------------------------------------------------------------
+
+-- Blizzard has already built the Bid column and its header by the time
+-- the layout reaches us. Taking the column out of the table before it
+-- is arranged means no cells are ever made for it; the header goes
+-- back to its pool.
+function A.DropBid(tb)
+  local cols = type(tb) == "table" and tb.GetColumns and tb:GetColumns()
+  local bid = Enum and Enum.AuctionHouseSortOrder and Enum.AuctionHouseSortOrder.Bid
+  if type(cols) ~= "table" or not bid then return nil end
+  for i, col in ipairs(cols) do
+    local header = col.GetHeaderFrame and col:GetHeaderFrame()
+    if type(header) == "table" and header.sortOrder == bid then
+      table.remove(cols, i)
+      local pools = tb.GetHeaderPoolCollection and tb:GetHeaderPoolCollection()
+      if type(pools) == "table" and type(pools.Release) == "function" then
+        pcall(pools.Release, pools, header)
+      end
+      if header.Hide then header:Hide() end
+      return col
+    end
+  end
+  return nil
 end
 
 local function addColumn(tb, owner)
+  A.DropBid(tb)
   return tb:AddUnsortableFixedWidthColumn(owner, 0, A.COLUMN_WIDTH, 10, 0, "Total", "AuctionHoundTotalCellTemplate")
 end
 

@@ -325,6 +325,46 @@ function Mixin(obj, ...)
   return obj
 end
 
+function CreateFromMixins(...)
+  return Mixin({}, ...)
+end
+
+function ExecuteFrameScript(frame, name, ...)
+  local fn = frame:GetScript(name)
+  if fn then fn(frame, ...) end
+end
+
+-- Blizzard_SharedXML/TableBuilder.lua: a row's hover reaches every
+-- cell it holds, so a cell without OnLineEnter crashes the row. The
+-- client raises "attempt to call a nil value"; so does this.
+TableBuilderElementMixin = {}
+function TableBuilderElementMixin:Init() end
+function TableBuilderElementMixin:Populate() end
+
+TableBuilderCellMixin = CreateFromMixins(TableBuilderElementMixin)
+function TableBuilderCellMixin:OnLineEnter() end
+function TableBuilderCellMixin:OnLineLeave() end
+
+TableBuilderRowMixin = CreateFromMixins(TableBuilderElementMixin)
+function TableBuilderRowMixin:OnLineEnter() end
+function TableBuilderRowMixin:OnLineLeave() end
+function TableBuilderRowMixin:OnEnter()
+  self:OnLineEnter()
+  for _, cell in ipairs(self.cells) do
+    local fn = rawget(cell, "OnLineEnter")
+    if not fn then error("attempt to call a nil value (method 'OnLineEnter')") end
+    fn(cell)
+  end
+end
+function TableBuilderRowMixin:OnLeave()
+  self:OnLineLeave()
+  for _, cell in ipairs(self.cells) do
+    local fn = rawget(cell, "OnLineLeave")
+    if not fn then error("attempt to call a nil value (method 'OnLineLeave')") end
+    fn(cell)
+  end
+end
+
 function hooksecurefunc(tbl, name, fn)
   if type(tbl) == "string" then tbl, name, fn = _G, tbl, name end
   local orig = tbl[name]
@@ -568,33 +608,49 @@ function Stub.NewItemList()
   end
   function list:SetTableBuilderLayout(fn) self.tableBuilderLayoutFunction = fn end
   function list:DirtyScrollFrame() self.dirty = true end
+  -- Every column the layout adds gets a header frame the way the
+  -- client's AddColumnInternal builds one: a sortable column carries
+  -- its sort order, an unsortable one its text. Rows are buttons with
+  -- the client's row mixin, so a hover reaches every cell.
   function list:Render()
-    local tb = { columns = {} }
+    local tb = { columns = {}, all = {}, released = {} }
     function tb:GetColumns() return self.columns end
-    local function add(owner, header, template, ...)
-      local col = { owner = owner, header = header, template = template, args = { ... } }
+    function tb:GetHeaderPoolCollection()
+      return { Release = function(_, frame) frame:Hide() tb.released[frame] = true return true end }
+    end
+    local function add(owner, sortOrder, headerText, template, ...)
+      local header = newObject("Button")
+      header.sortOrder, header.text = sortOrder, headerText
+      local col = { owner = owner, header = headerText or sortOrder, headerFrame = header, template = template, args = { ... } }
+      function col:GetHeaderFrame() return self.headerFrame end
       table.insert(tb.columns, col)
+      table.insert(tb.all, col)
       return col
     end
-    function tb:AddFixedWidthColumn(owner, padding, width, l, r, sortOrder, template, ...) return add(owner, sortOrder, template, ...) end
-    function tb:AddFillColumn(owner, padding, fill, l, r, sortOrder, template, ...) return add(owner, sortOrder, template, ...) end
-    function tb:AddUnsortableFixedWidthColumn(owner, padding, width, l, r, header, template, ...) return add(owner, header, template, ...) end
-    function tb:AddUnsortableFillColumn(owner, padding, fill, l, r, header, template, ...) return add(owner, header, template, ...) end
+    function tb:AddFixedWidthColumn(owner, padding, width, l, r, sortOrder, template, ...) return add(owner, sortOrder, nil, template, ...) end
+    function tb:AddFillColumn(owner, padding, fill, l, r, sortOrder, template, ...) return add(owner, sortOrder, nil, template, ...) end
+    function tb:AddUnsortableFixedWidthColumn(owner, padding, width, l, r, header, template, ...) return add(owner, nil, header, template, ...) end
+    function tb:AddUnsortableFillColumn(owner, padding, fill, l, r, header, template, ...) return add(owner, nil, header, template, ...) end
     self.tableBuilderLayoutFunction(tb)
-    local rows = {}
+    local rows, rowFrames = {}, {}
     for i = 1, self.getNumEntries() do
       local rowData = self.getEntry(i)
-      local cells = {}
+      local row = Mixin(newObject("Button"), TableBuilderRowMixin)
+      row.rowData, row.cells = rowData, {}
       for _, col in ipairs(tb.columns) do
-        local cell = CreateFrame("Frame", nil, nil, col.template)
+        local cell = CreateFrame("Frame", nil, row, col.template)
+        -- Blizzard's cells all derive from the cell mixin; the addon's
+        -- come from Cells.xml and must bring their own
+        if not Stub.templates[col.template] then Mixin(cell, TableBuilderCellMixin) end
         if cell.Init then cell:Init(col.owner, unpack(col.args)) end
         cell.rowData = rowData
         if cell.Populate then cell:Populate(rowData, i) end
-        table.insert(cells, cell)
+        table.insert(row.cells, cell)
       end
-      rows[i] = cells
+      rows[i] = row.cells
+      rowFrames[i] = row
     end
-    return { columns = tb.columns, rows = rows }
+    return { columns = tb.columns, all = tb.all, released = tb.released, rows = rows, rowFrames = rowFrames }
   end
   return list
 end
@@ -635,10 +691,11 @@ function Stub.NewAuctionsFrame()
   local list = Stub.NewItemList()
   af.AllAuctionsList = list
   list:SetTableBuilderLayout(function(tb)
-    tb:AddFillColumn(af, 0, 1.0, 10, 0, "name", "AuctionHouseTableCellAuctionsItemDisplayTemplate")
-    tb:AddFixedWidthColumn(af, 0, 120, 10, 0, "bid", "AuctionHouseTableCellAllAuctionsBidTemplate")
-    tb:AddFixedWidthColumn(af, 0, 120, 10, 0, "buyout", "AuctionHouseTableCellAllAuctionsBuyoutTemplate")
-    tb:AddFixedWidthColumn(af, 0, 50, 0, 10, "time", "AuctionHouseTableCellTimeLeftTemplate")
+    local S = Enum.AuctionHouseSortOrder
+    tb:AddFillColumn(af, 0, 1.0, 10, 0, S.Name, "AuctionHouseTableCellAuctionsItemDisplayTemplate")
+    tb:AddFixedWidthColumn(af, 0, 145, 10, 0, S.Bid, "AuctionHouseTableCellAllAuctionsBidTemplate")
+    tb:AddFixedWidthColumn(af, 0, 145, 10, 0, S.Buyout, "AuctionHouseTableCellAllAuctionsBuyoutTemplate")
+    tb:AddFixedWidthColumn(af, 0, 50, 0, 10, S.TimeRemaining, "AuctionHouseTableCellTimeLeftTemplate")
   end)
   list:SetDataProvider(function() return true end, C_AuctionHouse.GetOwnedAuctionInfo, C_AuctionHouse.GetNumOwnedAuctions, C_AuctionHouse.HasFullOwnedAuctionResults)
   return af
@@ -697,10 +754,10 @@ Stub.templates = {}
 
 -- Blizzard's units cell on the commodity lists: the addon hooks its
 -- Populate to color the figure.
-AuctionHouseTableCellCommoditiesQuantityMixin = {
+AuctionHouseTableCellCommoditiesQuantityMixin = CreateFromMixins(TableBuilderCellMixin, {
   Init = function(self, owner) self.owner = owner end,
   Populate = function(self, rowData) self.Text:SetText(tostring(rowData.quantity or 0)) end,
-}
+})
 Stub.templates["AuctionHouseTableCellCommoditiesQuantityTemplate"] = { mixin = "AuctionHouseTableCellCommoditiesQuantityMixin", fontStrings = { "Text" } }
 
 local function loadTemplates(path)

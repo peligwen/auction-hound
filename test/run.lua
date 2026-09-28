@@ -25,6 +25,23 @@ local function near(a, b, tol, msg)
   end
 end
 
+-- Hover every rendered row the way the client does: the row mixin
+-- calls OnLineEnter and OnLineLeave on each cell, and a Hound cell
+-- without them is the crash the beta reported. Blizzard's own cells
+-- are outside the stub, so only ours are held to it.
+local function hover(r, what)
+  for i, row in ipairs(r.rowFrames) do
+    for _, cell in ipairs(row.cells) do
+      if type(cell.template) == "string" and cell.template:find("^AuctionHound") then
+        check(rawget(cell, "OnLineEnter") ~= nil and rawget(cell, "OnLineLeave") ~= nil,
+          what .. ": " .. cell.template .. " answers the row hover")
+      end
+    end
+    local ok, err = pcall(function() row:OnEnter() row:OnLeave() end)
+    check(ok, what .. " row " .. i .. " hover: " .. tostring(err))
+  end
+end
+
 ------------------------------------------------------------------------
 -- Items used by the tests
 ------------------------------------------------------------------------
@@ -1021,6 +1038,7 @@ do
   eq(r.columns[4].header, "Hound", "hound column sits before the star")
   eq(r.columns[5].template, "AuctionHouseTableCellFavoriteTemplate", "star keeps the edge")
   eq(#r.rows, 7, "every row shown with nothing toggled")
+  hover(r, "buy tab")
   local cell = r.rows[1][4]
   eq(cell.Text.text, "-50%", "cell shows the discount")
   eq(cell.Sub.text, H.MoneyShort(refOre), "cell shows the reference")
@@ -1146,11 +1164,18 @@ do
   check(ok, "auctions tab hook: " .. tostring(err))
   check(H.UI.Auctions.installed, "total column installed")
   local r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
-  eq(#r.columns, 5, "total column added")
-  eq(r.columns[4].header, "Total", "total column sits before time left")
-  eq(r.columns[5].template, "AuctionHouseTableCellTimeLeftTemplate", "time left keeps the edge")
-  eq(r.rows[1][4].Text.text, H.Money(150 * 20), "total is buyout times units")
-  eq(r.rows[2][4].Text.text, "", "no buyout, no total")
+  eq(#r.columns, 4, "total column added, bid column gone")
+  eq(r.columns[2].template, "AuctionHouseTableCellAllAuctionsBuyoutTemplate", "buyout follows the name")
+  eq(r.columns[3].header, "Total", "total column sits before time left")
+  eq(r.columns[4].template, "AuctionHouseTableCellTimeLeftTemplate", "time left keeps the edge")
+  local bidCol
+  for _, col in ipairs(r.all) do if col.template == "AuctionHouseTableCellAllAuctionsBidTemplate" then bidCol = col end end
+  check(bidCol ~= nil, "blizzard still built the bid column")
+  eq(bidCol.headerFrame.shown, false, "bid header hidden")
+  check(r.released[bidCol.headerFrame], "bid header released to its pool")
+  eq(r.rows[1][3].Text.text, H.Money(150 * 20), "total is buyout times units")
+  eq(r.rows[2][3].Text.text, "", "no buyout, no total")
+  hover(r, "auctions tab")
 
   -- auto scan: off by default, and only when a scan is allowed
   Stub.ah.replicate = {}
@@ -1351,6 +1376,7 @@ do
   eq(r.rows[1][5].Text.color[3], Ladder.COLORS.low[3], "flagged auction colored")
   eq(r.rows[2][5].Text.text, "+10%", "premium shown as a premium")
   eq(r.rows[3][5].Text.text, "", "bid-only auction shows nothing")
+  hover(r, "item buy frame")
   local lp = itf.ItemList.points[#itf.ItemList.points]
   eq(lp[5], -(14 + LU.BLOCK_HEIGHT + 4), "auction list starts below the block")
   eq(itf.ItemList.Background.height, 414 - LU.BLOCK_HEIGHT - 4, "background shortened to match")
@@ -1379,18 +1405,25 @@ do
   for _, p in ipairs(H.Store.Posts()) do if p.fan and p.deposit then fanPost = p break end end
   check(fanPost ~= nil, "fan posts carry their deposit")
 
-  -- the Auctions tab cell: total, cut, and the deposit on hover
+  -- the Auctions tab cell: the total, with cut and deposit on hover
   H.Settings().cut = 0.05
   r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
-  local cell = r.rows[1][4]
+  local cell = r.rows[1][3]
   eq(cell.Text.text, H.Money(250 * 4), "total is buyout times units")
-  eq(cell.Sub.text, "(-" .. H.Money(50) .. ")", "cut shown beside the total")
+  eq(rawget(cell, "Sub"), nil, "nothing written beside the total")
+  local row, hovered = r.rowFrames[1], {}
+  row:SetScript("OnEnter", function() hovered.entered = true end)
+  row:SetScript("OnLeave", function() hovered.left = true end)
   GameTooltip:ClearLines()
   cell:OnEnter()
+  check(hovered.entered, "hovering the total lights the row")
   local tip = table.concat(GameTooltip.lines, "\n")
+  check(string.find(tip, "cut 5% | -" .. H.Money(50), 1, true), "tooltip names the cut: " .. tip)
   check(string.find(tip, "deposit paid | " .. H.Money(12), 1, true), "tooltip names the deposit: " .. tip)
   check(string.find(tip, "left after cut and deposit | " .. H.Money(1000 - 50 - 12), 1, true), "tooltip nets the deposit out")
   cell:OnLeave()
+  check(hovered.left, "leaving the total clears the row")
+  eq(rawget(cell, "OnMouseUp"), nil, "the cell leaves clicks to the row")
   cell:Populate({ auctionID = 1, quantity = 1 })
   eq(cell.Text.text, "", "no buyout, no total")
   cell:Populate({ auctionID = 424242, quantity = 2, buyoutAmount = 700 })

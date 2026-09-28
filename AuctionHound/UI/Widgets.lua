@@ -22,6 +22,20 @@ function UI.Create(kind, name, parent, template)
   return CreateFrame(kind, name, parent)
 end
 
+-- A cell on one of Blizzard's lists. The row's hover calls OnLineEnter
+-- and OnLineLeave on every cell it holds, so a cell without them
+-- crashes the row; Blizzard's cells inherit both from
+-- TableBuilderCellMixin, and so do ours.
+function UI.CellMixin()
+  local m = {}
+  if type(Mixin) == "function" and type(TableBuilderCellMixin) == "table" then
+    Mixin(m, TableBuilderCellMixin)
+  end
+  if not m.OnLineEnter then function m:OnLineEnter() end end
+  if not m.OnLineLeave then function m:OnLineLeave() end end
+  return m
+end
+
 function UI.Text(parent, font, text, justify)
   local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
   fs:SetJustifyH(justify or "LEFT")

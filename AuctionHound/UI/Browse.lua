@@ -43,7 +43,7 @@ B.COLUMN_WIDTH = 104
 ------------------------------------------------------------------------
 -- The cell. UI/Cells.xml mixes this into AuctionHoundBrowseCellTemplate.
 ------------------------------------------------------------------------
-AuctionHoundBrowseCellMixin = {}
+AuctionHoundBrowseCellMixin = UI.CellMixin()
 
 function AuctionHoundBrowseCellMixin:Init(owner)
   self.owner = owner

@@ -120,7 +120,7 @@ end
 -- Items: a discount column on the auction list and the block above
 -- its headers.
 ------------------------------------------------------------------------
-AuctionHoundLadderCellMixin = {}
+AuctionHoundLadderCellMixin = UI.CellMixin()
 
 function AuctionHoundLadderCellMixin:Init(owner)
   self.owner = owner

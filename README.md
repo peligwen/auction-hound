@@ -27,10 +27,11 @@ the checklist below is where that stands.
   filters do the narrowing; clicking a row buys through Blizzard's
   frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
-  buyout times units, with the house's cut beside it in grey. Hovering
-  the total shows the deposit paid and what is left after both. The
-  deposit is noted whenever an auction is posted, from the Fan view or
-  from Blizzard's own Sell tab, and shows in the History view too.
+  buyout times units. Hovering the total shows the house's cut, the
+  deposit paid and what is left after both. The Bid column is hidden,
+  so item names get its room. The deposit is noted whenever an auction
+  is posted, from the Fan view or from Blizzard's own Sell tab, and
+  shows in the History view too.
 - **Listing ladder.** Clicking a Buy tab row opens Blizzard's buy frame
   for that item, and Hound reads the listings there: an info block with
   the reference, how many units sit at or under the deal limit and
@@ -168,12 +169,14 @@ the left edge, so the view buttons now start to the right of it.
 13. **Sales.** Open. Sell something. The next time you open the auction
     house (or check your mail with the addon loaded), the Fan view and
     `/hound stats` should show it under "yours".
-14. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab,
-    a Total column sits before Time Left. For a commodity stack it must
-    read units times the unit price shown beside it. If this client
-    lets a non-commodity stack, post one and report whether its
-    Buyout column shows the unit price or the whole stack; the total
-    assumes the unit price.
+14. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab
+    the columns read Name, Buyout, Total, Time Left: the Bid column is
+    gone. For a commodity stack the total must read units times the
+    unit price shown beside it. If this client lets a non-commodity
+    stack, post one and report whether its Buyout column shows the unit
+    price or the whole stack; the total assumes the unit price. Hover
+    a row anywhere along it, and again over the total: the row should
+    light up both times without an error.
 15. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
     status line. With the timer at zero a scan starts at once; leave
     the house open and the next one should start by itself when the
@@ -185,11 +188,10 @@ the left edge, so the view buttons now start to the right of it.
     next visit. The line at the top sums the last thirty days. Post
     something from Blizzard's Sell tab and its Deposit column should
     fill in once the house lists it.
-17. **Auctions tab cut and deposit.** Open, and new. The Total column
-    shows the cut in grey after the total. Hover a total: the tooltip
-    names the deposit for anything posted while the addon was loaded,
-    and says so when it was not. A click on the total should still
-    select the row.
+17. **Auctions tab cut and deposit.** Open, and new. Hover a total:
+    the tooltip names the cut, the deposit for anything posted while
+    the addon was loaded (and says so when it was not), and what is
+    left. A click on the total should still select the row.
 18. **Listing ladder.** Open, and new. Click a commodity row on the Buy
     tab: under the Buy button a four-line block should name the
     reference, the units at or under the limit, the floor and next
