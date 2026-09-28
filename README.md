@@ -23,9 +23,14 @@ the checklist below is where that stands.
   above. A strip above the headers sorts by discount, keeps only deals,
   only rows with real history, or hides rows holding your own auctions,
   and sets the minimum. With a toggle on, the remaining result pages
-  load without scrolling. The usual category tree, search box and
-  filters do the narrowing; clicking a row buys through Blizzard's
-  frames as always.
+  load without scrolling. Tick "Depth" and each row on screen gets one
+  search of its own, one at a time through the house's throttle: the
+  note then ends in the units at the floor ("12.3g x40"), and hovering
+  the cell shows the row's ladder, the units at or under the limit,
+  the next price step and the value of the listings. A ladder is kept
+  while the row still shows the same floor and count. The usual
+  category tree, search box and filters do the narrowing; clicking a
+  row buys through Blizzard's frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
   buyout times units. Hovering the total shows the house's cut, the
   deposit paid and what is left after both. The Bid column is hidden,
@@ -204,6 +209,16 @@ the left edge, so the view buttons now start to the right of it.
     auction list, and a Hound column shows each auction's discount.
     Report if the block overlaps the Buy button or the item header, or
     if the list's headers sit under the block.
+19. **Depth.** Open, and new. On the Buy tab tick "Depth": the status
+    on the right should say "reading depth" and, row by row from the
+    top, the notes should gain "xN" for the units at the floor. Hover
+    a cell for the ladder. Scroll: rows coming into view are read too.
+    While it reads, click a row: the buy frame must still fill with
+    that item's listings (a query dropped by the throttle is sent
+    again), and type a new search: the results must still arrive.
+    Report if any click leaves an empty buy frame, if the strip no
+    longer fits its five toggles, or if the count on the right stops
+    changing while rows still lack their "xN".
 
 ## Commands
 
@@ -238,12 +253,14 @@ The addon lives in `AuctionHound/`; `test/` and this file sit beside it.
 
 ```
 Scan.lua     ReplicateItems (full), SendBrowseQuery (floors), SendSearchQuery (listings)
+Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent again
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
 Snipe.lua    candidates, confirmation, scoring, buying, ledger
 Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
+Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
@@ -289,16 +306,14 @@ auction house calls and events. It loads the addon from `AuctionHound/`
 in TOC order; XML files are read for the mixin and font strings each
 template declares, so a cell template and its mixin must agree.
 `test/run.lua` runs the full scan, auto scan, snipe, purchase, tooltip,
-slash command, Buy tab column and filter, listing ladder, Auctions tab
-column, deposit notes, auction adoption and history, and UI
-construction paths. Where the beta has
+slash command, Buy tab column and filter, depth on demand through a
+modelled throttle, listing ladder, Auctions tab column, deposit notes,
+auction adoption and history, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly.
 
 ## Roadmap
 
-- Buy tab: depth on demand for the rows on screen, one throttled
-  search each, so the browse list can show units at the floor
 - Retire the snipe pass once the Buy tab covers its buying
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads

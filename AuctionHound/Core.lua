@@ -11,6 +11,7 @@ H.DEFAULTS = {
   browseDeals = false,   -- Buy tab: only rows under reference by the minimum discount
   browseHistory = false, -- Buy tab: only rows whose reference is market history
   browseNotMine = false, -- Buy tab: hide rows that hold one of your auctions
+  browseDepth = false,   -- Buy tab: search each row on screen for the units at its floor
   laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips

@@ -13,9 +13,11 @@ Market.lua
 Data\Conversions.lua
 Priors.lua
 Scan.lua
+Throttle.lua
 Snipe.lua
 Browse.lua
 Ladder.lua
+Depth.lua
 Fan.lua
 Tooltip.lua
 UI\Widgets.lua

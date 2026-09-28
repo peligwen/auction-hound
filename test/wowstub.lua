@@ -376,6 +376,27 @@ function hooksecurefunc(tbl, name, fn)
   end
 end
 
+-- The house's throttle, when a test turns Stub.ah.throttleModel on: a
+-- send while busy is dropped with the drop event and never answered;
+-- otherwise the system is busy until the answer lands, then ready
+-- again with the ready event. Off, sends go straight through as before.
+function Stub.Throttled(deliver)
+  if not Stub.ah.throttleModel then
+    deliver(function() end)
+    return
+  end
+  if not Stub.ah.ready then
+    Stub.ah.dropped = (Stub.ah.dropped or 0) + 1
+    C_Timer.After(0, function() Stub.FireEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED") end)
+    return
+  end
+  Stub.ah.ready = false
+  deliver(function()
+    Stub.ah.ready = true
+    Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
+  end)
+end
+
 function Stub.FireEvent(event, ...)
   for f in pairs(Stub.eventFrames) do
     if f.events[event] and f.scripts.OnEvent then f.scripts.OnEvent(f, event, ...) end
@@ -505,9 +526,11 @@ C_AuctionHouse = {
   GetReplicateItemTimeLeft = function() return 3 end,
 
   SendBrowseQuery = function(query)
-    Stub.ah.lastQuery = query
-    Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browsePageSize)
-    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED") end)
+    Stub.Throttled(function(done)
+      Stub.ah.lastQuery = query
+      Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browsePageSize)
+      C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED") done() end)
+    end)
   end,
   GetBrowseResults = function()
     local out = {}
@@ -516,24 +539,30 @@ C_AuctionHouse = {
   end,
   HasFullBrowseResults = function() return Stub.ah.browseServed >= #Stub.ah.browse end,
   RequestMoreBrowseResults = function()
-    Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browseServed + Stub.ah.browsePageSize)
-    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", {}) end)
+    Stub.Throttled(function(done)
+      Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browseServed + Stub.ah.browsePageSize)
+      C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", {}) done() end)
+    end)
   end,
 
   SendSearchQuery = function(itemKey)
-    Stub.ah.searchCalls = (Stub.ah.searchCalls or 0) + 1
-    local keyStr = tostring(itemKey.itemID)
-    if (itemKey.itemLevel or 0) ~= 0 or (itemKey.itemSuffix or 0) ~= 0 then
-      keyStr = string.format("%d:%d:%d", itemKey.itemID, itemKey.itemLevel or 0, itemKey.itemSuffix or 0)
-    end
-    local res = Stub.ah.searchResults[keyStr]
-    Stub.ah.currentSearch = res
-    C_Timer.After(1, function()
-      if res and res.commodity then
-        Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", itemKey.itemID)
-      else
-        Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", itemKey)
+    Stub.Throttled(function(done)
+      Stub.ah.searchCalls = (Stub.ah.searchCalls or 0) + 1
+      local keyStr = tostring(itemKey.itemID)
+      if (itemKey.itemLevel or 0) ~= 0 or (itemKey.itemSuffix or 0) ~= 0 then
+        keyStr = string.format("%d:%d:%d", itemKey.itemID, itemKey.itemLevel or 0, itemKey.itemSuffix or 0)
       end
+      Stub.ah.lastSearchKey = keyStr
+      local res = Stub.ah.searchResults[keyStr]
+      Stub.ah.currentSearch = res
+      C_Timer.After(1, function()
+        if res and res.commodity then
+          Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", itemKey.itemID)
+        else
+          Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", itemKey)
+        end
+        done()
+      end)
     end)
   end,
   GetNumCommoditySearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,

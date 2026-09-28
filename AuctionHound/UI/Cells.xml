@@ -2,8 +2,9 @@
 	<!-- Cells for the columns Hound adds to Blizzard's lists. The mixins
 	     live in UI/Browse.lua, UI/Ladder.lua and UI/Auctions.lua. -->
 
-	<!-- Buy tab: a note on the left (the reference), a figure on the
-	     right (the discount). -->
+	<!-- Buy tab: a note on the left (the reference, and the units at the
+	     floor once read), a figure on the right (the discount). Hovering
+	     shows the row's ladder. -->
 	<Frame name="AuctionHoundBrowseCellTemplate" mixin="AuctionHoundBrowseCellMixin" virtual="true">
 		<Size x="0" y="16"/>
 		<Layers>
@@ -21,6 +22,10 @@
 				</FontString>
 			</Layer>
 		</Layers>
+		<Scripts>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+		</Scripts>
 	</Frame>
 
 	<!-- Item buy frame: the discount off the reference for one auction. -->

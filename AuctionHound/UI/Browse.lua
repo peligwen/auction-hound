@@ -3,8 +3,9 @@
 -- Blizzard's browse list is a table builder over a scroll box. The
 -- column joins its layout the way the Level column does for armor. The
 -- strip sits above the headers and swaps the list's data provider for a
--- filtered, sorted order over the same rows. Buying still goes through
--- Blizzard's own frames.
+-- filtered, sorted order over the same rows. With Depth on, each row on
+-- screen is searched for its ladder (Depth.lua) and the cell's tooltip
+-- shows it. Buying still goes through Blizzard's own frames.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -50,10 +51,55 @@ function AuctionHoundBrowseCellMixin:Init(owner)
 end
 
 function AuctionHoundBrowseCellMixin:Populate(rowData)
-  local note, figure, color = H.Browse.CellText(H.Browse.Evaluate(rowData))
+  self.rowData = rowData
+  local e = H.Browse.Evaluate(rowData)
+  local L = nil
+  if e and H.Settings().browseDepth then L = H.Depth.Want(rowData) end
+  local note, figure, color = H.Browse.CellText(e, L)
   self.Sub:SetText(note)
   self.Text:SetText(figure)
   self.Text:SetTextColor(color[1], color[2], color[3])
+end
+
+local function sourceText(e)
+  if e.refSrc == "market" then return string.format("market, %d scans", e.st and e.st.samples or 0) end
+  if e.refSrc == "vendor" then return "vendor price" end
+  return "estimate: " .. string.sub(e.refSrc or "", 7)
+end
+
+function AuctionHoundBrowseCellMixin:OnEnter()
+  UI.RowScript(self, "OnEnter")
+  local e = H.Browse.Evaluate(self.rowData)
+  if not e or e.qty == 0 or not GameTooltip then return end
+  GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+  GameTooltip:AddLine("|cffe6b800Hound|r", 1, 1, 1)
+  local depthOn = H.Settings().browseDepth
+  local L = depthOn and H.Depth.Get(self.rowData) or nil
+  if L then
+    for _, line in ipairs(H.Ladder.Lines(L)) do
+      GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true)
+    end
+  else
+    if e.ref then
+      GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), sourceText(e)), 0.8, 0.8, 0.8, true)
+    else
+      GameTooltip:AddLine("no reference: nothing scanned, no vendor or crafting anchor", 0.8, 0.8, 0.8, true)
+    end
+    GameTooltip:AddLine(string.format("floor %s, %d units listed", H.Money(e.min), e.qty), 0.8, 0.8, 0.8, true)
+    if depthOn and H.Depth.Failed(self.rowData) then
+      GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
+    elseif depthOn then
+      GameTooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
+    else
+      GameTooltip:AddLine("tick Depth for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
+    end
+  end
+  GameTooltip:Show()
+end
+
+function AuctionHoundBrowseCellMixin:OnLeave()
+  UI.RowScript(self, "OnLeave")
+  if GameTooltip then GameTooltip:Hide() end
 end
 
 ------------------------------------------------------------------------
@@ -103,26 +149,8 @@ end
 -- Fetching the rest. With a filter or sort on, the order only means
 -- something over the whole result set, so the remaining pages are
 -- requested without waiting for a scroll, one at a time through the
--- throttle, up to the snipe page setting.
+-- throttle queue, up to the snipe page setting.
 ------------------------------------------------------------------------
-local pendingSend
-
-local function sendWhenReady(fn)
-  local AH = C_AuctionHouse
-  if AH.IsThrottledMessageSystemReady and not AH.IsThrottledMessageSystemReady() then
-    pendingSend = fn
-    return
-  end
-  pendingSend = nil
-  fn()
-end
-
-H.RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY", function()
-  local fn = pendingSend
-  pendingSend = nil
-  if fn then fn() end
-end)
-
 local function requestMore()
   if B.loading then C_AuctionHouse.RequestMoreBrowseResults() end
 end
@@ -139,15 +167,30 @@ function B.LoadMore()
     return
   end
   B.loading = true
-  sendWhenReady(requestMore)
+  H.Throttle.Send(requestMore)
 end
 
 -- A dropped message while a page is wanted: ask again once the system
 -- is ready. Blizzard's own scroll can request pages too, so a drop is
 -- not always ours, and a spare request is harmless.
 H.RegisterEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED", function()
-  if B.loading and not pendingSend then sendWhenReady(requestMore) end
+  if B.loading and not H.Throttle.Pending() then H.Throttle.Send(requestMore) end
 end)
+
+------------------------------------------------------------------------
+-- Depth: searches go out only while the list shows and no page is on
+-- its way. A ladder landing refreshes the rows so the cells show it.
+------------------------------------------------------------------------
+H.Depth.SetGate(function()
+  return B.list ~= nil and B.br ~= nil and B.br:IsShown() and not B.loading
+end)
+
+H.Events:On("DEPTH_UPDATED", function()
+  if B.list then B.list:DirtyScrollFrame() end
+  B.UpdateStrip()
+end)
+
+H.Events:On("DEPTH_STATUS", function() B.UpdateStrip() end)
 
 ------------------------------------------------------------------------
 -- Rebuild after Blizzard's rows change or a toggle moves.
@@ -167,6 +210,7 @@ function B.Rebuild()
   end
   B.list:DirtyScrollFrame()
   B.LoadMore()
+  H.Depth.Tick()
   B.UpdateStrip()
 end
 
@@ -199,6 +243,7 @@ local function buildStrip(br)
   strip.deals = toggle("Deals only", "browseDeals")
   strip.history = toggle("History only", "browseHistory")
   strip.notMine = toggle("Not mine", "browseNotMine")
+  strip.depth = toggle("Depth", "browseDepth")
 
   local minLabel = UI.Text(strip, "GameFontHighlightSmall", "min", "LEFT")
   minLabel:SetPoint("LEFT", prev.label, "RIGHT", 14, 0)
@@ -228,6 +273,7 @@ function B.UpdateStrip()
   strip.deals:SetChecked(S.browseDeals and true or false)
   strip.history:SetChecked(S.browseHistory and true or false)
   strip.notMine:SetChecked(S.browseNotMine and true or false)
+  strip.depth:SetChecked(S.browseDepth and true or false)
   local want = tostring(H.Round((S.minDiscount or 0) * 100))
   if strip.min:GetText() ~= want and not strip.min:HasFocus() then strip.min:SetText(want) end
 
@@ -243,6 +289,8 @@ function B.UpdateStrip()
     text = text .. ", loading more"
   elseif B.capped then
     text = text .. string.format(", stopped at %d pages", B.pages)
+  elseif H.Depth.Reading() then
+    text = text .. ", reading depth"
   end
   strip.status:SetText(text)
 end
@@ -272,6 +320,7 @@ local function install()
     end)
     br:HookScript("OnShow", function()
       B.LoadMore()
+      H.Depth.Tick()
       B.UpdateStrip()
     end)
 
@@ -293,7 +342,6 @@ H.Events:On("AH_UI_LOADED", install)
 H.Events:On("AH_OPENED", install)
 H.Events:On("AH_CLOSED", function()
   B.loading = false
-  pendingSend = nil
 end)
 H.Events:On("SETTINGS_CHANGED", function()
   if B.list then B.Rebuild() end

@@ -66,7 +66,8 @@ end
 
 ------------------------------------------------------------------------
 -- What the Hound column shows for a row: a note on the left, a figure
--- on the right, and the figure's color.
+-- on the right, and the figure's color. With the row's ladder known,
+-- the note ends in the units at the floor.
 ------------------------------------------------------------------------
 Browse.COLORS = {
   deal = { 0.30, 0.85, 0.30 },
@@ -75,7 +76,7 @@ Browse.COLORS = {
   none = { 0.45, 0.45, 0.45 },
 }
 
-function Browse.CellText(e)
+function Browse.CellText(e, L)
   if not e or e.qty == 0 then return "", "", Browse.COLORS.none end
   if not e.ref then return "no reference", "", Browse.COLORS.none end
   local note = H.MoneyShort(e.ref)
@@ -83,6 +84,9 @@ function Browse.CellText(e)
     note = "vendor " .. note
   elseif not e.history then
     note = "~" .. note
+  end
+  if type(L) == "table" and L.floorUnits then
+    note = note .. " x" .. L.floorUnits
   end
   local color
   if e.deal then

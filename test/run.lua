@@ -1464,6 +1464,184 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Depth on demand: one search per row on screen, through the throttle
+------------------------------------------------------------------------
+do
+  local Depth, BUI, T = H.Depth, H.UI.Browse, H.Throttle
+  local br = AuctionHouseFrame.BrowseResultsFrame
+  local S = H.Settings()
+  H.atAH = true
+  S.browseSort, S.browseDeals, S.browseHistory, S.browseNotMine, S.browseDepth = false, false, false, false, false
+  H.Browse.Invalidate()
+  Depth.Clear()
+  local refOre = H.Snipe.Reference("2770", 2770)
+  local refTin = H.Snipe.Reference("2771", 2771)
+  local oreRow = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * 0.5), totalQuantity = 60 }
+  local tinRow = { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = H.Round(refTin * 0.9), totalQuantity = 10 }
+  local emptyRow = { itemKey = C_AuctionHouse.MakeItemKey(2840), minPrice = 0, totalQuantity = 0 }
+  Stub.ah.searchResults["2770"] = { commodity = true, listings = { { oreRow.minPrice, 12 }, { H.Round(refOre * 0.55), 8 }, { H.Round(refOre * 1.1), 40 } } }
+  Stub.ah.searchResults["2771"] = { commodity = true, listings = { { tinRow.minPrice, 10 } } }
+  Stub.ah.browsePageSize = 10
+  Stub.ah.browse = { oreRow, tinRow, emptyRow }
+  Stub.ah.throttleModel = true
+  Stub.ah.ready = true
+  Stub.ah.searchCalls, Stub.ah.dropped, T.replayed = 0, 0, 0
+  br:Show()
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  eq(Stub.ah.ready, true, "the model frees the house once the browse answers")
+
+  -- off: the column reads the row alone
+  local r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 0, "depth off: no searches")
+  eq(r.rows[1][4].Sub.text, H.MoneyShort(refOre), "depth off: the note is the reference alone")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "tick Depth", 1, true), "tooltip points at the toggle")
+  r.rows[1][4]:OnLeave()
+
+  -- on: the rows on screen are searched one at a time
+  BUI.strip.depth:SetChecked(true)
+  BUI.strip.depth.scripts.OnClick(BUI.strip.depth)
+  eq(S.browseDepth, true, "depth toggle saved")
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 1, "one search out for the first row")
+  eq(Stub.ah.lastSearchKey, "2770", "the first row's item searched")
+  check(Depth.Reading(), "reading while a search is out")
+  check(string.find(BUI.strip.status.text, "reading depth", 1, true), "status says so: " .. BUI.strip.status.text)
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 1, "a second render sends nothing more while one is out")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "reading the listings", 1, true), "tooltip says it is reading")
+  r.rows[1][4]:OnLeave()
+  br.ItemList.dirty = false
+  Stub.Advance(1) Stub.Pump()
+  local L = Depth.Get(oreRow)
+  check(L ~= nil, "ore depth cached")
+  eq(L and L.floorUnits, 12, "twelve units at the floor")
+  check(br.ItemList.dirty, "list refreshed when the depth lands")
+  eq(Stub.ah.searchCalls, 2, "the next row searched once the house is ready")
+  eq(Stub.ah.lastSearchKey, "2771", "the second row's item searched")
+  Stub.Advance(1) Stub.Pump()
+  eq(Stub.ah.searchCalls, 2, "the empty row is never searched")
+  check(not Depth.Reading(), "reading done")
+  check(not string.find(BUI.strip.status.text, "reading depth", 1, true), "status settles: " .. BUI.strip.status.text)
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Sub.text, H.MoneyShort(refOre) .. " x12", "cell shows the units at the floor")
+  eq(r.rows[2][4].Sub.text, H.MoneyShort(refTin) .. " x10", "second cell too")
+  eq(r.rows[3][4].Sub.text, "", "empty row shows nothing")
+  hover(r, "buy tab with depth")
+
+  -- the tooltip carries the ladder
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  local tip = table.concat(GameTooltip.lines, "\n")
+  check(string.find(tip, "20 units at or under", 1, true), "tooltip has the deal line: " .. tip)
+  check(string.find(tip, "next step", 1, true), "tooltip has the step line")
+  r.rows[1][4]:OnLeave()
+
+  -- unchanged rows keep their depth across a new result set
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 2, "unchanged rows keep their depth")
+
+  -- a moved floor stales the depth, and the row is read again
+  oreRow.minPrice = oreRow.minPrice - 1
+  eq(Depth.Get(oreRow), nil, "a moved floor stales the depth")
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 3, "the moved row is searched again")
+  Stub.Advance(1) Stub.Pump()
+  check(Depth.Get(oreRow) ~= nil, "and cached again")
+
+  -- the gate: nothing goes out while the list is hidden or a page is loading
+  tinRow.totalQuantity = 11
+  br:Hide()
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 3, "no search while the list is hidden")
+  br:Show()
+  eq(Stub.ah.searchCalls, 4, "showing the list sends the waiting search")
+  Stub.Advance(1) Stub.Pump()
+  tinRow.totalQuantity = 12
+  BUI.loading = true
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 4, "no search while a page is on its way")
+  BUI.loading = false
+  Depth.Tick()
+  eq(Stub.ah.searchCalls, 5, "the search goes out once the page is in")
+  Stub.Advance(1) Stub.Pump()
+
+  -- a full scan holds it, and its end lets it go
+  tinRow.totalQuantity = 13
+  H.Scan.state = "browsing"
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 5, "no search during a scan")
+  H.Scan.state = "idle"
+  H.Events:Fire("SCAN_STATUS")
+  eq(Stub.ah.searchCalls, 6, "the search goes out once the scan is idle")
+  Stub.Advance(1) Stub.Pump()
+
+  -- Blizzard's own query while ours is out: dropped by the house, then
+  -- sent again by Hound once the house is ready
+  tinRow.totalQuantity = 14
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, 7, "a depth search is out")
+  eq(Stub.ah.ready, false, "the house is busy with it")
+  Stub.ah.lastSearchKey = nil
+  C_AuctionHouse.SendSearchQuery(C_AuctionHouse.MakeItemKey(2840), {}, false)
+  Stub.Pump()
+  eq(Stub.ah.dropped, 1, "the click's query was dropped")
+  eq(Stub.ah.lastSearchKey, nil, "and not served")
+  Stub.Advance(1) Stub.Pump()
+  eq(T.replayed, 1, "hound sent the click's query again")
+  eq(Stub.ah.lastSearchKey, "2840", "the click's query was served")
+  eq(Stub.ah.searchCalls, 8, "one more send, none of it ours")
+  Stub.Advance(1) Stub.Pump()
+  -- an old foreign query is not what a later drop is about
+  Stub.ah.lastSearchKey = nil
+  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
+  eq(T.replayed, 1, "a drop long after the query replays nothing")
+
+  -- an empty answer is remembered for a while, and the tooltip says so
+  Stub.ah.searchResults["2771"] = { commodity = true, listings = {} }
+  tinRow.totalQuantity = 15
+  r = br.ItemList:Render()
+  Stub.Advance(1) Stub.Pump()
+  eq(Depth.Get(tinRow), nil, "an empty answer gives no ladder")
+  check(Depth.Failed(tinRow), "and is remembered as a failure")
+  local calls = Stub.ah.searchCalls
+  r = br.ItemList:Render()
+  eq(Stub.ah.searchCalls, calls, "not asked again straight away")
+  GameTooltip:ClearLines()
+  r.rows[2][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "no listings", 1, true), "tooltip says the house had nothing")
+  r.rows[2][4]:OnLeave()
+  Stub.ah.searchResults["2771"] = { commodity = true, listings = { { tinRow.minPrice, 10 } } }
+
+  -- a search the house never answers times out and frees the slot
+  tinRow.totalQuantity = 16
+  local realSearch = C_AuctionHouse.SendSearchQuery
+  C_AuctionHouse.SendSearchQuery = function() Stub.ah.ready = false end
+  r = br.ItemList:Render()
+  check(Depth.inflight ~= nil, "silent search in flight")
+  Stub.Advance(Depth.TIMEOUT + 1) Stub.Pump()
+  check(Depth.inflight == nil, "silent search timed out")
+  eq(Depth.Get(tinRow), nil, "nothing cached for it")
+  C_AuctionHouse.SendSearchQuery = realSearch
+  Stub.ah.ready = true
+
+  -- leaving the house forgets it all
+  H.Events:Fire("AH_CLOSED")
+  eq(Depth.Get(oreRow), nil, "cache cleared on close")
+  check(not T.Pending(), "queue cleared on close")
+  H.atAH = true
+  Stub.ah.throttleModel = false
+  S.browseDepth = false
+  Depth.Clear()
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

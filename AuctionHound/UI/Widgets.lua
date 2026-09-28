@@ -36,6 +36,16 @@ function UI.CellMixin()
   return m
 end
 
+-- Blizzard's rows take the mouse for their highlight. A cell with a
+-- tooltip takes it instead, so it hands the hover on to its row the
+-- way Blizzard's own tooltip cells do.
+function UI.RowScript(cell, name)
+  local row = cell:GetParent()
+  if row and type(ExecuteFrameScript) == "function" then
+    ExecuteFrameScript(row, name)
+  end
+end
+
 function UI.Text(parent, font, text, justify)
   local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontHighlightSmall")
   fs:SetJustifyH(justify or "LEFT")

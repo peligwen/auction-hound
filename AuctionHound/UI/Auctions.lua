@@ -40,15 +40,8 @@ function AuctionHoundTotalCellMixin:Populate(rowData)
   self.Text:SetText(total and H.Money(total) or "")
 end
 
-local function rowScript(cell, name)
-  local row = cell:GetParent()
-  if row and type(ExecuteFrameScript) == "function" then
-    ExecuteFrameScript(row, name)
-  end
-end
-
 function AuctionHoundTotalCellMixin:OnEnter()
-  rowScript(self, "OnEnter")
+  UI.RowScript(self, "OnEnter")
   local r = self.rowData
   local total, cut, net = A.Figures(r)
   if not total or not GameTooltip then return end
@@ -68,7 +61,7 @@ function AuctionHoundTotalCellMixin:OnEnter()
 end
 
 function AuctionHoundTotalCellMixin:OnLeave()
-  rowScript(self, "OnLeave")
+  UI.RowScript(self, "OnLeave")
   if GameTooltip then GameTooltip:Hide() end
 end
 

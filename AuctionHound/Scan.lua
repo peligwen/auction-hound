@@ -42,13 +42,23 @@ end
 local pendingSend = nil
 local lastSend = nil
 
+-- Sends are marked as Hound's own so the throttle module leaves their
+-- drops to the scanner and replays only Blizzard's.
+local function send(fn)
+  local T = H.Throttle
+  if T then T.sending = true end
+  local ok, err = pcall(fn)
+  if T then T.sending = false end
+  if not ok then error(err, 0) end
+end
+
 function Scan.SendWhenReady(fn)
   if AH.IsThrottledMessageSystemReady and not AH.IsThrottledMessageSystemReady() then
     pendingSend = fn
     return false
   end
   lastSend = fn
-  fn()
+  send(fn)
   return true
 end
 
@@ -57,7 +67,7 @@ H.RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY", function()
   pendingSend = nil
   if fn then
     lastSend = fn
-    fn()
+    send(fn)
   end
 end)
 
@@ -353,9 +363,8 @@ local function finishSearch(listings, isCommodity)
   if s and s.cb then s.cb(listings, isCommodity) end
 end
 
-H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
-  local s = Scan.search
-  if Scan.state ~= "searching" or not s or s.key.itemID ~= itemID then return end
+-- The house's answer to a search, as listings. Depth reads them too.
+function Scan.CommodityListings(itemID)
   local listings = {}
   local n = AH.GetNumCommoditySearchResults(itemID) or 0
   for i = 1, n do
@@ -364,13 +373,10 @@ H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
       table.insert(listings, { p = r.unitPrice, q = r.quantity, auctionID = r.auctionID, timeLeft = r.timeLeftSeconds, owners = r.owners, mine = r.containsOwnerItem })
     end
   end
-  finishSearch(listings, true)
-end)
+  return listings
+end
 
-H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
-  local s = Scan.search
-  if Scan.state ~= "searching" or not s or not itemKey then return end
-  if H.KeyString(itemKey) ~= s.keyStr and itemKey.itemID ~= s.key.itemID then return end
+function Scan.ItemListings(itemKey)
   local listings = {}
   local n = AH.GetNumItemSearchResults(itemKey) or 0
   for i = 1, n do
@@ -379,5 +385,18 @@ H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
       table.insert(listings, { p = r.buyoutAmount, q = r.quantity or 1, auctionID = r.auctionID, timeLeft = r.timeLeft, owners = r.owners, mine = r.containsOwnerItem })
     end
   end
-  finishSearch(listings, false)
+  return listings
+end
+
+H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
+  local s = Scan.search
+  if Scan.state ~= "searching" or not s or s.key.itemID ~= itemID then return end
+  finishSearch(Scan.CommodityListings(itemID), true)
+end)
+
+H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
+  local s = Scan.search
+  if Scan.state ~= "searching" or not s or not itemKey then return end
+  if H.KeyString(itemKey) ~= s.keyStr and itemKey.itemID ~= s.key.itemID then return end
+  finishSearch(Scan.ItemListings(itemKey), false)
 end)
