@@ -1249,6 +1249,158 @@ do
 end
 
 ------------------------------------------------------------------------
+-- The listing ladder, deposit notes, and the Auctions tab cell
+------------------------------------------------------------------------
+do
+  local Ladder = H.Ladder
+  local F = H.Fan
+  H.atAH = true
+  H.Settings().minDiscount = 0.25
+  H.Browse.Invalidate()
+  local refOre = H.Snipe.Reference("2770", 2770)
+  local function at(frac) return H.Round(refOre * frac) end
+
+  -- the ladder from listings
+  local L = Ladder.Build({ { p = at(0.4), q = 30 }, { p = at(0.45), q = 20 }, { p = at(1.0), q = 500, mine = true } }, "2770", 2770)
+  check(L ~= nil, "ladder built")
+  eq(#L.steps, 3, "three price steps")
+  eq(L.floor, at(0.4), "floor is the cheapest step")
+  eq(L.units, 550, "units summed")
+  eq(L.dealUnits, 50, "units at or under the limit")
+  eq(L.dealCost, at(0.4) * 30 + at(0.45) * 20, "cost of the deal units")
+  eq(L.mineUnits, 500, "own units counted")
+  check(not L.lowFloor, "a small step is not a low floor")
+  eq(Ladder.Verdict(L, at(0.4)), "deal", "floor is a deal")
+  eq(Ladder.Verdict(L, at(0.9)), "under", "under the reference but not a deal")
+  eq(Ladder.Verdict(L, at(1.0)), "over", "at the reference is over")
+  eq(Ladder.Color("deal", false), H.Browse.COLORS.deal, "deal color")
+  eq(Ladder.Color("over", false), nil, "over keeps Blizzard's color")
+  eq(Ladder.Off(L, at(0.5)), "-50%", "discount text for a listing")
+  local lines = Ladder.Lines(L)
+  eq(#lines, 4, "four lines")
+  check(string.find(lines[1], "^reference "), "line one names the reference: " .. lines[1])
+  check(string.find(lines[2], "50 units at or under", 1, true), "line two counts the deal: " .. lines[2])
+  check(string.find(lines[3], "next step", 1, true) and not string.find(lines[3], "low in the list", 1, true), "line three has the next step: " .. lines[3])
+  check(string.find(lines[4], "500 yours", 1, true), "line four counts yours: " .. lines[4])
+
+  -- a stray far under the rest
+  L = Ladder.Build({ { p = 100, q = 1 }, { p = 200, q = 10 } }, "2770", 2770)
+  check(L.lowFloor, "a floor half the next step is low")
+  eq(select(2, Ladder.Verdict(L, 100)), true, "the floor listing is flagged")
+  eq(select(2, Ladder.Verdict(L, 200)), false, "the next step is not")
+  eq(Ladder.Color("deal", true), Ladder.COLORS.low, "flagged listing takes the low color")
+  check(string.find(Ladder.Lines(L)[3], "low in the list", 1, true), "line three says so")
+
+  -- no reference, vendor reference, nothing
+  L = Ladder.Build({ { p = 500, q = 3 } }, "90001", 90001)
+  eq(L.ref, nil, "unknown item has no reference")
+  eq(Ladder.Verdict(L, 500), "none", "no verdict without a reference")
+  eq(Ladder.Off(L, 500), "", "no discount text without a reference")
+  check(string.find(Ladder.Lines(L)[1], "no reference", 1, true), "line one says there is no reference")
+  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
+  eq(L.refSrc, "vendor", "vendor price stands in")
+  eq(L.limit, 999, "limit sits just under the vendor price")
+  eq(L.dealUnits, 3, "units under vendor are the deal")
+  eq(Ladder.Build({}, "2770", 2770), nil, "no listings, no ladder")
+  eq(Ladder.Lines(nil)[1], "no listings loaded", "no ladder, one line")
+
+  -- the buy frames
+  AuctionHouseFrame.CommoditiesBuyFrame = Stub.NewCommoditiesBuyFrame()
+  AuctionHouseFrame.ItemBuyFrame = Stub.NewItemBuyFrame()
+  local LU = H.UI.Ladder
+  ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
+  check(ok, "buy frame hooks: " .. tostring(err))
+  check(LU.installed and LU.block.commodity and LU.block.item, "info blocks built")
+  local cf = AuctionHouseFrame.CommoditiesBuyFrame
+  Stub.ah.currentSearch = { commodity = true, listings = { { at(0.4), 30 }, { at(0.45), 20 }, { at(2.0), 500 } } }
+  cf:SetItemIDAndPrice(2770, at(0.4))
+  eq(LU.block.commodity.lines[1].text, "reading the listings", "block waits for results")
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2771)
+  eq(LU.current.commodity, nil, "another item's results are ignored")
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
+  check(LU.current.commodity and LU.current.commodity.floor == at(0.4), "commodity ladder built from the results")
+  check(string.find(LU.block.commodity.lines[1].text, "^reference "), "block shows the reference")
+  local r = cf.ItemList:Render()
+  eq(#r.columns, 2, "commodity list keeps its two columns")
+  local qtyCell = r.rows[1][2]
+  eq(qtyCell.Text.text, "30", "units cell still populated by Blizzard")
+  eq(qtyCell.Text.color and qtyCell.Text.color[2], H.Browse.COLORS.deal[2], "deal units colored green")
+  eq(r.rows[3][2].Text.color, nil, "units over reference keep their color")
+  -- a sell list cell with another owner is left alone
+  local other = CreateFrame("Frame", nil, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
+  other:Init(CreateFrame("Frame"))
+  other:Populate({ unitPrice = at(0.4), quantity = 5 })
+  eq(other.Text.color, nil, "another list's cell untouched")
+
+  local itf = AuctionHouseFrame.ItemBuyFrame
+  local tinKey = C_AuctionHouse.MakeItemKey(2771)
+  local refTin = H.Snipe.Reference("2771", 2771)
+  check(refTin and refTin > 0, "tin ore has a reference")
+  Stub.ah.currentSearch = { listings = { { H.Round(refTin * 0.4), 1 }, { H.Round(refTin * 1.1), 1 }, { nil, 1 } } }
+  itf:SetItemKey(tinKey)
+  eq(LU.block.item.lines[1].text, "reading the auctions", "item block waits for results")
+  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", C_AuctionHouse.MakeItemKey(2770))
+  eq(LU.current.item, nil, "another key's results are ignored")
+  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", tinKey)
+  check(LU.current.item and LU.current.item.units == 2, "item ladder counts auctions with a buyout")
+  check(LU.current.item.lowFloor, "a stray auction far under the next is flagged")
+  r = itf.ItemList:Render()
+  eq(#r.columns, 6, "hound column added to the auction list")
+  eq(r.columns[5].header, "Hound", "hound column sits before time left")
+  eq(r.rows[1][5].Text.text, "-60%", "discount off the reference per auction")
+  eq(r.rows[1][5].Text.color[3], Ladder.COLORS.low[3], "flagged auction colored")
+  eq(r.rows[2][5].Text.text, "+10%", "premium shown as a premium")
+  eq(r.rows[3][5].Text.text, "", "bid-only auction shows nothing")
+  local lp = itf.ItemList.points[#itf.ItemList.points]
+  eq(lp[5], -(14 + LU.BLOCK_HEIGHT + 4), "auction list starts below the block")
+  eq(itf.ItemList.Background.height, 414 - LU.BLOCK_HEIGHT - 4, "background shortened to match")
+
+  -- deposit notes: every post leaves one; an adopted auction takes it
+  Stub.SetBag(0, 1, 2770, 40)
+  local loc = ItemLocation:CreateFromBagAndSlot(0, 1)
+  C_AuctionHouse.PostCommodity(loc, 2, 5, 300)
+  local note = F.TakeNote(2770, 5, 300)
+  check(note ~= nil, "post left a note")
+  eq(note.deposit, 5 * 2, "note carries the deposit")
+  eq(note.duration, 2, "note carries the duration")
+  eq(F.TakeNote(2770, 5, 300), nil, "a note is taken once")
+  Stub.Advance(1) Stub.Pump()
+  Stub.ah.owned = {}
+  C_AuctionHouse.PostCommodity(loc, 3, 4, 250)
+  Stub.Advance(1) Stub.Pump()
+  eq(#Stub.ah.owned, 1, "the house listed the auction")
+  local posted = Stub.ah.owned[1]
+  F.Reconcile(Stub.ah.owned, Stub.now)
+  local adopted = F.PostForAuction(posted.auctionID)
+  check(adopted and adopted.adopted, "auction posted from Blizzard's tab adopted")
+  eq(adopted.deposit, 4 * 3, "adopted auction carries its deposit")
+  eq(adopted.dur, 48 * 3600, "adopted auction carries its duration")
+  local fanPost
+  for _, p in ipairs(H.Store.Posts()) do if p.fan and p.deposit then fanPost = p break end end
+  check(fanPost ~= nil, "fan posts carry their deposit")
+
+  -- the Auctions tab cell: total, cut, and the deposit on hover
+  H.Settings().cut = 0.05
+  r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
+  local cell = r.rows[1][4]
+  eq(cell.Text.text, H.Money(250 * 4), "total is buyout times units")
+  eq(cell.Sub.text, "(-" .. H.Money(50) .. ")", "cut shown beside the total")
+  GameTooltip:ClearLines()
+  cell:OnEnter()
+  local tip = table.concat(GameTooltip.lines, "\n")
+  check(string.find(tip, "deposit paid | " .. H.Money(12), 1, true), "tooltip names the deposit: " .. tip)
+  check(string.find(tip, "left after cut and deposit | " .. H.Money(1000 - 50 - 12), 1, true), "tooltip nets the deposit out")
+  cell:OnLeave()
+  cell:Populate({ auctionID = 1, quantity = 1 })
+  eq(cell.Text.text, "", "no buyout, no total")
+  cell:Populate({ auctionID = 424242, quantity = 2, buyoutAmount = 700 })
+  GameTooltip:ClearLines()
+  cell:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "deposit not recorded", 1, true), "tooltip says when the deposit is unknown")
+  cell:OnLeave()
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

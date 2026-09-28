@@ -27,7 +27,18 @@ the checklist below is where that stands.
   filters do the narrowing; clicking a row buys through Blizzard's
   frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
-  buyout times units, so a stack reads as what it brings in.
+  buyout times units, with the house's cut beside it in grey. Hovering
+  the total shows the deposit paid and what is left after both. The
+  deposit is noted whenever an auction is posted, from the Fan view or
+  from Blizzard's own Sell tab, and shows in the History view too.
+- **Listing ladder.** Clicking a Buy tab row opens Blizzard's buy frame
+  for that item, and Hound reads the listings there: an info block with
+  the reference, how many units sit at or under the deal limit and
+  what they cost, the floor and the next price step, and the value of
+  these listings alone. On the commodity list each units figure takes
+  the verdict's color, green for a deal and amber under reference; the
+  item list gets a discount column. A floor far under the next step is
+  flagged in blue as low in the list, reference or not.
 - **History.** Every auction of yours the addon has seen, with what
   became of it: active, sold, expired or cancelled, units and gold. Fan
   batches and auctions posted from Blizzard's own Sell tab alike; the
@@ -171,7 +182,23 @@ the left edge, so the view buttons now start to the right of it.
     you have up should be listed as active, including ones posted from
     Blizzard's Sell tab, after the house has been open a few seconds.
     Sell, cancel or let one expire, and the row should change on the
-    next visit. The line at the top sums the last thirty days.
+    next visit. The line at the top sums the last thirty days. Post
+    something from Blizzard's Sell tab and its Deposit column should
+    fill in once the house lists it.
+17. **Auctions tab cut and deposit.** Open, and new. The Total column
+    shows the cut in grey after the total. Hover a total: the tooltip
+    names the deposit for anything posted while the addon was loaded,
+    and says so when it was not. A click on the total should still
+    select the row.
+18. **Listing ladder.** Open, and new. Click a commodity row on the Buy
+    tab: under the Buy button a four-line block should name the
+    reference, the units at or under the limit, the floor and next
+    step, and the value of the listings; the units figures in the list
+    should turn green for deals and amber under reference. Click a
+    non-commodity row: the block sits between the item header and the
+    auction list, and a Hound column shows each auction's discount.
+    Report if the block overlaps the Buy button or the item header, or
+    if the list's headers sit under the block.
 
 ## Commands
 
@@ -211,11 +238,13 @@ Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
 Snipe.lua    candidates, confirmation, scoring, buying, ledger
 Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
+Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
-             the Buy tab column and filter strip, the Auctions tab total
-             column (Cells.xml holds both cells)
+             the Buy tab column and filter strip, the buy frames' ladder
+             block and colors, the Auctions tab total column (Cells.xml
+             holds the cells)
 Data/        conversion recipes with classic item ids
 ```
 
@@ -255,16 +284,17 @@ auction house calls and events. It loads the addon from `AuctionHound/`
 in TOC order; XML files are read for the mixin and font strings each
 template declares, so a cell template and its mixin must agree.
 `test/run.lua` runs the full scan, auto scan, snipe, purchase, tooltip,
-slash command, Buy tab column and filter, Auctions tab column, auction
-adoption and history, and UI construction paths. Where the beta has
+slash command, Buy tab column and filter, listing ladder, Auctions tab
+column, deposit notes, auction adoption and history, and UI
+construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly.
 
 ## Roadmap
 
-- Buy tab, next: highlight the listing ladder when a row is clicked
-  (units at or under the limit, the next price step, a stack far below
-  the rest), then depth on demand for the rows on screen
+- Buy tab: depth on demand for the rows on screen, one throttled
+  search each, so the browse list can show units at the floor
+- Retire the snipe pass once the Buy tab covers its buying
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads
 - Disenchant tables as a third prior

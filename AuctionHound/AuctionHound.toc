@@ -15,10 +15,12 @@ Priors.lua
 Scan.lua
 Snipe.lua
 Browse.lua
+Ladder.lua
 Fan.lua
 Tooltip.lua
 UI\Widgets.lua
 UI\Frame.lua
 UI\Browse.lua
+UI\Ladder.lua
 UI\Auctions.lua
 UI\Cells.xml

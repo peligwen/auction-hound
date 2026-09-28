@@ -729,6 +729,7 @@ local function buildHistoryView(parent)
     { key = "qty", title = "Units", width = 46, align = "RIGHT", kind = "int", value = function(r) return r.p.qty end },
     { key = "unit", title = "Unit", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.p.unit end },
     { key = "total", title = "Total", width = 84, align = "RIGHT", kind = "money", value = function(r) return (r.p.unit or 0) * (r.p.qty or 0) end, desc = true },
+    { key = "dep", title = "Deposit", width = 62, align = "RIGHT", kind = "money", value = function(r) return r.p.deposit end },
     { key = "sold", title = "Sold", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.p.sold or 0 end,
       color = function(r, raw) if raw and raw > 0 then return 0.4, 0.9, 0.4 end return 0.6, 0.6, 0.6 end },
     { key = "status", title = "Status", width = 120, value = function(r) return H.Fan.PostStatus(r.p) end,

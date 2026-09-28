@@ -384,7 +384,7 @@ function Fan.PostNext()
   local post = {
     id = H.Now() * 100 + (postSeq % 100), t = H.Now(), key = plan.key, itemID = plan.itemID, name = plan.name,
     qty = qty, unit = b.unit, dur = Fan.DURATIONS[plan.duration], status = "pending", sold = 0,
-    fan = plan.id, batch = b.i, commodity = plan.isCommodity,
+    fan = plan.id, batch = b.i, commodity = plan.isCommodity, deposit = b.deposit,
   }
   local p = { post = post, batch = b, plan = plan }
   Fan.pending = p
@@ -412,6 +412,8 @@ H.RegisterEvent("AUCTION_HOUSE_AUCTION_CREATED", function(auctionID)
   local post = p.post
   post.auctionID = auctionID
   post.status = "active"
+  local note = Fan.TakeNote(post.itemID, post.qty, post.unit)
+  if note and not post.deposit then post.deposit = note.deposit end
   H.Store.AddPost(post)
   local total = #p.plan.batches
   finishPost(p, "active")
@@ -452,6 +454,91 @@ end
 
 local SOLD = (Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold) or 1
 
+------------------------------------------------------------------------
+-- Every post, from the fan or from Blizzard's own Sell tab, leaves a
+-- note of its deposit and duration for an hour, so the auction can
+-- carry them once the owned list names it. The post calls are hooked
+-- after the fact; the item is still in the bag until the house answers.
+------------------------------------------------------------------------
+local notes = {}
+Fan.NOTE_TTL = 3600
+
+local function itemIDAt(item)
+  if C_Item and C_Item.GetItemID then
+    local ok, id = pcall(C_Item.GetItemID, item)
+    if ok and id then return id end
+  end
+  local bag, slot
+  if type(item) == "table" then
+    if item.GetBagAndSlot then
+      local ok, b, sl = pcall(item.GetBagAndSlot, item)
+      if ok then bag, slot = b, sl end
+    else
+      bag, slot = item.bagID, item.slotIndex
+    end
+  end
+  if bag and slot and C_Container and C_Container.GetContainerItemID then
+    return C_Container.GetContainerItemID(bag, slot)
+  end
+  return nil
+end
+
+function Fan.NotePost(item, duration, quantity, unit, commodity)
+  local itemID = itemIDAt(item)
+  if not itemID then return nil end
+  local dep
+  if commodity then
+    if AH.CalculateCommodityDeposit then
+      local ok, d = pcall(AH.CalculateCommodityDeposit, itemID, duration, quantity)
+      if ok and type(d) == "number" then dep = d end
+    end
+  elseif AH.CalculateItemDeposit then
+    local ok, d = pcall(AH.CalculateItemDeposit, item, duration, quantity)
+    if ok and type(d) == "number" then dep = d end
+  end
+  local note = { t = H.Now(), itemID = itemID, qty = quantity, unit = unit, duration = duration, deposit = dep }
+  table.insert(notes, note)
+  while #notes > 50 do table.remove(notes, 1) end
+  return note
+end
+
+-- The note for an auction that has just shown up, removed once taken.
+function Fan.TakeNote(itemID, qty, unit, now)
+  now = now or H.Now()
+  for i = #notes, 1, -1 do
+    local n = notes[i]
+    if now - n.t > Fan.NOTE_TTL then
+      table.remove(notes, i)
+    elseif n.itemID == itemID and n.qty == qty and n.unit == unit then
+      table.remove(notes, i)
+      return n
+    end
+  end
+  return nil
+end
+
+if AH and hooksecurefunc then
+  if AH.PostCommodity then
+    hooksecurefunc(AH, "PostCommodity", function(item, duration, quantity, unitPrice)
+      Fan.NotePost(item, duration, quantity, unitPrice, true)
+    end)
+  end
+  if AH.PostItem then
+    hooksecurefunc(AH, "PostItem", function(item, duration, quantity, bid, buyout)
+      Fan.NotePost(item, duration, quantity, buyout, false)
+    end)
+  end
+end
+
+-- The post record behind one of your auctions, or nil.
+function Fan.PostForAuction(auctionID)
+  if not auctionID then return nil end
+  for _, p in ipairs(H.Store.Posts() or {}) do
+    if p.auctionID == auctionID then return p end
+  end
+  return nil
+end
+
 -- Seconds an auction can still run, from the exact figure when the
 -- client gives one, else the top of its time-left band.
 local BAND_SECONDS = { [0] = 30 * 60, [1] = 2 * 3600, [2] = 12 * 3600, [3] = 48 * 3600 }
@@ -476,6 +563,11 @@ local function adopt(a, key, now)
     qty = qty, unit = unit, dur = remaining(a), status = "active", sold = 0,
     auctionID = a.auctionID, adopted = true,
   }
+  local note = Fan.TakeNote(itemID, qty, unit, now)
+  if note then
+    post.deposit = note.deposit
+    post.dur = Fan.DURATIONS[note.duration] or post.dur
+  end
   if a.status == SOLD then
     post.status = "sold"
     post.sold = qty

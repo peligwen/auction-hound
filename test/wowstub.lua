@@ -101,6 +101,10 @@ end
 
 C_Container = {
   GetContainerNumSlots = function(bag) return Stub.bagSlots end,
+  GetContainerItemID = function(bag, slot)
+    local s = Stub.bags[bag] and Stub.bags[bag][slot]
+    return s and s.itemID or nil
+  end,
   GetContainerItemInfo = function(bag, slot)
     local s = Stub.bags[bag] and Stub.bags[bag][slot]
     if not s then return nil end
@@ -152,6 +156,10 @@ C_Item = {
     return it and it.ilvl or 0
   end,
   GetItemIconByID = function() return 134400 end,
+  GetItemID = function(loc)
+    local s = type(loc) == "table" and Stub.bags[loc.bagID] and Stub.bags[loc.bagID][loc.slotIndex]
+    return s and s.itemID or nil
+  end,
   GetItemQualityColor = function(q) return 1, 1, 1, "ffffffff" end,
   RequestLoadItemDataByID = function(id)
     Stub.loadRequests = (Stub.loadRequests or 0) + 1
@@ -375,8 +383,7 @@ local function postAuction(loc, duration, qty, unit, commodity)
   if not s then Stub.FireEvent("AUCTION_HOUSE_SHOW_ERROR", 1) return end
   local itemID, suffix = s.itemID, s.suffix or 0
   local it = Stub.items[itemID]
-  local taken = takeFromBags(loc.bagID, loc.slotIndex, qty)
-  if taken < qty then
+  if Stub.BagCount(itemID) < qty then
     C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_SHOW_ERROR", 1) end)
     return
   end
@@ -384,11 +391,15 @@ local function postAuction(loc, duration, qty, unit, commodity)
   local id = Stub.ah.nextAuctionID
   table.insert(Stub.ah.posted, { auctionID = id, itemID = itemID, qty = qty, unit = unit, duration = duration, commodity = commodity, bag = loc.bagID, slot = loc.slotIndex })
   local ilvl = (suffix ~= 0 or (it and it.equip ~= "")) and (it and it.ilvl or 0) or 0
-  table.insert(Stub.ah.owned, {
-    auctionID = id, itemKey = C_AuctionHouse.MakeItemKey(itemID, ilvl, suffix), status = Enum.AuctionStatus.Active,
-    quantity = qty, buyoutAmount = unit, timeLeftSeconds = duration * 12 * 3600, timeLeft = 3,
-  })
-  C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", id) end)
+  -- the item leaves the bag and the auction appears when the house answers
+  C_Timer.After(1, function()
+    takeFromBags(loc.bagID, loc.slotIndex, qty)
+    table.insert(Stub.ah.owned, {
+      auctionID = id, itemKey = C_AuctionHouse.MakeItemKey(itemID, ilvl, suffix), status = Enum.AuctionStatus.Active,
+      quantity = qty, buyoutAmount = unit, timeLeftSeconds = duration * 12 * 3600, timeLeft = 3,
+    })
+    Stub.FireEvent("AUCTION_HOUSE_AUCTION_CREATED", id)
+  end)
 end
 
 function Stub.RemoveOwned(auctionID)
@@ -633,11 +644,64 @@ function Stub.NewAuctionsFrame()
   return af
 end
 
+-- Blizzard's commodity buy frame: the buy display on the left and the
+-- narrow list of unit price and units, whose cells the addon colors.
+function Stub.NewCommoditiesBuyFrame()
+  local frame = CreateFrame("Frame")
+  frame.BuyDisplay = CreateFrame("Frame")
+  local list = Stub.NewItemList()
+  frame.ItemList = list
+  list:SetTableBuilderLayout(function(tb)
+    tb:AddFixedWidthColumn(list, 0, 150, 10, 0, nil, "AuctionHouseTableCellUnitPriceTemplate")
+    tb:AddFillColumn(list, 0, 1.0, 0, 10, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
+  end)
+  function frame:SetItemIDAndPrice(itemID, price)
+    self.itemID = itemID
+    list.itemID = itemID
+    list:SetDataProvider(function() return itemID ~= nil end,
+      function(i) return C_AuctionHouse.GetCommoditySearchResultInfo(itemID, i) end,
+      function() return C_AuctionHouse.GetNumCommoditySearchResults(itemID) end,
+      function() return true end)
+  end
+  return frame
+end
+
+-- Blizzard's item buy frame: the item header and the wide auction list.
+function Stub.NewItemBuyFrame()
+  local frame = CreateFrame("Frame")
+  frame.ItemDisplay = CreateFrame("Button")
+  local list = Stub.NewItemList()
+  frame.ItemList = list
+  list:SetTableBuilderLayout(function(tb)
+    tb:AddFixedWidthColumn(frame, 0, 145, 10, 0, "bid", "AuctionHouseTableCellBidTemplate")
+    tb:AddFixedWidthColumn(frame, 0, 150, 10, 0, "buyout", "AuctionHouseTableCellBuyoutTemplate")
+    tb:AddFillColumn(frame, 0, 1.0, 10, 0, nil, "AuctionHouseTableCellItemQuantityLeftTemplate")
+    tb:AddFixedWidthColumn(frame, 0, 24, 0, 0, nil, "AuctionHouseTableCellExtraInfoTemplate")
+    tb:AddFixedWidthColumn(frame, 0, 140, 10, 10, nil, "AuctionHouseTableCellTimeLeftBandTemplate")
+  end)
+  function frame:SetItemKey(itemKey)
+    self.itemKey = itemKey
+    list:SetDataProvider(function() return itemKey ~= nil end,
+      function(i) return C_AuctionHouse.GetItemSearchResultInfo(itemKey, i) end,
+      function() return C_AuctionHouse.GetNumItemSearchResults(itemKey) end,
+      function() return true end)
+  end
+  return frame
+end
+
 ------------------------------------------------------------------------
 -- Loading the addon in TOC order. XML files only register their
 -- virtual templates: the mixin and the font strings each declares.
 ------------------------------------------------------------------------
 Stub.templates = {}
+
+-- Blizzard's units cell on the commodity lists: the addon hooks its
+-- Populate to color the figure.
+AuctionHouseTableCellCommoditiesQuantityMixin = {
+  Init = function(self, owner) self.owner = owner end,
+  Populate = function(self, rowData) self.Text:SetText(tostring(rowData.quantity or 0)) end,
+}
+Stub.templates["AuctionHouseTableCellCommoditiesQuantityTemplate"] = { mixin = "AuctionHouseTableCellCommoditiesQuantityMixin", fontStrings = { "Text" } }
 
 local function loadTemplates(path)
   local f = io.open(path)

@@ -1,6 +1,6 @@
 <Ui xmlns="http://www.blizzard.com/wow/ui/">
 	<!-- Cells for the columns Hound adds to Blizzard's lists. The mixins
-	     live in UI/Browse.lua and UI/Auctions.lua. -->
+	     live in UI/Browse.lua, UI/Ladder.lua and UI/Auctions.lua. -->
 
 	<!-- Buy tab: a note on the left (the reference), a figure on the
 	     right (the discount). -->
@@ -23,8 +23,22 @@
 		</Layers>
 	</Frame>
 
-	<!-- Auctions tab: buyout times units, left aligned like the price
-	     cells beside it. -->
+	<!-- Item buy frame: the discount off the reference for one auction. -->
+	<Frame name="AuctionHoundLadderCellTemplate" mixin="AuctionHoundLadderCellMixin" virtual="true">
+		<Size x="0" y="16"/>
+		<Layers>
+			<Layer level="BACKGROUND">
+				<FontString parentKey="Text" inherits="Number14FontWhite" justifyH="RIGHT">
+					<Anchors>
+						<Anchor point="RIGHT"/>
+					</Anchors>
+				</FontString>
+			</Layer>
+		</Layers>
+	</Frame>
+
+	<!-- Auctions tab: buyout times units, then the cut in grey. Hovering
+	     shows the deposit; a click still selects the row. -->
 	<Frame name="AuctionHoundTotalCellTemplate" mixin="AuctionHoundTotalCellMixin" virtual="true">
 		<Size x="0" y="16"/>
 		<Layers>
@@ -32,10 +46,20 @@
 				<FontString parentKey="Text" inherits="Number14FontWhite" justifyH="LEFT">
 					<Anchors>
 						<Anchor point="LEFT"/>
+					</Anchors>
+				</FontString>
+				<FontString parentKey="Sub" inherits="GameFontDisableSmall" justifyH="LEFT">
+					<Anchors>
+						<Anchor point="LEFT" relativeKey="$parent.Text" relativePoint="RIGHT" x="4" y="0"/>
 						<Anchor point="RIGHT"/>
 					</Anchors>
 				</FontString>
 			</Layer>
 		</Layers>
+		<Scripts>
+			<OnEnter method="OnEnter"/>
+			<OnLeave method="OnLeave"/>
+			<OnMouseUp method="OnMouseUp"/>
+		</Scripts>
 	</Frame>
 </Ui>
