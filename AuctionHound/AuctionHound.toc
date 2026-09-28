@@ -14,7 +14,10 @@ Data\Conversions.lua
 Priors.lua
 Scan.lua
 Snipe.lua
+Browse.lua
 Fan.lua
 Tooltip.lua
 UI\Widgets.lua
 UI\Frame.lua
+UI\Browse.lua
+UI\Browse.xml

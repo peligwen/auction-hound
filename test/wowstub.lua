@@ -268,6 +268,7 @@ function Frame:IsVisible() return self.shown end
 function Frame:CreateTexture() return newObject("Texture") end
 function Frame:CreateFontString() return newObject("FontString") end
 function Frame:SetText(t) self.text = t end
+function Frame:SetTextColor(r, g, b) self.color = { r, g, b } end
 function Frame:GetText() return self.text end
 function Frame:SetSize(w, h) self.width, self.height = w, h if self.scripts.OnSizeChanged then self.scripts.OnSizeChanged(self, w, h) end end
 function Frame:SetWidth(w) self.width = w end
@@ -298,8 +299,22 @@ function CreateFrame(kind, name, parent, template)
   f.template = template
   table.insert(Stub.frames, f)
   if template == "UIPanelButtonTemplate" then f.fontString = newObject("FontString") end
+  local t = template and Stub.templates[template]
+  if t then
+    if t.mixin and _G[t.mixin] then
+      for k, v in pairs(_G[t.mixin]) do f[k] = v end
+    end
+    for _, key in ipairs(t.fontStrings) do f[key] = newObject("FontString") end
+  end
   if name then _G[name] = f end
   return f
+end
+
+function Mixin(obj, ...)
+  for i = 1, select("#", ...) do
+    for k, v in pairs((select(i, ...))) do obj[k] = v end
+  end
+  return obj
 end
 
 function hooksecurefunc(tbl, name, fn)
@@ -525,8 +540,94 @@ C_AuctionHouse = {
 }
 
 ------------------------------------------------------------------------
--- Loading the addon in TOC order
+-- Blizzard's browse results frame, enough of it for the Buy tab hooks:
+-- an item list with a data provider and a table builder layout, and the
+-- two methods the addon hooks. Render() runs the layout and populates a
+-- cell per row and column the way the client's table builder would.
 ------------------------------------------------------------------------
+function Stub.NewBrowseFrame()
+  local br = CreateFrame("Frame")
+  br.browseResults = {}
+  local list = CreateFrame("Frame")
+  list.Background = newObject("Texture")
+  list.textureHeightClassic = 414
+  br.ItemList = list
+
+  function list:SetDataProvider(started, getEntry, getNum, full)
+    self.searchStartedFunc, self.getEntry, self.getNumEntries, self.hasFullResultsFunc = started, getEntry, getNum, full
+  end
+  function list:SetTableBuilderLayout(fn) self.tableBuilderLayoutFunction = fn end
+  function list:DirtyScrollFrame() self.dirty = true end
+  function list:Render()
+    local tb = { columns = {} }
+    function tb:GetColumns() return self.columns end
+    local function add(owner, header, template, ...)
+      local col = { owner = owner, header = header, template = template, args = { ... } }
+      table.insert(tb.columns, col)
+      return col
+    end
+    function tb:AddFixedWidthColumn(owner, padding, width, l, r, sortOrder, template, ...) return add(owner, sortOrder, template, ...) end
+    function tb:AddFillColumn(owner, padding, fill, l, r, sortOrder, template, ...) return add(owner, sortOrder, template, ...) end
+    function tb:AddUnsortableFixedWidthColumn(owner, padding, width, l, r, header, template, ...) return add(owner, header, template, ...) end
+    function tb:AddUnsortableFillColumn(owner, padding, fill, l, r, header, template, ...) return add(owner, header, template, ...) end
+    self.tableBuilderLayoutFunction(tb)
+    local rows = {}
+    for i = 1, self.getNumEntries() do
+      local rowData = self.getEntry(i)
+      local cells = {}
+      for _, col in ipairs(tb.columns) do
+        local cell = CreateFrame("Frame", nil, nil, col.template)
+        if cell.Init then cell:Init(col.owner, unpack(col.args)) end
+        cell.rowData = rowData
+        if cell.Populate then cell:Populate(rowData, i) end
+        table.insert(cells, cell)
+      end
+      rows[i] = cells
+    end
+    return { columns = tb.columns, rows = rows }
+  end
+
+  function br:SetupTableBuilder(extra)
+    self.ItemList:SetTableBuilderLayout(function(tb)
+      tb:AddFixedWidthColumn(self, 0, 146, 0, 14, "price", "AuctionHouseTableCellMinPriceTemplate")
+      tb:AddFillColumn(self, 0, 1.0, 10, 0, "name", "AuctionHouseTableCellItemDisplayTemplate", true, extra ~= nil)
+      if extra then tb:AddFixedWidthColumn(self, 0, 55, 10, 0, "level", "AuctionHouseTableCellLevelTemplate") end
+      tb:AddUnsortableFixedWidthColumn(self, 0, 83, 10, 0, "Qty", "AuctionHouseTableCellQuantityTemplate")
+      tb:AddFixedWidthColumn(self, 0, 29, 10, 5, nil, "AuctionHouseTableCellFavoriteTemplate")
+    end)
+  end
+  function br:UpdateBrowseResults(added)
+    self.browseResults = C_AuctionHouse.GetBrowseResults()
+    self.ItemList:DirtyScrollFrame()
+  end
+  br:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+  br:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+  br:SetScript("OnEvent", function(self, event, added)
+    if event == "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED" then self:UpdateBrowseResults() else self:UpdateBrowseResults(added or {}) end
+  end)
+  list:SetDataProvider(function() return true end, function(i) return br.browseResults[i] end, function() return #br.browseResults end, C_AuctionHouse.HasFullBrowseResults)
+  br:SetupTableBuilder(nil)
+  return br
+end
+
+------------------------------------------------------------------------
+-- Loading the addon in TOC order. XML files only register their
+-- virtual templates: the mixin and the font strings each declares.
+------------------------------------------------------------------------
+Stub.templates = {}
+
+local function loadTemplates(path)
+  local f = io.open(path)
+  if not f then error("missing " .. path) end
+  local xml = f:read("*a")
+  f:close()
+  for name, body in xml:gmatch('<Frame name="([%w_]+)"(.-)</Frame>') do
+    local t = { mixin = body:match('^[^>]*mixin="([%w_]+)"'), fontStrings = {} }
+    for key in body:gmatch('<FontString parentKey="([%w_]+)"') do table.insert(t.fontStrings, key) end
+    Stub.templates[name] = t
+  end
+end
+
 function Stub.LoadAddon(root)
   local ns = {}
   local toc = io.open(root .. "/AuctionHound.toc")
@@ -539,9 +640,13 @@ function Stub.LoadAddon(root)
   end
   toc:close()
   for _, f in ipairs(files) do
-    local chunk, err = loadfile(root .. "/" .. f)
-    if not chunk then error(err) end
-    chunk("AuctionHound", ns)
+    if f:match("%.xml$") then
+      loadTemplates(root .. "/" .. f)
+    else
+      local chunk, err = loadfile(root .. "/" .. f)
+      if not chunk then error(err) end
+      chunk("AuctionHound", ns)
+    end
   end
   return ns
 end

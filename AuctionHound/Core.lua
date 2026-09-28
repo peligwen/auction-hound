@@ -6,6 +6,10 @@ H.DEFAULTS = {
   minDiscount = 0.25,    -- snipe candidates must sit at least this far under reference
   snipePages = 40,       -- browse pages per snipe pass
   confirmTop = 12,       -- candidates confirmed with a targeted search per pass
+  browseSort = false,    -- Buy tab: order rows by discount off reference
+  browseDeals = false,   -- Buy tab: only rows under reference by the minimum discount
+  browseHistory = false, -- Buy tab: only rows whose reference is market history
+  browseNotMine = false, -- Buy tab: hide rows that hold one of your auctions
   laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
@@ -226,6 +230,7 @@ commands.discount = function(rest)
   if not v then H.Printf("minimum snipe discount is %d%%", H.Settings().minDiscount * 100) return end
   H.Settings().minDiscount = v / 100
   H.Printf("minimum snipe discount set to %d%%", v)
+  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
 end
 
 commands.wipe = function()

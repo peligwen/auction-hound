@@ -61,8 +61,11 @@ H.RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY", function()
   end
 end)
 
+-- Only a scan in flight has anything to retry; a drop while idle is
+-- someone else's message, and replaying an old query would clobber
+-- whatever the Buy tab is showing.
 H.RegisterEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED", function()
-  if lastSend and not pendingSend then
+  if Scan.state ~= "idle" and lastSend and not pendingSend then
     pendingSend = lastSend
   end
 end)

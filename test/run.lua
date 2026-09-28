@@ -385,11 +385,13 @@ do
 
   -- watchdog resets a wedged browse
   Stub.ah.browse = {}
+  local realBrowse = C_AuctionHouse.SendBrowseQuery
   C_AuctionHouse.SendBrowseQuery = function() end
   H.Scan.Browse({}, function() end)
   eq(H.Scan.state, "browsing", "browse in flight")
   Stub.Advance(31)
   eq(H.Scan.state, "idle", "watchdog reset the browse")
+  C_AuctionHouse.SendBrowseQuery = realBrowse
 
   -- a purchase that never answers is dropped
   local silent = { key = "2770", itemID = 2770, name = "Copper Ore", isCommodity = true, dealQty = 5, unit = 40, maxUnit = 75 }
@@ -923,6 +925,207 @@ do
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "hook survives a missing template: " .. tostring(err))
   check(string.find(Stub.printed[#Stub.printed] or "", "could not add"), "missing template reported")
+end
+
+------------------------------------------------------------------------
+-- Buy tab: the Hound column and filter strip
+------------------------------------------------------------------------
+do
+  Stub.badTemplates = nil
+  local Browse = H.Browse
+  H.atAH = true
+  H.Settings().minDiscount = 0.25
+  Browse.Invalidate()
+  Stub.DefineItem(90001, "Plain Widget", { sell = 0, commodity = true })
+  Stub.DefineItem(90002, "Vendor Widget", { sell = 1000, commodity = true })
+
+  local refOre, srcOre = H.Snipe.Reference("2770", 2770)
+  check(refOre and refOre > 0, "copper ore has a reference")
+  eq(srcOre, "market", "copper ore's reference is history")
+  local function ore(frac, extra)
+    local row = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * frac), totalQuantity = 40 }
+    for k, v in pairs(extra or {}) do row[k] = v end
+    return row
+  end
+  local half, tenOff, over = ore(0.5), ore(0.9), ore(1.2)
+  local none = { itemKey = C_AuctionHouse.MakeItemKey(90001), minPrice = 500, totalQuantity = 3 }
+  local vendorRow = { itemKey = C_AuctionHouse.MakeItemKey(90002), minPrice = 800, totalQuantity = 3 }
+  local mineRow = ore(0.4, { containsOwnerItem = true })
+  local empty = { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = 0, totalQuantity = 0 }
+
+  -- reading one row
+  local e = Browse.Evaluate(half)
+  eq(e.key, "2770", "row keyed by item id")
+  near(e.disc, 0.5, 0.02, "half the reference is 50% off")
+  check(e.deal and e.history, "half price is a deal with history")
+  local note, figure, color = Browse.CellText(e)
+  eq(figure, "-50%", "cell figure is the discount")
+  eq(note, H.MoneyShort(refOre), "cell note is the reference")
+  eq(color, Browse.COLORS.deal, "deal colored green")
+  e = Browse.Evaluate(tenOff)
+  check(not e.deal, "ten percent off is not a deal at a 25% minimum")
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "under reference colored amber")
+  e = Browse.Evaluate(over)
+  eq(select(2, Browse.CellText(e)), "+20%", "above reference reads as a premium")
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.over, "above reference colored grey")
+  e = Browse.Evaluate(none)
+  check(e.ref == nil and not e.deal, "unknown item has no reference")
+  eq(select(1, Browse.CellText(e)), "no reference", "unknown item says so")
+  e = Browse.Evaluate(vendorRow)
+  check(e.vendorFlip and e.deal and not e.history, "under vendor is a deal without history")
+  eq(e.refSrc, "vendor", "vendor price stands in as the reference")
+  eq(select(1, Browse.CellText(e)), "vendor 10s", "vendor reference labelled")
+  eq(select(2, Browse.CellText(e)), "-20%", "discount off the vendor price")
+  e = Browse.Evaluate(mineRow)
+  check(e.deal and e.mine, "own listing still evaluated")
+  eq(select(2, Browse.CellText(Browse.Evaluate(empty))), "", "no units, no figure")
+  eq(Browse.Evaluate({}), nil, "row without a key reads as nil")
+
+  -- the index
+  local rows = { half, tenOff, over, none, vendorRow, mineRow, empty }
+  local function getRow(i) return rows[i] end
+  local idx = Browse.BuildIndex(#rows, getRow, {})
+  eq(#idx, 7, "nothing on keeps every row")
+  eq(idx[7], 7, "nothing on keeps the order")
+  idx = Browse.BuildIndex(#rows, getRow, { sort = true })
+  eq(table.concat(idx, ","), "6,1,5,2,3,4,7", "sorted: deals by discount, then under, over, none, empty")
+  idx = Browse.BuildIndex(#rows, getRow, { deals = true })
+  eq(table.concat(idx, ","), "1,5,6", "deals only")
+  idx = Browse.BuildIndex(#rows, getRow, { deals = true, notMine = true })
+  eq(table.concat(idx, ","), "1,5", "deals that are not mine")
+  idx = Browse.BuildIndex(#rows, getRow, { history = true })
+  eq(table.concat(idx, ","), "1,2,3,6,7", "history only drops the vendor and unknown rows")
+  check(not Browse.Active({}), "no toggles: inactive")
+  check(Browse.Active({ browseDeals = true }), "a toggle: active")
+
+  -- the frame hook, with a fake Blizzard browse frame
+  AuctionHouseFrame.BrowseResultsFrame = Stub.NewBrowseFrame()
+  local br = AuctionHouseFrame.BrowseResultsFrame
+  local BUI = H.UI.Browse
+  ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
+  check(ok, "buy tab hook: " .. tostring(err))
+  check(BUI.installed and BUI.strip ~= nil, "filter strip built")
+  local lp = br.ItemList.points[#br.ItemList.points]
+  eq(lp[1], "TOPLEFT", "list re-anchored at its top")
+  eq(lp[5], -(BUI.STRIP_HEIGHT + 1), "list starts below the strip")
+  eq(br.ItemList.Background.height, 414 - BUI.STRIP_HEIGHT - 1, "background shortened to match")
+  eq(BUI.strip.min.text, "25", "minimum box shows the setting")
+
+  -- a full result set arrives: the column shows on every row, before the star
+  Stub.ah.browsePageSize = 10
+  Stub.ah.browse = rows
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  local r = br.ItemList:Render()
+  eq(#r.columns, 5, "hound column added")
+  eq(r.columns[4].header, "Hound", "hound column sits before the star")
+  eq(r.columns[5].template, "AuctionHouseTableCellFavoriteTemplate", "star keeps the edge")
+  eq(#r.rows, 7, "every row shown with nothing toggled")
+  local cell = r.rows[1][4]
+  eq(cell.Text.text, "-50%", "cell shows the discount")
+  eq(cell.Sub.text, H.MoneyShort(refOre), "cell shows the reference")
+  eq(cell.Text.color and cell.Text.color[2], Browse.COLORS.deal[2], "deal cell green")
+  eq(r.rows[4][4].Sub.text, "no reference", "unknown item cell says so")
+  eq(r.rows[5][4].Sub.text, "vendor 10s", "vendor cell labelled")
+  eq(BUI.strip.status.text, "7 rows", "status counts rows")
+
+  -- the category layout is rebuilt with an extra column: ours follows it
+  br:SetupTableBuilder("Level")
+  r = br.ItemList:Render()
+  eq(#r.columns, 6, "hound column survives a relayout")
+  eq(r.columns[5].header, "Hound", "still before the star after a relayout")
+  br:SetupTableBuilder(nil)
+
+  -- toggles filter and sort through the data provider
+  BUI.strip.deals:SetChecked(true)
+  BUI.strip.deals.scripts.OnClick(BUI.strip.deals)
+  eq(H.Settings().browseDeals, true, "deals toggle saved")
+  eq(br.ItemList.getNumEntries(), 3, "deals only through the provider")
+  eq(br.ItemList.getEntry(2), vendorRow, "provider maps through the index")
+  check(br.ItemList.dirty, "list marked for refresh")
+  eq(BUI.strip.status.text, "3 of 7", "status counts the filtered rows")
+  H.Settings().browseNotMine = true
+  BUI.Rebuild()
+  eq(br.ItemList.getNumEntries(), 2, "not mine drops the own listing")
+  H.Settings().browseDeals, H.Settings().browseNotMine = false, false
+  H.Settings().browseSort = true
+  BUI.Rebuild()
+  eq(br.ItemList.getEntry(1), mineRow, "sorted: biggest discount first")
+  eq(br.ItemList.getEntry(7), empty, "sorted: empty key last")
+  -- a search starts and Blizzard's rows empty out: the stale index steps aside
+  br.browseResults = {}
+  eq(br.ItemList.getNumEntries(), 0, "stale index ignored while a search is out")
+  br:UpdateBrowseResults()
+  eq(br.ItemList.getNumEntries(), 7, "index rebuilt with the results")
+
+  -- the minimum box re-evaluates
+  BUI.strip.min:SetText("60")
+  BUI.strip.min.scripts.OnTextChanged(BUI.strip.min)
+  eq(H.Settings().minDiscount, 0.6, "minimum box sets the discount")
+  check(not Browse.Evaluate(half).deal, "half price is no deal at a 60% minimum")
+  SlashCmdList.HOUND("discount 25")
+  eq(BUI.strip.min.text, "25", "slash command updates the box")
+  check(Browse.Evaluate(half).deal, "half price is a deal again")
+
+  -- with a toggle on, the remaining pages come in on their own
+  Stub.ah.browsePageSize = 2
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 7, "all pages fetched with a toggle on")
+  eq(BUI.pages, 3, "three more pages counted")
+  eq(BUI.strip.status.text, "7 of 7", "status settles once full")
+  -- with nothing on, the list waits for a scroll as before
+  H.Settings().browseSort = false
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 2, "no fetching with nothing toggled")
+  eq(BUI.strip.status.text, "2 rows", "status counts the first page")
+  -- throttled: the request waits for the ready event
+  H.Settings().browseSort = true
+  Stub.ah.ready = false
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  eq(Stub.ah.browseServed, 2, "request held while throttled")
+  check(string.find(BUI.strip.status.text, "loading more", 1, true), "status says it is loading")
+  Stub.ah.ready = true
+  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
+  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 7, "held request sent when ready")
+  -- a dropped request is asked for again once the system is ready
+  local realMore = C_AuctionHouse.RequestMoreBrowseResults
+  local drops = 0
+  C_AuctionHouse.RequestMoreBrowseResults = function()
+    drops = drops + 1
+    C_AuctionHouse.RequestMoreBrowseResults = realMore
+    Stub.ah.ready = false
+    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED") end)
+  end
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 3 do Stub.Advance(1) Stub.Pump() end
+  eq(drops, 1, "the first page request was dropped")
+  eq(Stub.ah.browseServed, 2, "dropped request waits for the ready event")
+  Stub.ah.ready = true
+  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
+  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 7, "dropped request asked for again")
+  eq(H.Scan.state, "idle", "the scanner did not replay an old query")
+  -- the page cap
+  H.Settings().snipePages = 1
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 4, "stops at the page cap")
+  check(string.find(BUI.strip.status.text, "stopped at 1 pages", 1, true), "status reports the cap: " .. BUI.strip.status.text)
+  H.Settings().snipePages = 40
+  -- the browse frame hidden (a row was clicked): no fetching until it shows again
+  br:Hide()
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 2, "no fetching while the list is hidden")
+  br:Show()
+  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 7, "fetching resumes when the list shows")
+  H.Settings().browseSort = false
+  BUI.Rebuild()
 end
 
 ------------------------------------------------------------------------
