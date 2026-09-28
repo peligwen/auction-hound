@@ -129,7 +129,7 @@ function Ladder.Lines(L)
     end
     lines[1] = string.format("reference %s  (%s)", H.Money(L.ref), src)
   else
-    lines[1] = "no reference: nothing scanned, no vendor or crafting anchor"
+    lines[1] = H.NoReferenceLine()
   end
 
   if L.limit then

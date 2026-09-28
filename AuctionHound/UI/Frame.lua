@@ -50,6 +50,7 @@ end
 function UI.UpdateStatus()
   if statusText then statusText:SetText(statusLine()) end
   if UI.autoScanBox then UI.autoScanBox:SetChecked(H.Settings().autoScan and true or false) end
+  if UI.estimatesBox then UI.estimatesBox:SetChecked(H.Settings().estimates and true or false) end
 end
 
 ------------------------------------------------------------------------
@@ -739,8 +740,19 @@ function UI.EnsurePanel()
   autoBox:SetPoint("RIGHT", autoBox.label, "LEFT", -1, 0)
   UI.autoScanBox = autoBox
 
+  -- estimates sits to its left: whether crafted cost and value as an
+  -- input stand in for the reference while an item's history is thin
+  local estBox = UI.CheckButton(header, "estimates", function(checked)
+    H.Settings().estimates = checked and true or false
+    H.Events:Fire("SETTINGS_CHANGED", "estimates")
+  end)
+  estBox.label:ClearAllPoints()
+  estBox.label:SetPoint("RIGHT", autoBox, "LEFT", -10, 0)
+  estBox:SetPoint("RIGHT", estBox.label, "LEFT", -1, 0)
+  UI.estimatesBox = estBox
+
   statusText = UI.Text(panel, "GameFontDisableSmall", "", "RIGHT")
-  statusText:SetPoint("RIGHT", autoBox, "LEFT", -10, 0)
+  statusText:SetPoint("RIGHT", estBox, "LEFT", -10, 0)
   statusText:SetPoint("LEFT", header, "TOPLEFT", x + 6, -11)
 
   local line = UI.Divider(panel)
@@ -760,6 +772,7 @@ function UI.EnsurePanel()
 
   H.Events:On("SCAN_STATUS", UI.UpdateStatus)
   H.Events:On("SCAN_DONE", UI.UpdateStatus)
+  H.Events:On("SETTINGS_CHANGED", UI.UpdateStatus)
   panel.ticker = C_Timer.NewTicker(5, function() if panel:IsShown() then UI.UpdateStatus() end end)
   panel:SetScript("OnShow", UI.UpdateStatus)
 

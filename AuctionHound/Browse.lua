@@ -9,7 +9,8 @@ local ADDON, H = ...
 local Browse = {}
 H.Browse = Browse
 
--- References are cached per key; a scan or a fresh visit changes them.
+-- References are cached per key; a scan, a fresh visit or a setting
+-- that moves the reference (estimates) changes them.
 local refs = {}
 
 function Browse.Invalidate()
@@ -18,6 +19,7 @@ end
 
 H.Events:On("SCAN_DONE", Browse.Invalidate)
 H.Events:On("AH_OPENED", Browse.Invalidate)
+H.Events:On("SETTINGS_CHANGED", Browse.Invalidate)
 
 local function reference(key, itemID)
   local r = refs[key]

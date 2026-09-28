@@ -82,8 +82,11 @@ function AuctionHoundBrowseCellMixin:OnEnter()
   else
     if e.ref then
       GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), sourceText(e)), 0.8, 0.8, 0.8, true)
+      if string.sub(e.refSrc or "", 1, 6) == "prior:" then
+        GameTooltip:AddLine("untick estimates on the Hound tab to judge by history alone", 0.6, 0.6, 0.6, true)
+      end
     else
-      GameTooltip:AddLine("no reference: nothing scanned, no vendor or crafting anchor", 0.8, 0.8, 0.8, true)
+      GameTooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
     end
     GameTooltip:AddLine(string.format("floor %s, %d units listed", H.Money(e.min), e.qty), 0.8, 0.8, 0.8, true)
     if depthOn and H.Depth.Failed(self.rowData) then
@@ -253,7 +256,7 @@ local function buildStrip(br)
     v = H.Clamp(v, 0, 99) / 100
     if math.abs(v - (H.Settings().minDiscount or 0)) < 1e-9 then return end
     H.Settings().minDiscount = v
-    B.Rebuild()
+    H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
   end)
   box:SetPoint("LEFT", minLabel, "RIGHT", 6, 0)
   local pct = UI.Text(strip, "GameFontHighlightSmall", "%", "LEFT")

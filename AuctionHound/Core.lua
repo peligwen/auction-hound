@@ -11,6 +11,7 @@ H.DEFAULTS = {
   browseHistory = false, -- Buy tab: only rows whose reference is market history
   browseNotMine = false, -- Buy tab: hide rows that hold one of your auctions
   browseDepth = false,   -- Buy tab: search each row on screen for the units at its floor
+  estimates = true,      -- crafted cost and value as an input stand in for the reference while history is thin
   laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
@@ -123,6 +124,7 @@ commands.help = function()
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
   H.Print("  /hound labor <gold per hour> / cut <percent> / discount <percent>")
+  H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound wipe       erase this market's history (your own posts are kept)")
 end
@@ -227,6 +229,28 @@ commands.discount = function(rest)
   H.Settings().minDiscount = v / 100
   H.Printf("minimum discount set to %d%%", v)
   H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+end
+
+-- Estimates: with history thin, the crafted cost or the value as an
+-- input stands in for the reference. An item whose own price has
+-- settled under its crafted cost reads as a deal forever that way, so
+-- they can be turned off: the reference is then history, thin or not,
+-- or the vendor price.
+commands.estimates = function(rest)
+  local S = H.Settings()
+  local v = string.lower(rest or "")
+  if v == "on" or v == "off" then
+    S.estimates = v == "on"
+    H.Events:Fire("SETTINGS_CHANGED", "estimates")
+  elseif v ~= "" then
+    H.Print("usage: /hound estimates on|off")
+    return
+  end
+  if S.estimates then
+    H.Print("estimates are on: crafted cost and value as an input stand in for the reference while history is thin")
+  else
+    H.Print("estimates are off: the reference is history or the vendor price, or nothing")
+  end
 end
 
 commands.wipe = function()

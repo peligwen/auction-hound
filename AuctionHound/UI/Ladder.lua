@@ -222,9 +222,14 @@ local function install()
   end
 end
 
-H.Events:On("AH_UI_LOADED", install)
-H.Events:On("AH_OPENED", install)
-H.Events:On("SCAN_DONE", function()
+-- A scan or a setting that moves the reference re-reads the ladders
+-- on show from the listings the house already gave.
+local function rebuildCurrent()
   if LU.commodityItemID then LU.RebuildCommodity() end
   if LU.itemKey then LU.RebuildItem() end
-end)
+end
+
+H.Events:On("AH_UI_LOADED", install)
+H.Events:On("AH_OPENED", install)
+H.Events:On("SCAN_DONE", rebuildCurrent)
+H.Events:On("SETTINGS_CHANGED", rebuildCurrent)

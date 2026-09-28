@@ -54,7 +54,12 @@ the checklist below is where that stands.
   at the auctioneer.
 - **Priors.** When history is thin, vendor price, crafted cost and value
   as a crafting input stand in as the reference. That is what makes the
-  Buy tab usable in launch week.
+  Buy tab usable in launch week. An item whose price has settled well
+  under its crafted cost reads as a deal for as long as its history
+  stays thin, so the crafted cost and input value can be turned off:
+  untick "estimates" on the Hound tab, or `/hound estimates off`, and
+  the reference is history alone, thin or not, plus the vendor price.
+  The Item view still shows what an item costs to make either way.
 - **Connections.** Smelting, leather, hides and bolts, with input cost,
   output value, spread per craft and gold per hour at your labor rate.
 - **Fan.** Post one item as a series of batches at spaced prices: x
@@ -206,6 +211,14 @@ the left edge, so the view buttons now start to the right of it.
     Report if any click leaves an empty buy frame, if the strip no
     longer fits its five toggles, or if the count on the right stops
     changing while rows still lack their "xN".
+19. **Estimates.** Open, and new. Find a Buy tab row whose note starts
+    with "~" (an estimate; the cell tooltip names it). Untick
+    "estimates" beside "auto scan" on the Hound tab: the row should
+    lose the "~" and read its own thin history, or "no reference", at
+    once, with its color following, and no scan or search in between.
+    With Depth on, hover the cell: the ladder should name history, not
+    the estimate. `/hound estimates on` brings them back and the box
+    follows. Report if the box overlaps the status line.
 
 ## Commands
 
@@ -220,6 +233,7 @@ the left edge, so the view buttons now start to the right of it.
 /hound labor <g/h>     your time, used for gold per hour
 /hound cut <pct>       auction house cut, default 5
 /hound discount <pct>  minimum discount for a deal, on the Buy tab and in passes, default 25
+/hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound debug rep [n]   print raw full-scan rows
 /hound wipe            erase this market's history (your own posts are kept)
 ```

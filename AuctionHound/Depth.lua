@@ -137,9 +137,23 @@ function D.Finish(w, listings)
   if w.timer then w.timer:Cancel() end
   D.inflight = nil
   local L = listings and #listings > 0 and H.Ladder.Build(listings, w.key, w.itemID) or false
-  D.cache[w.key] = { L = L, t = H.Now(), min = w.min, qty = w.qty }
+  D.cache[w.key] = { L = L, t = H.Now(), min = w.min, qty = w.qty, listings = L and listings or nil, itemID = w.itemID }
   D.Tick()
   H.Events:Fire("DEPTH_UPDATED", w.key, L)
+end
+
+-- A setting that moves the reference or the deal limit (estimates, the
+-- minimum discount) changes what a ladder says, not the listings behind
+-- it: every ladder held is read again from them, without a search.
+function D.Rebuild()
+  local changed = false
+  for key, c in pairs(D.cache) do
+    if c.L and c.listings then
+      c.L = H.Ladder.Build(c.listings, key, c.itemID)
+      changed = true
+    end
+  end
+  if changed then H.Events:Fire("DEPTH_UPDATED") end
 end
 
 H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
@@ -159,6 +173,7 @@ H.RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY", function() D.Tick() end)
 H.Events:On("SCAN_STATUS", function() if H.Scan.state == "idle" then D.Tick() end end)
 H.Events:On("SCAN_DONE", D.Clear)
 H.Events:On("AH_OPENED", D.Clear)
+H.Events:On("SETTINGS_CHANGED", D.Rebuild)
 H.Events:On("AH_CLOSED", function()
   local w = D.inflight
   if w and w.timer then w.timer:Cancel() end

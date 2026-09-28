@@ -1037,6 +1037,86 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Estimates off: the reference is history alone
+------------------------------------------------------------------------
+do
+  local Browse, S = H.Browse, H.Settings()
+  local br, BUI = AuctionHouseFrame.BrowseResultsFrame, H.UI.Browse
+  Stub.DefineItem(2319, "Medium Leather", { sell = 40, commodity = true })
+  -- light leather has ten days at 3s, so medium leather costs 12s to
+  -- make; its own price has settled at 7s, but one scan is too thin
+  -- to trust, so the crafted cost calls it a deal
+  Store.AddScanSample("2319", Stub.now, { { p = 700, q = 200 } })
+  Browse.Invalidate()
+  eq(S.estimates, true, "estimates on by default")
+  eq((P.CraftCost(2319)), 1200, "medium leather costs four light leather")
+  local ref, src, conf = H.Reference("2319", 2319)
+  eq(ref, 1200, "thin history: the crafted cost is the reference")
+  eq(src, "prior:crafted cost", "and says so")
+  local row = { itemKey = C_AuctionHouse.MakeItemKey(2319), minPrice = 700, totalQuantity = 40 }
+  local e = Browse.Evaluate(row)
+  check(e.deal and not e.history, "the settled price reads as a deal against the crafted cost")
+  eq(select(1, Browse.CellText(e)), "~" .. H.MoneyShort(1200), "the note marks the estimate")
+  eq(select(2, Browse.CellText(e)), "-42%", "and the discount off it")
+  Stub.ah.browse = { row }
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  local r = br.ItemList:Render()
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  local tip = table.concat(GameTooltip.lines, "\n")
+  check(string.find(tip, "estimate: crafted cost", 1, true), "tooltip names the estimate: " .. tip)
+  check(string.find(tip, "untick estimates", 1, true), "tooltip points at the toggle")
+  r.rows[1][4]:OnLeave()
+
+  -- off by command: the row is judged by its own thin history
+  SlashCmdList.HOUND("estimates off")
+  eq(S.estimates, false, "command turns estimates off")
+  check(string.find(Stub.printed[#Stub.printed], "estimates are off", 1, true), "and says so")
+  eq(P.Estimate(2319), nil, "no estimate while off")
+  ref, src, conf = H.Reference("2319", 2319)
+  eq(ref, 700, "off: thin history is the reference")
+  eq(src, "market", "and counts as history")
+  check(conf < 0.3, "with its low confidence")
+  e = Browse.Evaluate(row)
+  check(not e.deal and e.history, "the settled price is no deal against its own history")
+  near(e.disc, 0, 1e-9, "the floor sits at reference")
+  eq(select(1, Browse.CellText(e)), H.MoneyShort(700), "the note loses the estimate mark")
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Sub.text, H.MoneyShort(700), "the cell followed without a scan")
+  eq(H.Reference("2934", 2934), nil, "off: nothing scanned means no reference")
+  local _, asrc = H.Fan.Anchor("2934", 2934)
+  eq(asrc, "none", "off: the fan has no prior to center on")
+  check(string.find(H.NoReferenceLine(), "estimates are off", 1, true), "the no-reference line says why")
+  local cost = P.CraftCost(2319)
+  eq(cost, 1200, "the Item view still knows what it costs to make")
+  check(P.MakesValue(2318) ~= nil, "and what light leather is worth as an input")
+  ok, err = pcall(H.UI.ShowItem, "2319")
+  check(ok, "item view with estimates off: " .. tostring(err))
+
+  -- the box on the Hound tab follows the setting, and sets it
+  local box = H.UI.estimatesBox
+  check(box ~= nil, "estimates box exists")
+  eq(box.checked, false, "box followed the command")
+  box:SetChecked(true)
+  box.scripts.OnClick(box)
+  eq(S.estimates, true, "box turns estimates back on")
+  e = Browse.Evaluate(row)
+  check(e.deal and not e.history, "the crafted cost is the reference again")
+  SlashCmdList.HOUND("estimates")
+  check(string.find(Stub.printed[#Stub.printed], "estimates are on", 1, true), "the bare command reports the state")
+  SlashCmdList.HOUND("estimates sideways")
+  check(string.find(Stub.printed[#Stub.printed], "usage", 1, true), "anything else gets the usage")
+  eq(S.estimates, true, "and changes nothing")
+  local _, asrc2 = H.Fan.Anchor("2934", 2934)
+  eq(asrc2, "value as an input", "on: the fan centers on the prior again")
+  check(string.find(H.NoReferenceLine(), "crafting anchor", 1, true), "the no-reference line names the anchors again")
+  Stub.ah.browse = {}
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+end
+
+------------------------------------------------------------------------
 -- Auctions tab total, auto scan, and the auction history
 ------------------------------------------------------------------------
 do
@@ -1491,6 +1571,39 @@ do
   eq(Depth.Get(tinRow), nil, "nothing cached for it")
   C_AuctionHouse.SendSearchQuery = realSearch
   Stub.ah.ready = true
+
+  -- a setting that moves the reference re-reads the ladders held from
+  -- their listings, without another search
+  local leatherRow = { itemKey = C_AuctionHouse.MakeItemKey(2319), minPrice = 700, totalQuantity = 40 }
+  Stub.ah.searchResults["2319"] = { commodity = true, listings = { { 700, 40 } } }
+  Stub.ah.browse = { oreRow, tinRow, leatherRow }
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  r = br.ItemList:Render()
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  local LL = Depth.Get(leatherRow)
+  check(LL ~= nil, "leather depth cached")
+  eq(LL and LL.refSrc, "prior:crafted cost", "its ladder is read against the crafted cost")
+  eq(LL and LL.dealUnits, 40, "and the floor counts as a deal")
+  calls = Stub.ah.searchCalls
+  br.ItemList.dirty = false
+  SlashCmdList.HOUND("estimates off")
+  LL = Depth.Get(leatherRow)
+  eq(LL and LL.refSrc, "market", "estimates off: the ladder is read against history")
+  eq(LL and LL.dealUnits, 0, "and nothing is a deal at its own price")
+  eq(Stub.ah.searchCalls, calls, "without another search")
+  check(br.ItemList.dirty, "list refreshed for the re-read")
+  r = br.ItemList:Render()
+  eq(r.rows[3][4].Sub.text, H.MoneyShort(700) .. " x40", "the cell shows history with the units at the floor")
+  SlashCmdList.HOUND("estimates on")
+  eq(Depth.Get(leatherRow).refSrc, "prior:crafted cost", "and back on")
+  eq(Stub.ah.searchCalls, calls, "still no search")
+  -- the minimum discount moves the deal limit the same way
+  SlashCmdList.HOUND("discount 50")
+  eq(Depth.Get(leatherRow).dealUnits, 0, "a higher minimum re-reads the ladder: no deal at 42% off")
+  SlashCmdList.HOUND("discount 25")
+  eq(Depth.Get(leatherRow).dealUnits, 40, "and back")
+  eq(Stub.ah.searchCalls, calls, "none of it searched")
 
   -- leaving the house forgets it all
   H.Events:Fire("AH_CLOSED")

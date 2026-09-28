@@ -1,8 +1,11 @@
 -- Reference.lua: the price everything is judged against.
 --
--- Market history when it is deep enough, a prior (vendor, crafted cost,
--- value as an input) when it is not, and thin history as a last resort.
--- The Buy tab, the listing ladder and the depth reads all start here.
+-- Market history when it is deep enough, a prior (crafted cost, value
+-- as an input) when it is not, and thin history as a last resort. With
+-- estimates off the prior step is skipped: an item whose price has
+-- settled well under its crafted cost would otherwise read as a deal
+-- for as long as its history stays thin. The Buy tab, the listing
+-- ladder and the depth reads all start here.
 local ADDON, H = ...
 
 -- Returns ref, source, confidence, stats. source is "market",
@@ -22,4 +25,12 @@ function H.Reference(key, itemID)
     return st.market, "market", conf, st
   end
   return nil, nil, 0, st
+end
+
+-- The line shown where there is nothing to judge against.
+function H.NoReferenceLine()
+  if H.Settings().estimates then
+    return "no reference: nothing scanned, no vendor or crafting anchor"
+  end
+  return "no reference: nothing scanned, no vendor price; estimates are off"
 end

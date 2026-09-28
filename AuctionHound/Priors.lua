@@ -111,8 +111,10 @@ function Priors.MakesValue(itemID)
 end
 
 -- Reference price when history is too thin to trust. Returns value and
--- a short source label, or nil.
+-- a short source label, or nil. Nothing at all with estimates off: the
+-- anchors still show in the Item view, but no price is judged by them.
 function Priors.Estimate(itemID)
+  if not H.Settings().estimates then return nil end
   local cost = Priors.CraftCost(itemID)
   if cost then return cost, "crafted cost" end
   local makes = Priors.MakesValue(itemID)
