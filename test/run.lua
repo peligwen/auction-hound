@@ -274,10 +274,10 @@ do
 end
 
 ------------------------------------------------------------------------
--- Snipe pass: browse, confirm, score, buy
+-- History seed: a solid market, a dead one, a falling one, and gear
 ------------------------------------------------------------------------
 do
-  -- seed solid history: copper ore market ~100c for ten days, moves 200 a day
+  -- copper ore market ~100c for ten days, moves 200 a day
   Store.Wipe()
   AuctionHoundDB.lastFull = 0
   for d = 10, 0, -1 do
@@ -295,155 +295,19 @@ do
     Store.AddScanSample("2841", t, { { p = price, q = 100 } })
     Store.AddScanSample("2841", t + 3600, { { p = price, q = 90 } })
   end
-
-  Stub.ah.browse = {
-    { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = 40, totalQuantity = 800 },   -- 60% off, liquid
-    { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = 600, totalQuantity = 5 },     -- 40% off, dead market
-    { itemKey = C_AuctionHouse.MakeItemKey(2841), minPrice = 300, totalQuantity = 20 },    -- under a falling reference
-    { itemKey = C_AuctionHouse.MakeItemKey(2934), minPrice = 10, totalQuantity = 50 },     -- no history, prior only
-    { itemKey = C_AuctionHouse.MakeItemKey(7777), minPrice = 4000, totalQuantity = 3 },    -- under vendor
-    { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 290, totalQuantity = 100 },   -- not a deal
-    { itemKey = C_AuctionHouse.MakeItemKey(15001, 20, -14), minPrice = 30000, totalQuantity = 1 }, -- no history, no prior
-  }
-  Stub.ah.searchResults = {
-    ["2770"] = { commodity = true, listings = { { 40, 30 }, { 45, 20 }, { 100, 500 } } },
-    ["2771"] = { commodity = true, listings = { { 600, 5 }, { 1000, 50 } } },
-    ["2841"] = { commodity = true, listings = { { 300, 20 }, { 500, 100 } } },
-    ["2934"] = { commodity = true, listings = { { 10, 50 } } },
-    ["7777"] = { commodity = true, listings = { { 4000, 3 } } },
-  }
-  Stub.ah.commodityPrice[2770] = 45
-
-  local done = false
-  eq(H.Snipe.Run(function() done = true end), true, "snipe pass starts")
-  for _ = 1, 40 do Stub.Advance(1) Stub.Pump() end
-  eq(done, true, "snipe pass completes")
-  eq(H.Snipe.lastBrowse.count, 7, "browsed every page")
-  eq(H.Snipe.lastCandidates, 5, "five candidates under the discount line")
-
-  local byKey = {}
-  for _, r in ipairs(H.Snipe.results) do byKey[r.key] = r end
-  check(byKey["2318"] == nil, "light leather is not a deal")
-  check(byKey["15001:20:-14"] == nil, "no reference means no row")
-
-  local copper = byKey["2770"]
-  check(copper ~= nil, "copper ore is a result")
-  eq(copper.dealQty, 50, "copper deal units are those at or under the line")
-  eq(copper.unit, 40, "copper unit is the floor")
-  eq(copper.score, 5, "copper scores five")
-  check(copper.netTotal > 0, "copper net positive")
-  local reasons = table.concat(copper.reasons, ";")
-  check(string.find(reasons, "solid history"), "copper reasons mention history: " .. reasons)
-  check(string.find(reasons, "moves ~"), "copper reasons mention sale rate: " .. reasons)
-
-  local tin = byKey["2771"]
-  check(tin ~= nil, "tin ore is a result")
-  check(tin.score < copper.score, "dead market scores lower than liquid market")
-  check(string.find(table.concat(tin.reasons, ";"), "slow market"), "tin flagged as slow market")
-
-  local bronze = byKey["2841"]
-  check(bronze ~= nil, "bronze bar is a result")
-  check(string.find(table.concat(bronze.reasons, ";"), "falling"), "bronze flagged as falling: " .. table.concat(bronze.reasons, ";"))
-
-  local scraps = byKey["2934"]
-  check(scraps ~= nil, "scraps priced from prior")
-  eq(scraps.refSrc, "prior:value as an input", "scraps reference source")
-  check(string.find(table.concat(scraps.reasons, ";"), "no usable history"), "scraps flagged as prior")
-
-  local junk = byKey["7777"]
-  check(junk ~= nil and junk.vendorFlip, "junk under vendor is a vendor flip")
-  eq(junk.score, 5, "vendor flip scores five")
-
-  eq(H.Snipe.results[1].score, 5, "results sorted by score")
-
-  -- buy copper: quote 45 is under the 75 limit, so it confirms
-  eq(H.Snipe.Buy(copper, 50), true, "buy starts")
-  Stub.Advance(1)
-  eq(#Stub.ah.purchases, 1, "purchase confirmed")
-  eq(Stub.ah.purchases[1].qty, 50, "bought all deal units")
-  Stub.Advance(1)
-  check(H.Snipe.pending == nil, "purchase settled")
-  eq(#AuctionHoundDB.ledger, 1, "ledger records the buy")
-  eq(AuctionHoundDB.ledger[1].unit, 45, "ledger unit is the quoted price")
-  check(byKey["2770"] ~= nil and (function() for _, r in ipairs(H.Snipe.results) do if r.key == "2770" then return false end end return true end)(), "bought row removed")
-
-  -- price moved above the limit: cancel
-  Stub.ah.commodityPrice[2771] = 900
-  eq(H.Snipe.Buy(tin, 5), true, "tin buy starts")
-  Stub.Advance(1)
-  eq(Stub.ah.cancelled, 1, "cancelled when the quote moved")
-  eq(#Stub.ah.purchases, 1, "no second purchase")
-  check(H.Snipe.pending == nil, "pending cleared after cancel")
-end
-
-------------------------------------------------------------------------
--- Item purchase and throttle retry
-------------------------------------------------------------------------
-do
+  -- a green with a suffix
   Store.AddScanSample("15001:20:-14", Stub.now - 86400, { { p = 60000, q = 1 }, { p = 65000, q = 1 } })
   Store.AddScanSample("15001:20:-14", Stub.now, { { p = 60000, q = 1 }, { p = 65000, q = 1 } })
-  Stub.ah.browse = { { itemKey = C_AuctionHouse.MakeItemKey(15001, 20, -14), minPrice = 30000, totalQuantity = 1 } }
-  Stub.ah.searchResults["15001:20:-14"] = { commodity = false, listings = { { 30000, 1, 4242 }, { 60000, 1, 4243 } } }
-  H.Snipe.Clear()
-  -- throttle: first send is not ready, becomes ready later
-  Stub.ah.ready = false
-  Stub.ah.lastQuery = nil
-  eq(H.Snipe.Run(), true, "item pass starts while throttled")
-  Stub.Advance(2)
-  eq(Stub.ah.lastQuery, nil, "query held until the throttle clears")
-  Stub.ah.ready = true
-  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
-  check(Stub.ah.lastQuery ~= nil, "query sent when ready")
-  for _ = 1, 10 do Stub.Advance(1) Stub.Pump() end
-  local row = H.Snipe.results[1]
-  check(row ~= nil, "item row present")
-  eq(row.isCommodity, false, "row is an item")
-  eq(row.auctionID, 4242, "cheapest auction id kept")
-  eq(row.dealQty, 1, "one unit")
-  eq(H.Snipe.Buy(row), true, "item buy starts")
-  Stub.Advance(1)
-  eq(Stub.ah.purchases[#Stub.ah.purchases].auctionID, 4242, "bought by auction id")
-  eq(Stub.ah.purchases[#Stub.ah.purchases].amount, 30000, "bought at buyout")
-  check(H.Snipe.pending == nil, "item purchase settled")
 
-  -- watchdog resets a wedged browse
-  Stub.ah.browse = {}
-  local realBrowse = C_AuctionHouse.SendBrowseQuery
-  C_AuctionHouse.SendBrowseQuery = function() end
-  H.Scan.Browse({}, function() end)
-  eq(H.Scan.state, "browsing", "browse in flight")
-  Stub.Advance(31)
-  eq(H.Scan.state, "idle", "watchdog reset the browse")
-  C_AuctionHouse.SendBrowseQuery = realBrowse
-
-  -- a purchase that never answers is dropped
-  local silent = { key = "2770", itemID = 2770, name = "Copper Ore", isCommodity = true, dealQty = 5, unit = 40, maxUnit = 75 }
-  local realStart = C_AuctionHouse.StartCommoditiesPurchase
-  C_AuctionHouse.StartCommoditiesPurchase = function() end
-  eq(H.Snipe.Buy(silent, 5), true, "silent buy starts")
-  eq(H.Snipe.Buy(silent, 5), false, "second buy refused while one is in flight")
-  Stub.Advance(H.Snipe.BUY_TIMEOUT + 1)
-  check(H.Snipe.pending == nil, "purchase timeout clears the pending buy")
-  C_AuctionHouse.StartCommoditiesPurchase = realStart
-
-  -- the confirm step wants a hardware event: the next click confirms
-  local purchasesBefore = #Stub.ah.purchases
-  local realConfirm = C_AuctionHouse.ConfirmCommoditiesPurchase
-  C_AuctionHouse.ConfirmCommoditiesPurchase = function() error("requires a hardware event") end
-  Stub.ah.commodityPrice[2770] = 45
-  Stub.printed = {}
-  eq(H.Snipe.Buy(silent, 5), true, "guarded buy starts")
-  Stub.Advance(1)
-  check(H.Snipe.pending ~= nil and H.Snipe.pending.needsConfirm, "purchase waits for a click to confirm")
-  check(string.find(table.concat(Stub.printed, "\n"), "press Buy again", 1, true), "asks for another click")
-  eq(#Stub.ah.purchases, purchasesBefore, "nothing bought yet")
-  C_AuctionHouse.ConfirmCommoditiesPurchase = realConfirm
-  eq(H.Snipe.Buy(silent, 5), true, "second click confirms")
-  eq(#Stub.ah.purchases, purchasesBefore + 1, "purchase confirmed from the click")
-  eq(Stub.ah.purchases[#Stub.ah.purchases].qty, 5, "confirmed quantity")
-  Stub.Advance(1)
-  check(H.Snipe.pending == nil, "guarded purchase settled")
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].unit, 45, "ledger unit is the quote")
+  -- the reference: deep history first, a prior when there is none
+  local ref, src, conf = H.Reference("2770", 2770)
+  eq(ref, 100, "copper ore reference is its market value")
+  eq(src, "market", "and comes from history")
+  check(conf >= 0.3, "with confidence")
+  ref, src = H.Reference("2934", 2934)
+  eq(src, "prior:value as an input", "scraps priced from a prior")
+  ref, src = H.Reference("424242", 424242)
+  eq(ref, nil, "nothing known, no reference")
 end
 
 ------------------------------------------------------------------------
@@ -877,8 +741,6 @@ do
   check(ok, "markets view: " .. tostring(err))
   ok, err = pcall(H.UI.ShowItem, "2770")
   check(ok, "item view: " .. tostring(err))
-  ok, err = pcall(H.UI.ShowView, "snipe")
-  check(ok, "snipe view: " .. tostring(err))
   ok, err = pcall(H.UI.ShowView, "fan")
   check(ok, "fan view: " .. tostring(err))
   ok, err = pcall(H.UI.ShowFan, "2770")
@@ -922,8 +784,6 @@ do
   ok, err = pcall(H.UI.ShowItem, "2770")
   check(ok, "item view with sales: " .. tostring(err))
   H.Fan.Reset()
-  ok, err = pcall(H.Events.Fire, H.Events, "SNIPE_UPDATED")
-  check(ok, "snipe refresh: " .. tostring(err))
   ok, err = pcall(H.Events.Fire, H.Events, "SCAN_DONE", "full")
   check(ok, "scan done refresh: " .. tostring(err))
   ok, err = pcall(H.UI.UpdateStatus)
@@ -986,7 +846,7 @@ do
   Stub.DefineItem(90001, "Plain Widget", { sell = 0, commodity = true })
   Stub.DefineItem(90002, "Vendor Widget", { sell = 1000, commodity = true })
 
-  local refOre, srcOre = H.Snipe.Reference("2770", 2770)
+  local refOre, srcOre = H.Reference("2770", 2770)
   check(refOre and refOre > 0, "copper ore has a reference")
   eq(srcOre, "market", "copper ore's reference is history")
   local function ore(frac, extra)
@@ -1222,9 +1082,10 @@ do
   Stub.Advance(2) Stub.Pump()
   eq(H.Scan.state, "idle", "auto scan finished")
   eq(H.Scan.AutoTick(), false, "not ready again yet")
-  AuctionHoundDB.lastFull = Stub.now - H.Scan.FULL_INTERVAL - 1
+  local stale = Stub.now - H.Scan.FULL_INTERVAL - 1
+  AuctionHoundDB.lastFull = stale
   Stub.Advance(H.Scan.AUTO_INTERVAL + 1)
-  check(H.Scan.state ~= "idle" or AuctionHoundDB.lastFull >= Stub.now - 5, "ticker started the next scan")
+  check(H.Scan.state ~= "idle" or AuctionHoundDB.lastFull > stale, "ticker started the next scan")
   Stub.Advance(2) Stub.Pump()
   eq(H.Scan.state, "idle", "ticker scan finished")
   H.Settings().autoScan = false
@@ -1300,7 +1161,7 @@ do
   hv.filter:SetValue("All")
   hv:Refresh()
   check(string.find(hv.summary.text, "days:", 1, true), "history shows the summary: " .. hv.summary.text)
-  H.UI.ShowView("snipe")
+  H.UI.ShowView("markets")
 end
 
 ------------------------------------------------------------------------
@@ -1312,7 +1173,7 @@ do
   H.atAH = true
   H.Settings().minDiscount = 0.25
   H.Browse.Invalidate()
-  local refOre = H.Snipe.Reference("2770", 2770)
+  local refOre = H.Reference("2770", 2770)
   local function at(frac) return H.Round(refOre * frac) end
 
   -- the ladder from listings
@@ -1389,7 +1250,7 @@ do
 
   local itf = AuctionHouseFrame.ItemBuyFrame
   local tinKey = C_AuctionHouse.MakeItemKey(2771)
-  local refTin = H.Snipe.Reference("2771", 2771)
+  local refTin = H.Reference("2771", 2771)
   check(refTin and refTin > 0, "tin ore has a reference")
   Stub.ah.currentSearch = { listings = { { H.Round(refTin * 0.4), 1 }, { H.Round(refTin * 1.1), 1 }, { nil, 1 } } }
   itf:SetItemKey(tinKey)
@@ -1474,8 +1335,8 @@ do
   S.browseSort, S.browseDeals, S.browseHistory, S.browseNotMine, S.browseDepth = false, false, false, false, false
   H.Browse.Invalidate()
   Depth.Clear()
-  local refOre = H.Snipe.Reference("2770", 2770)
-  local refTin = H.Snipe.Reference("2771", 2771)
+  local refOre = H.Reference("2770", 2770)
+  local refTin = H.Reference("2771", 2771)
   local oreRow = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * 0.5), totalQuantity = 60 }
   local tinRow = { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = H.Round(refTin * 0.9), totalQuantity = 10 }
   local emptyRow = { itemKey = C_AuctionHouse.MakeItemKey(2840), minPrice = 0, totalQuantity = 0 }

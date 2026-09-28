@@ -52,14 +52,9 @@ the checklist below is where that stands.
 - **Auto scan.** A checkbox beside the scan timer starts a full scan
   whenever the house allows one, every fifteen minutes while you stand
   at the auctioneer.
-- **Snipe.** The older batch pass: browses the whole AH for floors under
-  reference, confirms the best candidates with a targeted search, and
-  scores each from one to five with plain-language reasons. Buys
-  commodities with a re-quote check and items by auction id. It stays
-  until the Buy tab's listing view can do the same job.
 - **Priors.** When history is thin, vendor price, crafted cost and value
   as a crafting input stand in as the reference. That is what makes the
-  snipe usable in launch week.
+  Buy tab usable in launch week.
 - **Connections.** Smelting, leather, hides and bolts, with input cost,
   output value, spread per craft and gold per hour at your labor rate.
 - **Fan.** Post one item as a series of batches at spaced prices: x
@@ -84,8 +79,7 @@ the checklist below is where that stands.
 - **Tooltips.** Market, floor, 30-day mean, trend and estimated units
   moved per day on every item tooltip, plus your own sold / unsold line.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
-  a window) with five views. Snipe runs passes and buys. Markets lists
-  every item with history. Item is one item in depth: stats, the daily
+  a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
   double-clicking a row elsewhere or typing a name, id or link into its
   find box. Fan plans and posts batches. History lists your auctions
@@ -133,7 +127,7 @@ the left edge, so the view buttons now start to the right of it.
    The chat summary should report few or no unresolved rows.
 3. **Keys.** Open. `/hound key <link>` for an "of the X" green must
    match the key the Markets view shows for the same item after the
-   scan, or history and snipe will not line up for gear. For an item
+   scan, or history and the Buy tab will not line up for gear. For an item
    you have never seen this session the key may print as `nil` once;
    run it again after the item loads.
 4. **Tooltips.** Open. Hover a scanned item in your bags: the Hound
@@ -149,35 +143,28 @@ the left edge, so the view buttons now start to the right of it.
    and watch the colors move. Report if the strip overlaps the column
    headers, if the star column lost its place, or if the list stops
    loading pages (the count says "stopped at N pages" at the cap).
-6. **Snipe pass.** Open. Run one and let it finish; the results table
-   fills and the status line counts confirmations. Then buy one cheap
-   commodity. The chat line should show the quoted unit price and the
-   ledger entry. If the client refuses the confirm step without a
-   click, the chat says "press Buy again": press it, and report that it
-   needed the second click. Then buy one non-commodity (a green) by
-   auction id.
-7. **Persistence.** Verified: the item count survives `/reload`.
-8. **Item view.** Open, and new: with nothing picked it now explains
+6. **Persistence.** Verified: the item count survives `/reload`.
+7. **Item view.** Open, and new: with nothing picked it now explains
    itself. Type part of a name in its find box and press Enter; then
    shift-click a link into the box.
-9. **Fan, commodity.** Open. Open the Fan tab, pick a cheap commodity
+8. **Fan, commodity.** Open. Open the Fan tab, pick a cheap commodity
    from your bags, and post one batch (`/hound fan [Copper Ore] 5 5 2`
    then `/hound post` works too). The plan line names it a `commodity`.
    The chat line after posting should name the batch. If posting fails
    with a hardware-event error, bind a key to a macro with `/hound
    post` and post from that.
-10. **Fan, item.** Open. Do the same with a green from your bags. The
+9. **Fan, item.** Open. Do the same with a green from your bags. The
    plan line names it an `item`, and each batch posts one unit.
-11. **Fan, flat.** Open. A step of `0` posts every batch at the center
+10. **Fan, flat.** Open. A step of `0` posts every batch at the center
     price. Post two batches of the same commodity that way and confirm
     the Blizzard Auctions tab shows two separate auctions at one price.
-12. **Your posts.** Open. Open the Blizzard Auctions tab, then the Fan
+11. **Your posts.** Open. Open the Blizzard Auctions tab, then the Fan
     view: the batches show as active in the "Your posts" table. Cancel
     one from the Blizzard tab; it should flip to cancelled.
-13. **Sales.** Open. Sell something. The next time you open the auction
+12. **Sales.** Open. Sell something. The next time you open the auction
     house (or check your mail with the addon loaded), the Fan view and
     `/hound stats` should show it under "yours".
-14. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab
+13. **Auctions tab total.** Open, and new. On Blizzard's Auctions tab
     the columns read Name, Buyout, Total, Time Left: the Bid column is
     gone. For a commodity stack the total must read units times the
     unit price shown beside it. If this client lets a non-commodity
@@ -185,22 +172,22 @@ the left edge, so the view buttons now start to the right of it.
     price or the whole stack; the total assumes the unit price. Hover
     a row anywhere along it, and again over the total: the row should
     light up both times without an error.
-15. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
+14. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
     status line. With the timer at zero a scan starts at once; leave
     the house open and the next one should start by itself when the
     timer runs out. Untick it and confirm nothing starts.
-16. **History.** Open, and new. Open the History view. Every auction
+15. **History.** Open, and new. Open the History view. Every auction
     you have up should be listed as active, including ones posted from
     Blizzard's Sell tab, after the house has been open a few seconds.
     Sell, cancel or let one expire, and the row should change on the
     next visit. The line at the top sums the last thirty days. Post
     something from Blizzard's Sell tab and its Deposit column should
     fill in once the house lists it.
-17. **Auctions tab cut and deposit.** Open, and new. Hover a total:
+16. **Auctions tab cut and deposit.** Open, and new. Hover a total:
     the tooltip names the cut, the deposit for anything posted while
     the addon was loaded (and says so when it was not), and what is
     left. A click on the total should still select the row.
-18. **Listing ladder.** Open, and new. Click a commodity row on the Buy
+17. **Listing ladder.** Open, and new. Click a commodity row on the Buy
     tab: under the Buy button a four-line block should name the
     reference, the units at or under the limit, the floor and next
     step, and the value of the listings; the units figures in the list
@@ -209,7 +196,7 @@ the left edge, so the view buttons now start to the right of it.
     auction list, and a Hound column shows each auction's discount.
     Report if the block overlaps the Buy button or the item header, or
     if the list's headers sit under the block.
-19. **Depth.** Open, and new. On the Buy tab tick "Depth": the status
+18. **Depth.** Open, and new. On the Buy tab tick "Depth": the status
     on the right should say "reading depth" and, row by row from the
     top, the notes should gain "xN" for the units at the floor. Hover
     a cell for the ladder. Scroll: rows coming into view are read too.
@@ -225,7 +212,6 @@ the left edge, so the view buttons now start to the right of it.
 ```
 /hound                 toggle the window
 /hound scan            full scan (once per 15 minutes, at the AH)
-/hound snipe           run a snipe pass (at the AH)
 /hound stats <link>    stored stats for an item, and what you sold it for
 /hound key <link>      the history key for a link
 /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center] [12h|24h|48h]
@@ -252,12 +238,12 @@ batches never post on their own.
 The addon lives in `AuctionHound/`; `test/` and this file sit beside it.
 
 ```
-Scan.lua     ReplicateItems (full), SendBrowseQuery (floors), SendSearchQuery (listings)
+Scan.lua     ReplicateItems (full), and any search answer as listings
 Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent again
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
-Snipe.lua    candidates, confirmation, scoring, buying, ledger
+Reference.lua the reference: market history when deep enough, else a prior
 Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
@@ -305,7 +291,7 @@ lua5.1 test/run.lua        # or: lua5.1 test/run.lua -v
 auction house calls and events. It loads the addon from `AuctionHound/`
 in TOC order; XML files are read for the mixin and font strings each
 template declares, so a cell template and its mixin must agree.
-`test/run.lua` runs the full scan, auto scan, snipe, purchase, tooltip,
+`test/run.lua` runs the full scan, auto scan, reference, tooltip,
 slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, and UI construction paths. Where the beta has
@@ -314,10 +300,10 @@ cannot come back quietly.
 
 ## Roadmap
 
-- Retire the snipe pass once the Buy tab covers its buying
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads
 - Disenchant tables as a third prior
 - Own sales from mail, for exact sale rates on markets you sell in
-- Watchlists for targeted snipe passes
+- Watchlists: items to flag on the Buy tab whatever the discount
+- Record purchases made through Blizzard's buy frames in the ledger
 - Time-of-day view for the Oceanic overlap

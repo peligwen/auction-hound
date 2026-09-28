@@ -149,7 +149,7 @@ end
 -- Fetching the rest. With a filter or sort on, the order only means
 -- something over the whole result set, so the remaining pages are
 -- requested without waiting for a scroll, one at a time through the
--- throttle queue, up to the snipe page setting.
+-- throttle queue, up to the page setting.
 ------------------------------------------------------------------------
 local function requestMore()
   if B.loading then C_AuctionHouse.RequestMoreBrowseResults() end

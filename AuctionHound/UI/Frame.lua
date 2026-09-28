@@ -25,12 +25,6 @@ local function statusLine()
     table.insert(parts, "waiting for the full listing")
   elseif S.state == "processing" then
     table.insert(parts, string.format("processing %d / %d", S.index or 0, S.total or 0))
-  elseif S.state == "browsing" then
-    table.insert(parts, string.format("browsing page %d", S.browse and S.browse.pages or 0))
-  elseif S.state == "searching" and H.Snipe.queue then
-    table.insert(parts, string.format("confirming %d / %d", H.Snipe.queue.index - 1, math.min(#H.Snipe.queue.cands, H.Snipe.queue.limit)))
-  elseif H.Snipe.pending then
-    table.insert(parts, H.Snipe.pending.needsConfirm and "quoted, press Buy to confirm" or "buying")
   elseif H.Fan and H.Fan.pending then
     table.insert(parts, "posting")
   else
@@ -56,103 +50,6 @@ end
 function UI.UpdateStatus()
   if statusText then statusText:SetText(statusLine()) end
   if UI.autoScanBox then UI.autoScanBox:SetChecked(H.Settings().autoScan and true or false) end
-end
-
-------------------------------------------------------------------------
--- Snipe view
-------------------------------------------------------------------------
-local function buildSnipeView(parent)
-  local v = CreateFrame("Frame", nil, parent)
-  v:SetAllPoints()
-
-  local scanBtn = UI.Button(v, "Snipe Pass", 90, 22, function() H.Snipe.Run() end)
-  scanBtn:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
-  local stopBtn = UI.Button(v, "Stop", 50, 22, function() H.Scan.Abort() H.Snipe.running = false H.Events:Fire("SCAN_STATUS") end)
-  stopBtn:SetPoint("LEFT", scanBtn, "RIGHT", 4, 0)
-  local clearBtn = UI.Button(v, "Clear", 50, 22, function() H.Snipe.Clear() end)
-  clearBtn:SetPoint("LEFT", stopBtn, "RIGHT", 4, 0)
-
-  local auto = UI.CheckButton(v, "Auto every 60s", function(checked) v.auto = checked end)
-  auto:SetPoint("LEFT", clearBtn, "RIGHT", 10, 0)
-
-  local buyAll = UI.Button(v, "Buy All", 70, 22)
-  buyAll:SetPoint("TOPRIGHT", v, "TOPRIGHT", 0, 0)
-  local buyOne = UI.Button(v, "Buy 1", 56, 22)
-  buyOne:SetPoint("RIGHT", buyAll, "LEFT", -4, 0)
-
-  local info = UI.Text(v, "GameFontDisableSmall", "", "LEFT")
-  info:SetPoint("TOPLEFT", scanBtn, "BOTTOMLEFT", 2, -3)
-  info:SetPoint("RIGHT", v, "RIGHT", -4, 0)
-
-  local cols = {
-    { key = "item", title = "Item", width = 210, kind = "item", value = function(r) return r.name end },
-    { key = "qty", title = "Units", width = 46, align = "RIGHT", kind = "int", value = function(r) return r.dealQty end, desc = true },
-    { key = "unit", title = "Unit", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.unit end },
-    { key = "ref", title = "Reference", width = 78, align = "RIGHT", kind = "money", value = function(r) return r.ref end,
-      color = function(r) if string.sub(r.refSrc or "", 1, 5) == "prior" then return 0.7, 0.7, 0.7 end return 1, 1, 1 end },
-    { key = "off", title = "Off", width = 48, align = "RIGHT", kind = "pct", value = function(r) return r.discount end, desc = true },
-    { key = "net", title = "Net total", width = 84, align = "RIGHT", kind = "money", value = function(r) return r.netTotal end, desc = true,
-      color = function(r, raw) if raw and raw > 0 then return 0.4, 0.9, 0.4 end return 0.9, 0.4, 0.4 end },
-    { key = "score", title = "Score", width = 60, kind = "score", value = function(r) return r.score end, desc = true },
-  }
-
-  local reasons = UI.Text(v, "GameFontHighlightSmall", "", "LEFT")
-  reasons:SetWordWrap(true)
-  reasons:SetHeight(44)
-  reasons:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 4, 2)
-  reasons:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", -4, 2)
-
-  local function showReasons(row)
-    if not row then reasons:SetText("") return end
-    local head = string.format("%s  |  %s reference (%s), %d units at or under %s",
-      H.ColoredName(row.itemID), H.Money(row.ref), row.refSrc or "?", row.dealQty, H.Money(row.maxUnit))
-    reasons:SetText(head .. "\n" .. table.concat(row.reasons or {}, "  |  "))
-  end
-
-  local tbl = UI.CreateTable(v, cols, {
-    sortKey = "score", sortDesc = true,
-    onSelect = showReasons,
-    onDouble = function(row) UI.ShowItem(row.key) end,
-    tooltip = function(row, frame)
-      if not GameTooltip then return end
-      GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-      GameTooltip:SetItemByID(row.itemID)
-      GameTooltip:Show()
-    end,
-  })
-  tbl:SetPoint("TOPLEFT", info, "BOTTOMLEFT", -2, -3)
-  tbl:SetPoint("BOTTOMRIGHT", reasons, "TOPRIGHT", 4, 4)
-  v.table = tbl
-
-  buyAll:SetScript("OnClick", function()
-    local row = tbl:Selected()
-    if row then H.Snipe.Buy(row, row.dealQty) else H.Print("select a row first") end
-  end)
-  buyOne:SetScript("OnClick", function()
-    local row = tbl:Selected()
-    if row then H.Snipe.Buy(row, 1) else H.Print("select a row first") end
-  end)
-
-  function v:Refresh()
-    tbl:SetData(H.Snipe.results)
-    local b = H.Snipe.lastBrowse
-    if b then
-      info:SetText(string.format("%d results  |  browsed %d items%s, %d candidates, %s",
-        #H.Snipe.results, b.count, b.partial and " (partial)" or "", H.Snipe.lastCandidates or 0, H.Ago(H.Now() - b.t)))
-    else
-      info:SetText("run a pass at the auction house to look for deals")
-    end
-    showReasons(tbl:Selected())
-  end
-
-  H.Events:On("SNIPE_UPDATED", function() if v:IsShown() then v:Refresh() end end)
-  H.Events:On("SNIPE_DONE", function() if v:IsShown() then v:Refresh() end end)
-
-  v.ticker = C_Timer.NewTicker(60, function()
-    if v.auto and H.atAH and not H.Snipe.running and H.Scan.state == "idle" then H.Snipe.Run() end
-  end)
-
-  return v
 end
 
 ------------------------------------------------------------------------
@@ -348,7 +245,7 @@ local function buildItemView(parent)
     name:SetText("Item")
     keyText:SetText(self.err or "one item's history, anchors and connections  |  " .. H.marketKey)
     self.err = nil
-    statsLeft:SetText("Pick an item: double-click a row in Snipe or Markets, pick one in the Fan tab's bag list, or type part of a name, an item id or a link in the find box and press Enter.")
+    statsLeft:SetText("Pick an item: double-click a row in Markets, pick one in the Fan tab's bag list, or type part of a name, an item id or a link in the find box and press Enter.")
     statsRight:SetText("Shows market value, floor, 30 day mean, trend, units moved, the daily graph, vendor and crafting anchors, what it is made from and what it makes, and what you sold it for.")
     graph:SetSeries({})
     conn:SetData({})
@@ -823,11 +720,11 @@ function UI.EnsurePanel()
   panel.header = header
 
   local x = 0
-  for _, def in ipairs({ { "snipe", "Snipe" }, { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" }, { "history", "History" } }) do
-    local b = UI.Button(header, def[2], 64, 22, function() UI.ShowView(def[1]) end)
+  for _, def in ipairs({ { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" }, { "history", "History" } }) do
+    local b = UI.Button(header, def[2], 70, 22, function() UI.ShowView(def[1]) end)
     b:SetPoint("TOPLEFT", header, "TOPLEFT", x, 0)
     tabButtons[def[1]] = b
-    x = x + 67
+    x = x + 73
   end
 
   -- auto scan sits at the right end, beside the scan timer in the
@@ -855,7 +752,6 @@ function UI.EnsurePanel()
   body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
   panel.body = body
 
-  views.snipe = buildSnipeView(body)
   views.markets = buildMarketsView(body)
   views.item = buildItemView(body)
   views.fan = buildFanView(body)
@@ -867,7 +763,7 @@ function UI.EnsurePanel()
   panel.ticker = C_Timer.NewTicker(5, function() if panel:IsShown() then UI.UpdateStatus() end end)
   panel:SetScript("OnShow", UI.UpdateStatus)
 
-  UI.ShowView("snipe")
+  UI.ShowView("markets")
   return panel
 end
 

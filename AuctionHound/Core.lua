@@ -3,10 +3,9 @@ local ADDON, H = ...
 
 H.DEFAULTS = {
   cut = 0.05,            -- auction house cut on the faction AH
-  minDiscount = 0.25,    -- snipe candidates must sit at least this far under reference
-  snipePages = 40,       -- browse pages per snipe pass
+  minDiscount = 0.25,    -- a floor this far under reference counts as a deal
+  snipePages = 40,       -- Buy tab: result pages fetched on their own with a toggle on
   autoScan = false,      -- start a full scan whenever one is allowed at the AH
-  confirmTop = 12,       -- candidates confirmed with a targeted search per pass
   browseSort = false,    -- Buy tab: order rows by discount off reference
   browseDeals = false,   -- Buy tab: only rows under reference by the minimum discount
   browseHistory = false, -- Buy tab: only rows whose reference is market history
@@ -118,7 +117,6 @@ commands.help = function()
   H.Print("commands:")
   H.Print("  /hound            toggle the window")
   H.Print("  /hound scan       full scan (at the auction house)")
-  H.Print("  /hound snipe      run a snipe pass (at the auction house)")
   H.Print("  /hound stats <link or id>   show stored stats")
   H.Print("  /hound key <link>           show the history key for a link")
   H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
@@ -183,10 +181,6 @@ commands.scan = function()
   if H.Scan then H.Scan.StartFull() end
 end
 
-commands.snipe = function()
-  if H.Snipe then H.Snipe.Run() end
-end
-
 commands.stats = function(rest)
   local link, id = linkFromArgs(rest)
   if not link then H.Print("usage: /hound stats <item link or id>") return end
@@ -229,9 +223,9 @@ end
 
 commands.discount = function(rest)
   local v = tonumber(rest)
-  if not v then H.Printf("minimum snipe discount is %d%%", H.Settings().minDiscount * 100) return end
+  if not v then H.Printf("minimum discount is %d%%", H.Settings().minDiscount * 100) return end
   H.Settings().minDiscount = v / 100
-  H.Printf("minimum snipe discount set to %d%%", v)
+  H.Printf("minimum discount set to %d%%", v)
   H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
 end
 

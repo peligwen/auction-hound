@@ -46,7 +46,7 @@ function Ladder.Build(listings, key, itemID)
     if l.mine then L.mineUnits = L.mineUnits + l.q end
   end
 
-  local ref, src, conf, st = H.Snipe.Reference(key, itemID)
+  local ref, src, conf, st = H.Reference(key, itemID)
   local vendor = H.Priors.VendorSell(itemID)
   if not ref and vendor and L.floor < vendor then
     ref, src, conf = vendor, "vendor", 1

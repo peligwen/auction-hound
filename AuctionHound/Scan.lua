@@ -1,11 +1,11 @@
--- Scan.lua: talking to the auction house.
+-- Scan.lua: the full scan, and the house's answers as listings.
 --
--- Three kinds of request, one at a time:
---   full     ReplicateItems, the whole AH, throttled to one per 15 minutes
---   browse   paged browse results, one floor price per item key
---   search   every listing for one item key
--- Every request goes through the throttle gate so a dropped message is
--- retried instead of silently lost.
+-- ReplicateItems reads the whole house, throttled to one per 15
+-- minutes, a batch of rows per frame. The request goes through the
+-- throttle gate so a dropped message is retried instead of silently
+-- lost. The Buy tab's own paging and searches live in Throttle.lua and
+-- Depth.lua; the readers at the end turn any search answer into
+-- listings for them.
 local ADDON, H = ...
 
 local Scan = {}
@@ -30,10 +30,6 @@ Scan.REPLICATE_BUYOUT_IS_TOTAL = true
 local function setState(s)
   Scan.state = s
   H.Events:Fire("SCAN_STATUS")
-end
-
-local function sortsByPrice()
-  return { { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false } }
 end
 
 ------------------------------------------------------------------------
@@ -105,12 +101,8 @@ function Scan.Abort()
   stepFrame:Hide()
   disarmWatchdog()
   pendingSend = nil
-  local cb = Scan.browse and Scan.browse.cb
-  local scb = Scan.search and Scan.search.cb
-  Scan.byKey, Scan.browse, Scan.search = nil, nil, nil
+  Scan.byKey = nil
   setState("idle")
-  if cb then cb(nil, true) end
-  if scb then scb(nil) end
 end
 
 H.Events:On("AH_CLOSED", function()
@@ -277,93 +269,8 @@ function Scan.DebugReplicate(n)
 end
 
 ------------------------------------------------------------------------
--- Browse: floor price per item key, paged
+-- A search answer as listings { p, q, auctionID, timeLeft, owners, mine }
 ------------------------------------------------------------------------
-function Scan.Browse(opts, cb)
-  if not H.atAH then cb(nil, true) return false, "not at the auction house" end
-  if Scan.state ~= "idle" then cb(nil, true) return false, "scan in progress" end
-  opts = opts or {}
-  Scan.browse = { pages = 0, maxPages = opts.maxPages or 40, cb = cb, results = nil, waiting = true }
-  setState("browsing")
-  armWatchdog(30, "browse")
-  Scan.SendWhenReady(function()
-    AH.SendBrowseQuery({
-      searchString = opts.search or "",
-      sorts = sortsByPrice(),
-      filters = {},
-      itemClassFilters = {},
-      minLevel = 0,
-      maxLevel = 0,
-    })
-  end)
-  return true
-end
-
-local function browseMore()
-  local b = Scan.browse
-  if not b or b.waiting then return end
-  if AH.HasFullBrowseResults() or b.pages >= b.maxPages then
-    Scan.FinishBrowse(not AH.HasFullBrowseResults())
-    return
-  end
-  b.waiting = true
-  armWatchdog(30, "browse")
-  Scan.SendWhenReady(function() AH.RequestMoreBrowseResults() end)
-end
-
-function Scan.FinishBrowse(partial)
-  local b = Scan.browse
-  Scan.browse = nil
-  disarmWatchdog()
-  setState("idle")
-  if b and b.cb then b.cb(b.results or {}, partial) end
-end
-
-H.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", function()
-  local b = Scan.browse
-  if Scan.state ~= "browsing" or not b then return end
-  b.waiting = false
-  b.pages = math.max(b.pages, 1)
-  b.results = AH.GetBrowseResults()
-  H.Events:Fire("SCAN_STATUS")
-  browseMore()
-end)
-
-H.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", function()
-  local b = Scan.browse
-  if Scan.state ~= "browsing" or not b then return end
-  b.waiting = false
-  b.pages = b.pages + 1
-  b.results = AH.GetBrowseResults()
-  H.Events:Fire("SCAN_STATUS")
-  browseMore()
-end)
-
-------------------------------------------------------------------------
--- Search: every listing for one item key
--- cb(listings, isCommodity) where listings = { { p, q, auctionID, owners, timeLeft } }
-------------------------------------------------------------------------
-function Scan.Search(itemKey, cb)
-  if not H.atAH then cb(nil) return false, "not at the auction house" end
-  if Scan.state ~= "idle" then cb(nil) return false, "scan in progress" end
-  Scan.search = { key = itemKey, keyStr = H.KeyString(itemKey), cb = cb }
-  setState("searching")
-  armWatchdog(20, "search")
-  Scan.SendWhenReady(function()
-    AH.SendSearchQuery(itemKey, sortsByPrice(), false)
-  end)
-  return true
-end
-
-local function finishSearch(listings, isCommodity)
-  local s = Scan.search
-  Scan.search = nil
-  disarmWatchdog()
-  setState("idle")
-  if s and s.cb then s.cb(listings, isCommodity) end
-end
-
--- The house's answer to a search, as listings. Depth reads them too.
 function Scan.CommodityListings(itemID)
   local listings = {}
   local n = AH.GetNumCommoditySearchResults(itemID) or 0
@@ -387,16 +294,3 @@ function Scan.ItemListings(itemKey)
   end
   return listings
 end
-
-H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
-  local s = Scan.search
-  if Scan.state ~= "searching" or not s or s.key.itemID ~= itemID then return end
-  finishSearch(Scan.CommodityListings(itemID), true)
-end)
-
-H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
-  local s = Scan.search
-  if Scan.state ~= "searching" or not s or not itemKey then return end
-  if H.KeyString(itemKey) ~= s.keyStr and itemKey.itemID ~= s.key.itemID then return end
-  finishSearch(Scan.ItemListings(itemKey), false)
-end)

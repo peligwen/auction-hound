@@ -22,7 +22,7 @@ H.Events:On("AH_OPENED", Browse.Invalidate)
 local function reference(key, itemID)
   local r = refs[key]
   if not r then
-    local ref, src, conf, st = H.Snipe.Reference(key, itemID)
+    local ref, src, conf, st = H.Reference(key, itemID)
     r = { ref = ref, src = src, conf = conf or 0, st = st, vendor = H.Priors.VendorSell(itemID) }
     refs[key] = r
   end
