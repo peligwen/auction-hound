@@ -21,6 +21,11 @@ local FORMAT = "1"
 ------------------------------------------------------------------------
 -- Encoding
 ------------------------------------------------------------------------
+-- Numbers go through %.0f, never %d: the client's %d holds a 32-bit
+-- integer and raises past it, and 2^31 copper is only 214,748 gold,
+-- under one listing posted near the gold cap. %.0f prints any whole
+-- number a double holds exactly, up to 2^53. Every field here is
+-- already rounded, so the string reads the same.
 local function encode(rec)
   local days, pts, moved = {}, {}, {}
   local order = {}
@@ -28,16 +33,16 @@ local function encode(rec)
   table.sort(order)
   for _, d in ipairs(order) do
     local b = rec.days[d]
-    table.insert(days, string.format("%d:%d:%d:%d:%d:%d", d, b.mv, b.min, b.qty, b.n, b.s))
+    table.insert(days, string.format("%.0f:%.0f:%.0f:%.0f:%.0f:%.0f", d, b.mv, b.min, b.qty, b.n, b.s))
   end
   for _, p in ipairs(rec.pts) do
-    table.insert(pts, string.format("%d:%d:%d:%d:%d", math.floor(p.t / 60), p.mv, p.min, p.qty, p.n))
+    table.insert(pts, string.format("%.0f:%.0f:%.0f:%.0f:%.0f", math.floor(p.t / 60), p.mv, p.min, p.qty, p.n))
   end
   order = {}
   for d in pairs(rec.moved) do table.insert(order, d) end
   table.sort(order)
   for _, d in ipairs(order) do
-    table.insert(moved, string.format("%d:%d", d, rec.moved[d]))
+    table.insert(moved, string.format("%.0f:%.0f", d, rec.moved[d]))
   end
   return FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",")
 end
@@ -187,16 +192,27 @@ end
 ------------------------------------------------------------------------
 -- Persistence
 ------------------------------------------------------------------------
+-- A record that will not encode is reported once and skipped, keeping
+-- the string saved before it. The flush moves on, so one bad record
+-- neither loses the others at logout nor raises the same error every
+-- frame until a reload.
+local function save(m, key, rec)
+  local ok, str = pcall(encode, rec)
+  if ok then
+    m.items[key] = str
+  else
+    geterrorhandler()(ADDON .. ": could not save " .. tostring(key) .. ": " .. tostring(str))
+  end
+  return ok
+end
+
 function Store.Flush()
   local m = market()
   if not m then return 0 end
   local n = 0
   for key in pairs(dirty) do
     local rec = cache[key]
-    if rec then
-      m.items[key] = encode(rec)
-      n = n + 1
-    end
+    if rec and save(m, key, rec) then n = n + 1 end
   end
   dirty = {}
   return n
@@ -213,7 +229,7 @@ flushFrame:SetScript("OnUpdate", function()
   local n = 0
   for key in pairs(dirty) do
     local rec = cache[key]
-    if rec then m.items[key] = encode(rec) end
+    if rec then save(m, key, rec) end
     dirty[key] = nil
     n = n + 1
     if n >= Store.FLUSH_BATCH then return end

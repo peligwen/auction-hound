@@ -21,6 +21,34 @@ function strsplit(delim, str, limit)
 end
 
 function strjoin(delim, ...) return table.concat({ ... }, delim) end
+
+-- The client's string.format keeps a %d argument in a 32-bit integer
+-- and raises past it, where this Lua prints the number whole. Enforced
+-- here so a copper value handed to %d fails the tests the way it failed
+-- in the beta: 2^31 copper is only 214,748 gold.
+local rawformat = string.format
+function string.format(fmt, ...)
+  local n = 0
+  for conv in string.gmatch(fmt, "%%[-+ #0]*%d*%.?%d*([%a%%])") do
+    if conv ~= "%" then
+      n = n + 1
+      if conv == "d" or conv == "i" then
+        local v = tonumber((select(n, ...)))
+        if v and (v > 2147483647 or v < -2147483648) then
+          error(rawformat("integer overflow attempting to store %.0f", v), 2)
+        end
+      end
+    end
+  end
+  return rawformat(fmt, ...)
+end
+
+-- Errors handed to the client's handler instead of raised.
+Stub.errors = {}
+function geterrorhandler()
+  return function(msg) table.insert(Stub.errors, msg) if Stub.echo then print(msg) end end
+end
+
 function tContains(t, v) for _, x in ipairs(t) do if x == v then return true end end return false end
 function wipe(t) for k in pairs(t) do t[k] = nil end return t end
 tinsert = table.insert

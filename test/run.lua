@@ -195,6 +195,57 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Store: a listing near the gold cap, and a record that will not encode
+------------------------------------------------------------------------
+do
+  -- 9,999,999g 99s 99c is past what the client's %d holds. Once a scan
+  -- met a listing like it, the beta raised "integer overflow attempting
+  -- to store" from the flush frame every frame until a reload.
+  local cap = 99999999999
+  local day = H.DayIndex(Stub.now)
+  for _ = 1, 3 do
+    Store.AddScanSample("424242", Stub.now, { { p = 15000, q = 2 } })
+  end
+  Store.AddScanSample("424242", Stub.now, { { p = cap, q = 2 } })
+  local rec = Store.Get("424242")
+  check(rec.days[day].mv > 2147483647, "day bucket averaged past 2^31: " .. tostring(rec.days[day].mv))
+  local ok, encoded = pcall(Store.Encode, rec)
+  check(ok, "gold cap record encodes: " .. tostring(encoded))
+  local back = ok and Store.Decode(encoded) or { days = {}, pts = {} }
+  eq(back.days[day] and back.days[day].mv, rec.days[day].mv, "gold cap day bucket roundtrips")
+  eq(back.pts[4] and back.pts[4].mv, cap, "gold cap point roundtrips")
+  eq(back.pts[4] and back.pts[4].min, cap, "gold cap floor roundtrips")
+  Store.FlushAsync()
+  local ran, err = pcall(Stub.RunTimers)
+  check(ran, "flush frame saves the gold cap record: " .. tostring(err))
+  check(type(AuctionHoundDB.markets[H.marketKey].items["424242"]) == "string", "gold cap record saved")
+  eq(Store.Flush(), 0, "flush frame drained the dirty set")
+
+  -- A record that cannot be encoded is reported once through the
+  -- client's error handler and skipped; the record beside it still
+  -- saves, and the frame stops instead of raising every frame.
+  local bad = Store.GetOrCreate("424243")
+  bad.days[day] = { mv = {}, min = 1, qty = 1, n = 1, s = 1 }
+  Store.Touch("424243")
+  Store.AddScanSample("424244", Stub.now, { { p = 300, q = 100 } })
+  Stub.errors = {}
+  Store.FlushAsync()
+  ran, err = pcall(Stub.RunTimers)
+  check(ran, "flush frame survives a record that will not encode: " .. tostring(err))
+  eq(#Stub.errors, 1, "the bad record is reported once")
+  check(Stub.errors[1] and string.find(Stub.errors[1], "424243", 1, true) ~= nil, "the report names the key")
+  eq(AuctionHoundDB.markets[H.marketKey].items["424243"], nil, "nothing saved for the bad record")
+  check(type(AuctionHoundDB.markets[H.marketKey].items["424244"]) == "string", "the record beside it still saves")
+  eq(Store.Flush(), 0, "flush frame drained the dirty set past the bad record")
+  ran, err = pcall(Stub.RunTimers)
+  check(ran and #Stub.errors == 1, "the flush frame stopped instead of reporting again")
+  Store.Touch("424243")
+  eq(Store.Flush(), 0, "sync flush skips the bad record")
+  eq(#Stub.errors, 2, "sync flush reports it once more")
+  Stub.errors = {}
+end
+
+------------------------------------------------------------------------
 -- Priors and conversions
 ------------------------------------------------------------------------
 local P = H.Priors

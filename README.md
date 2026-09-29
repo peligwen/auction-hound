@@ -371,7 +371,8 @@ modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, purchases and the quick buyout, and UI
 construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
-cannot come back quietly.
+cannot come back quietly; the client's 32-bit `%d`, which a price near
+the gold cap overflows, is enforced the same way.
 
 ## Roadmap
 
