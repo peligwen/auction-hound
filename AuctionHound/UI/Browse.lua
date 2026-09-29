@@ -87,8 +87,6 @@ function AuctionHoundBrowseCellMixin:OnEnter()
       GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
     elseif depthOn then
       GameTooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
-    elseif not e.ref then
-      GameTooltip:AddLine("tick Depth to judge the floor against the rest of the listings", 0.6, 0.6, 0.6, true)
     else
       GameTooltip:AddLine("tick Depth for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
     end

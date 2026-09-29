@@ -1343,21 +1343,16 @@ do
   eq(Ladder.Color("deal", true), Ladder.COLORS.low, "flagged listing takes the low color")
   check(string.find(Ladder.Lines(L)[3], "low in the list", 1, true), "line three says so")
 
-  -- nothing scanned: the listings are the reference; vendor; nothing
+  -- no reference, vendor reference, nothing
   L = Ladder.Build({ { p = 500, q = 3 } }, "90001", 90001)
-  eq(L.ref, 500, "unscanned item: one price is its own reference")
-  eq(L.refSrc, "listings", "and says it comes from the listings")
-  eq(Ladder.Verdict(L, 500), "over", "the floor sits at it")
-  check(string.find(Ladder.Lines(L)[1], "value of these listings; no history", 1, true), "line one names the listings: " .. Ladder.Lines(L)[1])
+  eq(L.ref, nil, "unknown item has no reference")
+  eq(Ladder.Verdict(L, 500), "none", "no verdict without a reference")
+  eq(Ladder.Off(L, 500), "", "no discount text without a reference")
+  check(string.find(Ladder.Lines(L)[1], "no reference", 1, true), "line one says there is no reference")
   L = Ladder.Build({ { p = 100, q = 1 }, { p = 200, q = 10 }, { p = 210, q = 10 } }, "90001", 90001)
-  eq(L.refSrc, "listings", "a stray floor on an unscanned item")
-  eq(L.ref, 200, "is judged against the rest")
-  eq(Ladder.Verdict(L, 100), "deal", "so the stray is a deal")
-  eq(L.dealUnits, 1, "one unit of it")
-  eq(Ladder.Verdict(L, 200), "over", "the bulk sits at the reference")
-  L = Ladder.Build({ { p = 100, q = 30 }, { p = 200, q = 10 } }, "90001", 90001)
-  eq(L.ref, 100, "a wall at the floor is the value")
-  eq(L.dealUnits, 0, "and no deal")
+  eq(L.ref, nil, "a stray floor is not a reference: only the market is")
+  eq(Ladder.Verdict(L, 100), "none", "so no verdict for it")
+  check(L.lowFloor, "it is still flagged low in the list")
   L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
   eq(L.refSrc, "vendor", "vendor price stands in")
   eq(L.limit, 999, "limit sits just under the vendor price")
@@ -1852,48 +1847,33 @@ do
   eq(Depth.Get(leatherRow).dealUnits, 40, "and back")
   eq(Stub.ah.searchCalls, calls, "none of it searched")
 
-  -- nothing scanned: once the row's depth is read, the floor is judged
-  -- against the rest of its listings; a row with an item level still
-  -- meets its history
+  -- the column reads the floor against the market alone: an unscanned
+  -- row stays without a reference once its depth is read, and a row
+  -- with an item level still meets its history
   Stub.DefineItem(90020, "Unscanned Widget", { sell = 0, commodity = true })
   SlashCmdList.HOUND("estimates off")
   local strayRow = { itemKey = C_AuctionHouse.MakeItemKey(90020, 12), minPrice = 100, totalQuantity = 21 }
   local leveledOre = { itemKey = C_AuctionHouse.MakeItemKey(2770, 10), minPrice = H.Round(refOre * 0.5), totalQuantity = 30 }
   Stub.ah.searchResults["90020:12:0"] = { commodity = true, listings = { { 100, 1 }, { 200, 10 }, { 210, 10 } } }
   Stub.ah.searchResults["2770:10:0"] = { commodity = true, listings = { { leveledOre.minPrice, 30 } } }
-  S.browseDepth = false
+  S.browseDepth = true
   Stub.ah.browse = { strayRow, leveledOre }
   C_AuctionHouse.SendBrowseQuery({})
   Stub.Advance(1) Stub.Pump()
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Sub.text, "no reference", "depth off: the unscanned row has nothing to go on")
-  GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "judge the floor against the rest", 1, true), "tooltip points at Depth for it")
-  r.rows[1][4]:OnLeave()
-  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre), "the leveled ore row reads its history")
-  S.browseDepth = true
-  r = br.ItemList:Render()
   for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
   check(Depth.Get(strayRow) ~= nil, "the unscanned row's depth is read")
   local se = H.Browse.Evaluate(strayRow)
-  eq(se.refSrc, "listings", "and its reference is the listings")
-  check(se.deal and not se.history, "the stray floor is a deal, not history")
+  check(se.ref == nil and not se.deal, "and it still has no reference")
   r = br.ItemList:Render()
-  local sub = r.rows[1][4].Sub.text
-  check(string.find(sub, "^ask ") and string.find(sub, " x1$"), "the note marks the listings and the floor units: " .. sub)
-  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[2], H.Browse.COLORS.deal[2], "and the figure is green")
-  GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
-  tip = table.concat(GameTooltip.lines, "\n")
-  check(string.find(tip, "value of these listings; no history", 1, true), "tooltip says where the reference came from: " .. tip)
-  check(string.find(tip, "1 units at or under", 1, true), "and counts the stray: " .. tip)
-  r.rows[1][4]:OnLeave()
+  eq(r.rows[1][4].Sub.text, "no reference", "its cell says so")
+  eq(r.rows[1][4].Text.text, "", "with no figure")
   local LO = Depth.Get(leveledOre)
   eq(LO and LO.refSrc, "market", "the leveled ore's ladder is read against its history")
-  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre) .. " x30", "and its cell shows it")
-  check(H.Browse.BuildIndex(2, function(i) return ({ strayRow, leveledOre })[i] end, { deals = true })[1] == 1,
-    "deals only keeps the stray")
+  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre) .. " x30", "its cell shows the market price")
+  eq(r.rows[2][4].Text.text, "-50%", "and the floor's percentage under it")
+  eq(H.Browse.BuildIndex(2, function(i) return ({ strayRow, leveledOre })[i] end, { deals = true })[1], 2,
+    "deals only keeps the row under market")
   SlashCmdList.HOUND("estimates on")
 
   -- leaving the house forgets it all

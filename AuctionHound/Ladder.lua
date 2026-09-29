@@ -25,7 +25,6 @@ Ladder.COLORS = {
 --   mv              value from these listings alone
 --   within10        units within ten percent of the floor
 --   ref, refSrc, conf, st, vendor
---                   refSrc market | prior:<kind> | vendor | listings
 --   limit           the price a deal must sit at or under
 --   dealUnits, dealCost
 --   disc            the floor's discount off the reference
@@ -51,12 +50,6 @@ function Ladder.Build(listings, key, itemID)
   local vendor = H.Priors.VendorSell(itemID)
   if not ref and vendor and L.floor < vendor then
     ref, src, conf = vendor, "vendor", 1
-  end
-  -- Nothing scanned and no vendor floor under it: the floor is judged
-  -- against the rest of the listings, by the value a scan would take
-  -- from them.
-  if not ref and L.mv and L.mv > 0 then
-    ref, src, conf = L.mv, "listings", 0
   end
   L.ref, L.refSrc, L.conf, L.st, L.vendor = ref, src, conf or 0, st, vendor
   if ref and ref > 0 then

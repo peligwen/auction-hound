@@ -7,8 +7,7 @@
 -- for as long as its history stays thin. History older than the two
 -- weeks the market value spans still counts: the 30-day mean, else the
 -- value at the last scan. The Buy tab, the listing ladder and the depth
--- reads all start here; where there is no history at all, those with
--- the listings in hand judge the floor against the rest of them.
+-- reads all start here.
 local ADDON, H = ...
 
 -- Returns ref, source, confidence, stats. source is "market",
@@ -43,7 +42,6 @@ function H.ReferenceSource(src, st)
     return string.format("market, %d scans", st and st.samples or 0)
   end
   if src == "vendor" then return "vendor price" end
-  if src == "listings" then return "value of these listings; no history" end
   return "estimate: " .. string.sub(src or "", 7)
 end
 

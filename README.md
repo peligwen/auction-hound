@@ -28,13 +28,13 @@ the checklist below is where that stands.
   note then ends in the units at the floor ("12.3g x40"), and hovering
   the cell shows the row's ladder, the units at or under the limit,
   the next price step and the value of the listings. A ladder is kept
-  while the row still shows the same floor and count. An item with no
-  history at all is judged by its ladder once read: the floor against
-  the value of the rest of its listings, the value a scan would take
-  from them, and the note starts with "ask". A row meets its history
-  by item ID whatever item level the house gives it; only gear keeps
-  its level and suffix. History older than the two weeks the market
-  value spans still counts: the 30-day mean, else the last scan. The usual
+  while the row still shows the same floor and count. The reference is
+  the market price from the scan's history, never the listings on
+  screen, and the figure is the floor's percentage under it: an item
+  never scanned reads "no reference". A row meets its history by item
+  ID whatever item level the house gives it; only gear keeps its level
+  and suffix. History older than the two weeks the market value spans
+  still counts: the 30-day mean, else the last scan. The usual
   category tree, search box and filters do the narrowing; clicking a
   row buys through Blizzard's frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
@@ -73,8 +73,7 @@ the checklist below is where that stands.
   under its crafted cost reads as a deal for as long as its history
   stays thin, so the crafted cost and input value can be turned off:
   untick "estimates" on the Hound tab, or `/hound estimates off`, and
-  the reference is history alone, thin or old, plus the vendor price,
-  and with Depth ticked the listings themselves.
+  the reference is history alone, thin or old, plus the vendor price.
   The Item view still shows what an item costs to make either way.
 - **Connections.** Smelting, leather, hides and bolts, with input cost,
   output value, spread per craft and gold per hour at your labor rate.
@@ -234,9 +233,8 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     While it reads, click a row: the buy frame must still fill with
     that item's listings (a query dropped by the throttle is sent
     again), and type a new search: the results must still arrive.
-    A row for an item never scanned should turn from "no reference"
-    to "ask" and a price once its depth is read, green if the floor
-    sits well under the rest of its listings.
+    A row for an item never scanned stays "no reference" once its
+    depth is read.
     Report if any click leaves an empty buy frame, if the strip no
     longer fits its five toggles, or if the count on the right stops
     changing while rows still lack their "xN".
