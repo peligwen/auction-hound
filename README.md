@@ -22,7 +22,12 @@ the checklist below is where that stands.
   when it clears the minimum discount, amber under reference, grey
   above. A strip above the headers sorts by discount, keeps only deals,
   only rows with real history, or hides rows holding your own auctions,
-  and sets the minimum. With a toggle on, the remaining result pages
+  and sets the minimum: a percentage off the reference, and copper a
+  unit under it, whichever is more. A three-copper item at half price
+  is fifty percent off and still not worth the click; with the copper
+  minimum at 5s it reads amber, not green, and "Deals only" drops it,
+  while a 20s item at half price stays. The cell's tooltip names the
+  minimum that held it back. With a toggle on, the remaining result pages
   load without scrolling. Tick "Depth" and each row on screen gets one
   search of its own, one at a time through the house's throttle: the
   note then ends in the units at the floor ("12.3g x40"), and hovering
@@ -168,9 +173,15 @@ for ore and cloth, where the scan keys all but gear by item ID alone
    "Sort by off": deals rise to the top and the count on the right
    climbs as the remaining pages load. Tick "Deals only", then "Not
    mine" with one of your own auctions in the list. Change the minimum
-   and watch the colors move. Report if the strip overlaps the column
-   headers, if the star column lost its place, or if the list stops
-   loading pages (the count says "stopped at N pages" at the cap).
+   and watch the colors move. Type `5s` into the second box beside the
+   percentage: cheap rows at "-50%" should turn from green to amber,
+   their tooltips saying only a few copper a unit stand under the
+   reference, and "Deals only" should drop them while a dearer row at
+   the same percentage stays green; `/hound discount` should read the
+   box back. Report if the strip overlaps the column headers or the
+   status on its right, if the star column lost its place, or if the
+   list stops loading pages (the count says "stopped at N pages" at the
+   cap).
 6. **Persistence.** Verified: the item count survives `/reload`.
 7. **Item view.** Open, and new: with nothing picked it now explains
    itself. Type part of a name in its find box and press Enter; then
@@ -276,7 +287,8 @@ for ore and cloth, where the scan keys all but gear by item ID alone
 /hound post            post the next batch of the fan (bind it to a key)
 /hound labor <g/h>     your time, used for gold per hour
 /hound cut <pct>       auction house cut, default 5
-/hound discount <pct>  minimum discount for a deal, on the Buy tab and in passes, default 25
+/hound discount [pct] [money]  the minimum a deal clears: a percentage off the reference, default 25,
+                       and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
@@ -303,7 +315,7 @@ Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
 Reference.lua the reference: market history when deep enough, else a prior, else older history
-Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
+Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking

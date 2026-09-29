@@ -25,7 +25,10 @@ Ladder.COLORS = {
 --   mv              value from these listings alone
 --   within10        units within ten percent of the floor
 --   ref, refSrc, conf, st, vendor
---   limit           the price a deal must sit at or under
+--   limit           the price a deal must sit at or under: the minimum
+--                   discount off the reference, and the minimum copper
+--                   a unit under it, whichever bites first; a floor
+--                   under vendor is a deal too, copper minimum kept
 --   dealUnits, dealCost
 --   disc            the floor's discount off the reference
 ------------------------------------------------------------------------
@@ -53,8 +56,12 @@ function Ladder.Build(listings, key, itemID)
   end
   L.ref, L.refSrc, L.conf, L.st, L.vendor = ref, src, conf or 0, st, vendor
   if ref and ref > 0 then
-    L.limit = ref * (1 - (S.minDiscount or 0))
-    if vendor and vendor - 1 > L.limit then L.limit = vendor - 1 end
+    local saving = S.minSaving or 0
+    L.limit = math.min(ref * (1 - (S.minDiscount or 0)), ref - saving)
+    if vendor then
+      local underVendor = math.min(vendor - 1, ref - saving)
+      if underVendor > L.limit then L.limit = underVendor end
+    end
     L.dealUnits, L.dealCost = 0, 0
     for _, s in ipairs(L.steps) do
       if s.p <= L.limit then
@@ -127,6 +134,9 @@ function Ladder.Lines(L)
   if L.limit then
     if L.dealUnits > 0 then
       lines[2] = string.format("%d units at or under %s, %s all in", L.dealUnits, H.Money(L.limit), H.Money(L.dealCost))
+    elseif L.limit < 1 and (H.Settings().minSaving or 0) > 0 then
+      lines[2] = string.format("no price here clears the %s a unit minimum; the floor is %s",
+        H.Money(H.Settings().minSaving), relative(L.disc))
     else
       lines[2] = string.format("nothing at or under %s; the floor is %s", H.Money(L.limit), relative(L.disc))
     end

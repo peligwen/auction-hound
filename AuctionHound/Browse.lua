@@ -38,9 +38,15 @@ end
 --   ref, refSrc   market | prior:<kind> | vendor | nil
 --   history       the reference is real market history
 --   disc          fraction under the reference; negative above it
+--   saving        copper a unit under the reference; negative above it
 --   vendorFlip    the floor sits under the vendor sell price
---   deal          under the reference by the minimum discount, or a
---                 vendor flip, with units there to buy
+--   deal          under the reference by the minimum, or a vendor flip,
+--                 with units there to buy. The minimum is a percentage
+--                 and a number of copper a unit, and both must hold: a
+--                 three-copper item at half price is fifty percent off
+--                 and still not worth the click.
+--   small         far enough under by the percentage, or under vendor,
+--                 but not by the copper: the reason it is not a deal
 ------------------------------------------------------------------------
 function Browse.Evaluate(row)
   if type(row) ~= "table" or type(row.itemKey) ~= "table" or not row.itemKey.itemID then return nil end
@@ -61,8 +67,12 @@ function Browse.Evaluate(row)
   end
   if e.ref and e.ref > 0 and e.min > 0 then
     e.disc = 1 - e.min / e.ref
+    e.saving = e.ref - e.min
   end
-  e.deal = e.qty > 0 and (e.vendorFlip or (e.disc ~= nil and e.disc >= (S.minDiscount or 0))) or false
+  local far = e.vendorFlip or (e.disc ~= nil and e.disc >= (S.minDiscount or 0)) or false
+  local enough = (e.saving or 0) >= (S.minSaving or 0)
+  e.deal = e.qty > 0 and far and enough
+  e.small = e.qty > 0 and far and not enough
   return e
 end
 

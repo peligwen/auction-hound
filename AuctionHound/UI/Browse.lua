@@ -83,6 +83,10 @@ function AuctionHoundBrowseCellMixin:OnEnter()
       GameTooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
     end
     GameTooltip:AddLine(string.format("floor %s, %d units listed", H.Money(e.min), e.qty), 0.8, 0.8, 0.8, true)
+    if e.small then
+      GameTooltip:AddLine(string.format("%s under, but only %s a unit; the minimum is %s",
+        H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
+    end
     if depthOn and H.Depth.Failed(self.rowData) then
       GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
     elseif depthOn then
@@ -212,8 +216,27 @@ function B.Rebuild()
 end
 
 ------------------------------------------------------------------------
--- The strip: four toggles, the minimum discount, and a count.
+-- The strip: five toggles, the minimum (a percentage and copper a
+-- unit), and a count.
 ------------------------------------------------------------------------
+-- Money as the copper box shows it: 5s, 1g20s, 0c.
+local function boxMoney(copper)
+  return (string.gsub(H.MoneyExact(copper or 0), " ", ""))
+end
+
+local function tip(frame, ...)
+  local lines = { ... }
+  frame:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    for i, line in ipairs(lines) do
+      if i == 1 then GameTooltip:AddLine(line, 1, 1, 1) else GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true) end
+    end
+    GameTooltip:Show()
+  end)
+  frame:SetScript("OnLeave", function() if GameTooltip then GameTooltip:Hide() end end)
+end
+
 local function buildStrip(br)
   local strip = CreateFrame("Frame", nil, br)
   strip:SetHeight(B.STRIP_HEIGHT)
@@ -256,9 +279,29 @@ local function buildStrip(br)
   local pct = UI.Text(strip, "GameFontHighlightSmall", "%", "LEFT")
   pct:SetPoint("LEFT", box, "RIGHT", 2, 0)
   strip.min = box
+  tip(box, "Minimum discount",
+    "A deal sits at least this far under the reference, in percent.")
 
+  -- the copper minimum: a deal must also sit this many copper a unit
+  -- under the reference, so a three-copper item at half price is not one
+  local saving = UI.EditBox(strip, 44, function(text)
+    local v = H.ParseMoney(text)
+    if not v or v < 0 then return end
+    if v == (H.Settings().minSaving or 0) then return end
+    H.Settings().minSaving = v
+    H.Events:Fire("SETTINGS_CHANGED", "minSaving")
+  end)
+  saving:SetPoint("LEFT", pct, "RIGHT", 6, 0)
+  strip.saving = saving
+  tip(saving, "Minimum in copper",
+    "A deal also sits at least this much a unit under the reference, so a cheap item at half price is not one.",
+    "Money as you would type it: 5s, 1g20s. 0 for no such floor.")
+
+  -- the count fills what is left; anchored on both sides it truncates
+  -- on a narrow frame instead of running under the boxes
   strip.status = UI.Text(strip, "GameFontDisableSmall", "", "RIGHT")
   strip.status:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
+  strip.status:SetPoint("LEFT", saving, "RIGHT", 8, 0)
   return strip
 end
 
@@ -273,6 +316,8 @@ function B.UpdateStrip()
   strip.depth:SetChecked(S.browseDepth and true or false)
   local want = tostring(H.Round((S.minDiscount or 0) * 100))
   if strip.min:GetText() ~= want and not strip.min:HasFocus() then strip.min:SetText(want) end
+  want = boxMoney(S.minSaving)
+  if strip.saving:GetText() ~= want and not strip.saving:HasFocus() then strip.saving:SetText(want) end
 
   local n = B.getNum and B.getNum() or 0
   local idx = B.getNum and currentIndex()

@@ -4,10 +4,11 @@ local ADDON, H = ...
 H.DEFAULTS = {
   cut = 0.05,            -- auction house cut on the faction AH
   minDiscount = 0.25,    -- a floor this far under reference counts as a deal
+  minSaving = 0,         -- and at least this many copper a unit under it; 0 is no such floor
   snipePages = 40,       -- Buy tab: result pages fetched on their own with a toggle on
   autoScan = false,      -- start a full scan whenever one is allowed at the AH
   browseSort = false,    -- Buy tab: order rows by discount off reference
-  browseDeals = false,   -- Buy tab: only rows under reference by the minimum discount
+  browseDeals = false,   -- Buy tab: only rows under reference by the minimum, percent and copper
   browseHistory = false, -- Buy tab: only rows whose reference is market history
   browseNotMine = false, -- Buy tab: hide rows that hold one of your auctions
   browseDepth = false,   -- Buy tab: search each row on screen for the units at its floor
@@ -123,7 +124,8 @@ commands.help = function()
   H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
-  H.Print("  /hound labor <gold per hour> / cut <percent> / discount <percent>")
+  H.Print("  /hound labor <gold per hour> / cut <percent>")
+  H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
@@ -224,12 +226,42 @@ commands.cut = function(rest)
   H.Printf("cut set to %d%%", v)
 end
 
+-- The minimum a deal must clear: a percentage off the reference, and
+-- copper a unit under it, whichever is more. The copper floor is what
+-- keeps a three-copper item at half price off the deals: it is fifty
+-- percent under, and not worth the click.
+local function minimumLine(S)
+  local line = string.format("%d%%", H.Round((S.minDiscount or 0) * 100))
+  if (S.minSaving or 0) > 0 then
+    line = line .. string.format(" or %s a unit, whichever is more", H.MoneyExact(S.minSaving))
+  end
+  return line
+end
+
 commands.discount = function(rest)
-  local v = tonumber(rest)
-  if not v then H.Printf("minimum discount is %d%%", H.Settings().minDiscount * 100) return end
-  H.Settings().minDiscount = v / 100
-  H.Printf("minimum discount set to %d%%", v)
-  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+  local S = H.Settings()
+  local pct, saving
+  for tok in string.gmatch(rest or "", "%S+") do
+    local l = string.lower(tok)
+    local p = tonumber(string.match(l, "^([%d%.]+)%%?$"))
+    local c = string.match(l, "^[%d%.]+[gsc]") and H.ParseMoney(l)
+    if p then
+      pct = p / 100
+    elseif c then
+      saving = c
+    else
+      H.Print("usage: /hound discount [percent] [copper a unit, e.g. 5s]")
+      return
+    end
+  end
+  if pct or saving then
+    if pct then S.minDiscount = pct end
+    if saving then S.minSaving = saving end
+    H.Printf("minimum discount set to %s", minimumLine(S))
+    H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+  else
+    H.Printf("minimum discount is %s", minimumLine(S))
+  end
 end
 
 -- Estimates: with history thin, the crafted cost or the value as an

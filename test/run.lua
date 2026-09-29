@@ -725,6 +725,12 @@ do
   near(H.Settings().cut, 0.05, 0.0001, "cut setting")
   SlashCmdList.HOUND("discount 30")
   near(H.Settings().minDiscount, 0.30, 0.0001, "discount setting")
+  SlashCmdList.HOUND("discount 25% 2s")
+  near(H.Settings().minDiscount, 0.25, 0.0001, "discount setting with a percent sign")
+  eq(H.Settings().minSaving, 200, "discount setting with a copper floor")
+  SlashCmdList.HOUND("discount 0c")
+  eq(H.Settings().minSaving, 0, "the copper floor cleared")
+  SlashCmdList.HOUND("discount 30")
   SlashCmdList.HOUND("key |cffffffff|Hitem:15001:0:0:0:0:0:-14:0:60:0:0:0:0|h[Wolf Bracers]|h|r")
   check(string.find(Stub.printed[#Stub.printed], "15001:20:%-14"), "key command")
 end
@@ -998,6 +1004,54 @@ do
   SlashCmdList.HOUND("discount 25")
   eq(BUI.strip.min.text, "25", "slash command updates the box")
   check(Browse.Evaluate(half).deal, "half price is a deal again")
+
+  -- the copper minimum: a deal must also sit that far under the
+  -- reference in copper a unit, so a one-silver item at half price is
+  -- fifty percent off and still no deal
+  H.Settings().browseSort = false
+  BUI.Rebuild()
+  eq(BUI.strip.saving.text, "0c", "copper box shows no floor")
+  e = Browse.Evaluate(half)
+  eq(e.saving, 50, "saving is the copper a unit under the reference")
+  BUI.strip.saving:SetText("1s")
+  BUI.strip.saving.scripts.OnTextChanged(BUI.strip.saving)
+  eq(H.Settings().minSaving, 100, "copper box sets the minimum")
+  e = Browse.Evaluate(half)
+  check(not e.deal and e.small, "half price is no deal at 50c a unit under a 1s minimum")
+  eq(select(2, Browse.CellText(e)), "-50%", "the figure still reads the percentage")
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "and the row is amber")
+  check(Browse.Evaluate(vendorRow).deal, "two silver under vendor clears it and stays a deal")
+  eq(table.concat(Browse.BuildIndex(#rows, getRow, { deals = true }), ","), "5", "deals only drops the rows short of the copper minimum")
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[2], Browse.COLORS.under[2], "the cell turns amber")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "50% under, but only 50c a unit; the minimum is 1s", 1, true),
+    "the cell tooltip names the copper minimum: " .. table.concat(GameTooltip.lines, " | "))
+  r.rows[1][4]:OnLeave()
+  GameTooltip:ClearLines()
+  BUI.strip.saving.scripts.OnEnter(BUI.strip.saving)
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "Minimum in copper", 1, true), "the box explains itself on hover")
+  BUI.strip.saving.scripts.OnLeave(BUI.strip.saving)
+  SlashCmdList.HOUND("discount 25 3s")
+  eq(H.Settings().minSaving, 300, "slash command sets the copper minimum")
+  eq(BUI.strip.saving.text, "3s", "and the box follows")
+  e = Browse.Evaluate(vendorRow)
+  check(not e.deal and e.small, "the vendor flip is no deal under a 3s minimum")
+  Stub.printed = {}
+  SlashCmdList.HOUND("discount")
+  check(string.find(Stub.printed[1] or "", "25% or 3s a unit, whichever is more", 1, true), "the command reads both back: " .. tostring(Stub.printed[1]))
+  Stub.printed = {}
+  SlashCmdList.HOUND("discount 40 bogus")
+  check(string.find(Stub.printed[1] or "", "usage", 1, true), "a bad token prints the usage")
+  eq(H.Settings().minSaving, 300, "and changes nothing")
+  near(H.Settings().minDiscount, 0.25, 0.0001, "not the percentage either")
+  SlashCmdList.HOUND("discount 0c")
+  eq(H.Settings().minSaving, 0, "0c clears the copper minimum")
+  eq(BUI.strip.saving.text, "0c", "box shows no floor again")
+  check(Browse.Evaluate(half).deal, "half price is a deal once more")
+  H.Settings().browseSort = true
+  BUI.Rebuild()
 
   -- with a toggle on, the remaining pages come in on their own
   Stub.ah.browsePageSize = 2
@@ -1357,6 +1411,23 @@ do
   eq(L.refSrc, "vendor", "vendor price stands in")
   eq(L.limit, 999, "limit sits just under the vendor price")
   eq(L.dealUnits, 3, "units under vendor are the deal")
+  -- the copper minimum moves the limit too, under vendor included
+  H.Settings().minSaving = 60
+  L = Ladder.Build({ { p = at(0.4), q = 30 }, { p = at(0.45), q = 20 }, { p = at(1.0), q = 500 } }, "2770", 2770)
+  eq(L.limit, at(0.4), "the copper minimum sets the limit when it bites first")
+  eq(L.dealUnits, 30, "only the floor clears it")
+  eq(Ladder.Verdict(L, at(0.45)), "under", "the next step is under, not a deal")
+  H.Settings().minSaving = 300
+  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
+  eq(L.limit, 700, "under vendor still has to clear the copper minimum")
+  eq(L.dealUnits, 0, "two silver under vendor is short of three")
+  eq(Ladder.Verdict(L, 800), "under", "so the floor is under, not a deal")
+  check(string.find(Ladder.Lines(L)[2], "nothing at or under", 1, true), "line two says so: " .. Ladder.Lines(L)[2])
+  H.Settings().minSaving = 5000
+  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
+  eq(L.dealUnits, 0, "a minimum over the reference leaves no deal")
+  check(string.find(Ladder.Lines(L)[2], "no price here clears", 1, true), "and line two says why: " .. Ladder.Lines(L)[2])
+  H.Settings().minSaving = 0
   eq(Ladder.Build({}, "2770", 2770), nil, "no listings, no ladder")
   eq(Ladder.Lines(nil)[1], "no listings loaded", "no ladder, one line")
 
@@ -1846,6 +1917,12 @@ do
   SlashCmdList.HOUND("discount 25")
   eq(Depth.Get(leatherRow).dealUnits, 40, "and back")
   eq(Stub.ah.searchCalls, calls, "none of it searched")
+  -- and the copper minimum: five silver a unit under is short of six
+  SlashCmdList.HOUND("discount 25 6s")
+  eq(Depth.Get(leatherRow).dealUnits, 0, "a copper minimum re-reads the ladder: 5s a unit under is short of 6s")
+  SlashCmdList.HOUND("discount 25 0c")
+  eq(Depth.Get(leatherRow).dealUnits, 40, "and back again")
+  eq(Stub.ah.searchCalls, calls, "still none of it searched")
 
   -- the column reads the floor against the market alone: an unscanned
   -- row stays without a reference once its depth is read, and a row
