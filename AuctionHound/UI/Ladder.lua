@@ -162,7 +162,7 @@ function LU.RebuildItem()
     if block then block:SetLines(nil) end
     return
   end
-  LU.current.item = H.Ladder.Build(itemListings(itemKey), H.KeyString(itemKey), itemKey.itemID)
+  LU.current.item = H.Ladder.Build(itemListings(itemKey), H.KeyFromItemKey(itemKey), itemKey.itemID)
   if block then block:SetLines(H.Ladder.Lines(LU.current.item)) end
   local list = LU.itemFrame and LU.itemFrame.ItemList
   if list and list.DirtyScrollFrame then list:DirtyScrollFrame() end

@@ -19,7 +19,7 @@ D.TIMEOUT = 10       -- seconds to wait for the house's answer
 
 local function keyOf(row)
   if type(row) ~= "table" or type(row.itemKey) ~= "table" or not row.itemKey.itemID then return nil end
-  return H.KeyString(row.itemKey)
+  return H.KeyFromItemKey(row.itemKey)
 end
 
 -- The ladder for a row, or nil when none is fresh. A row whose floor
@@ -165,7 +165,7 @@ end)
 H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
   local w = D.inflight
   if not w or not itemKey then return end
-  if H.KeyString(itemKey) ~= w.key and itemKey.itemID ~= w.itemID then return end
+  if H.KeyFromItemKey(itemKey) ~= w.key and itemKey.itemID ~= w.itemID then return end
   D.Finish(w, H.Scan.ItemListings(itemKey))
 end)
 

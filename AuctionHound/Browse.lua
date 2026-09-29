@@ -35,7 +35,7 @@ end
 -- One browse row, read. Returns nil for a row without an item key.
 --
 --   key, itemID, min, qty, mine
---   ref, refSrc   market | prior:<kind> | vendor | nil
+--   ref, refSrc   market | prior:<kind> | vendor | listings | nil
 --   history       the reference is real market history
 --   disc          fraction under the reference; negative above it
 --   vendorFlip    the floor sits under the vendor sell price
@@ -46,7 +46,7 @@ function Browse.Evaluate(row)
   if type(row) ~= "table" or type(row.itemKey) ~= "table" or not row.itemKey.itemID then return nil end
   local S = H.Settings()
   local itemID = row.itemKey.itemID
-  local key = H.KeyString(row.itemKey)
+  local key = H.KeyFromItemKey(row.itemKey)
   local r = reference(key, itemID)
   local e = {
     key = key, itemID = itemID,
@@ -58,6 +58,12 @@ function Browse.Evaluate(row)
   if e.min > 0 and r.vendor and e.min < r.vendor then
     e.vendorFlip = true
     if not e.ref then e.ref, e.refSrc = r.vendor, "vendor" end
+  end
+  -- Nothing scanned: with the row's depth read, the floor is judged
+  -- against the rest of its listings.
+  if not e.ref and S.browseDepth then
+    local L = H.Depth.Get(row)
+    if L and L.refSrc == "listings" then e.ref, e.refSrc = L.ref, "listings" end
   end
   if e.ref and e.ref > 0 and e.min > 0 then
     e.disc = 1 - e.min / e.ref
@@ -84,6 +90,8 @@ function Browse.CellText(e, L)
   local note = H.MoneyShort(e.ref)
   if e.refSrc == "vendor" then
     note = "vendor " .. note
+  elseif e.refSrc == "listings" then
+    note = "ask " .. note
   elseif not e.history then
     note = "~" .. note
   end
@@ -140,6 +148,26 @@ function Browse.BuildIndex(n, getRow, opts)
     end)
   end
   return idx
+end
+
+------------------------------------------------------------------------
+-- What the Buy tab makes of the first n rows the house gave, for
+-- checking in game that a row meets the history the scan stored.
+------------------------------------------------------------------------
+function Browse.Debug(n)
+  local AH = C_AuctionHouse
+  local rows = AH and AH.GetBrowseResults and AH.GetBrowseResults() or {}
+  H.Printf("buy tab rows from the house: %d", #rows)
+  for i = 1, math.min(n, #rows) do
+    local row = rows[i]
+    local k = type(row) == "table" and row.itemKey
+    if type(k) == "table" and k.itemID then
+      local e = Browse.Evaluate(row)
+      H.Printf("[%d] %s id=%s level=%s suffix=%s key=%s stored=%s ref=%s (%s)",
+        i, H.ItemName(k.itemID), tostring(k.itemID), tostring(k.itemLevel), tostring(k.itemSuffix),
+        e.key, tostring(H.Store.Has(e.key)), e.ref and H.Money(e.ref) or "none", tostring(e.refSrc))
+    end
+  end
 end
 
 function Browse.Active(S)

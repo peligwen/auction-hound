@@ -126,6 +126,7 @@ commands.help = function()
   H.Print("  /hound labor <gold per hour> / cut <percent> / discount <percent>")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
+  H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
   H.Print("  /hound wipe       erase this market's history (your own posts are kept)")
 end
 
@@ -262,6 +263,8 @@ commands.debug = function(rest)
   local what, n = strsplit(" ", rest or "")
   if what == "rep" then
     H.Scan.DebugReplicate(tonumber(n) or 5)
+  elseif what == "buy" then
+    H.Browse.Debug(tonumber(n) or 5)
   else
     H.Printf("market %s, %d items, at AH: %s, scan state: %s",
       H.marketKey, H.Store.Count(), tostring(H.atAH), H.Scan and H.Scan.state or "?")

@@ -25,6 +25,7 @@ Ladder.COLORS = {
 --   mv              value from these listings alone
 --   within10        units within ten percent of the floor
 --   ref, refSrc, conf, st, vendor
+--                   refSrc market | prior:<kind> | vendor | listings
 --   limit           the price a deal must sit at or under
 --   dealUnits, dealCost
 --   disc            the floor's discount off the reference
@@ -50,6 +51,12 @@ function Ladder.Build(listings, key, itemID)
   local vendor = H.Priors.VendorSell(itemID)
   if not ref and vendor and L.floor < vendor then
     ref, src, conf = vendor, "vendor", 1
+  end
+  -- Nothing scanned and no vendor floor under it: the floor is judged
+  -- against the rest of the listings, by the value a scan would take
+  -- from them.
+  if not ref and L.mv and L.mv > 0 then
+    ref, src, conf = L.mv, "listings", 0
   end
   L.ref, L.refSrc, L.conf, L.st, L.vendor = ref, src, conf or 0, st, vendor
   if ref and ref > 0 then
@@ -119,15 +126,7 @@ function Ladder.Lines(L)
   if not L then return { "no listings loaded" } end
   local lines = {}
   if L.ref then
-    local src
-    if L.refSrc == "market" then
-      src = string.format("market, %d scans", L.st and L.st.samples or 0)
-    elseif L.refSrc == "vendor" then
-      src = "vendor price"
-    else
-      src = "estimate: " .. string.sub(L.refSrc or "", 7)
-    end
-    lines[1] = string.format("reference %s  (%s)", H.Money(L.ref), src)
+    lines[1] = string.format("reference %s  (%s)", H.Money(L.ref), H.ReferenceSource(L.refSrc, L.st))
   else
     lines[1] = H.NoReferenceLine()
   end

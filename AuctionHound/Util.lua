@@ -290,6 +290,19 @@ function H.KeyFromLink(link, itemID)
   return H.KeyString({ itemID = itemID, itemLevel = ilvl, itemSuffix = suffix })
 end
 
+-- Key for an item key the house hands out: a Buy tab row, a search
+-- result, an owned auction. The house can fill in an item level for
+-- anything, a stack of ore included, where the scan keys all but gear
+-- by item ID alone, so the key is read by the scan's rule: only gear
+-- and pets keep their level and suffix.
+function H.KeyFromItemKey(itemKey)
+  local id = itemKey.itemID
+  local plain = (itemKey.itemLevel or 0) == 0 and (itemKey.itemSuffix or 0) == 0
+  if plain or (itemKey.battlePetSpeciesID or 0) ~= 0 then return H.KeyString(itemKey) end
+  if not isEquippable(id) or H.CommodityStatus(id) == true then return tostring(id) end
+  return H.KeyString(itemKey)
+end
+
 ------------------------------------------------------------------------
 -- Item info with graceful fallbacks while the item cache warms up.
 ------------------------------------------------------------------------

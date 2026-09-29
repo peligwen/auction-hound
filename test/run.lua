@@ -84,6 +84,15 @@ eq(H.KeyFromLink("|cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h
 eq(H.KeyForItemID(2770), "2770", "key for commodity id")
 eq(H.KeyForItemID(15001), nil, "equippable needs a link")
 eq(H.ItemIDFromKey("15001:20:-14"), 15001, "item id from key")
+-- the house fills in an item level for anything; only gear keeps it
+Stub.DefineItem(4500, "Traveler's Backpack Pattern", { sell = 50, commodity = false, stack = 1 })
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(2770, 10)), "2770", "house key for a commodity with an item level reads as the scan's")
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(2770, 10, 3)), "2770", "and with a suffix")
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(4500, 25)), "4500", "an item that is not gear drops its level too")
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(2770)), "2770", "a plain house key")
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(15001, 20, -14)), "15001:20:-14", "gear keeps level and suffix")
+eq(H.KeyFromItemKey(C_AuctionHouse.MakeItemKey(15001, 20, -14)),
+  H.KeyFromLink("|cffffffff|Hitem:15001:0:0:0:0:0:-14:0:60:0:0:0:0|h[Wolf Bracers of the Monkey]|h|r"), "gear key meets the scan's")
 eq(H.CommodityStatus(2770), true, "commodity status from item key info")
 eq(H.CommodityStatus(15001), false, "item status from item key info")
 eq(H.CommodityStatus(9999), nil, "commodity status unknown until the item is cached")
@@ -885,6 +894,21 @@ do
   eq(select(2, Browse.CellText(e)), "-20%", "discount off the vendor price")
   e = Browse.Evaluate(mineRow)
   check(e.deal and e.mine, "own listing still evaluated")
+  -- the house's browse rows carry an item level even for ore: the row
+  -- still meets the history the scan keyed by item ID
+  local leveled = { itemKey = C_AuctionHouse.MakeItemKey(2770, 10), minPrice = half.minPrice, totalQuantity = 40 }
+  e = Browse.Evaluate(leveled)
+  eq(e.key, "2770", "a row with an item level is keyed by item id")
+  Stub.ah.browse, Stub.ah.browseServed = { leveled }, 1
+  Stub.printed = {}
+  SlashCmdList.HOUND("debug buy 3")
+  local dbg = table.concat(Stub.printed, "\n")
+  check(string.find(dbg, "level=10", 1, true) and string.find(dbg, "key=2770 stored=true", 1, true),
+    "debug buy shows the house's level and the history key: " .. dbg)
+  Stub.ah.browse, Stub.ah.browseServed = {}, 0
+  check(e.history and e.ref == refOre, "and judged by the ore's history")
+  check(e.deal, "half price with an item level is still a deal")
+  eq(select(1, Browse.CellText(e)), H.MoneyShort(refOre), "its note is the reference")
   eq(select(2, Browse.CellText(Browse.Evaluate(empty))), "", "no units, no figure")
   eq(Browse.Evaluate({}), nil, "row without a key reads as nil")
 
@@ -1085,6 +1109,25 @@ do
   r = br.ItemList:Render()
   eq(r.rows[1][4].Sub.text, H.MoneyShort(700), "the cell followed without a scan")
   eq(H.Reference("2934", 2934), nil, "off: nothing scanned means no reference")
+  local leveledLeather = { itemKey = C_AuctionHouse.MakeItemKey(2319, 15), minPrice = 700, totalQuantity = 40 }
+  e = Browse.Evaluate(leveledLeather)
+  check(e.history and e.ref == 700, "off: a row with an item level still finds its history")
+  -- history older than the market value's two weeks still counts
+  Stub.DefineItem(90010, "Old Widget", { sell = 0, commodity = true })
+  Stub.DefineItem(90011, "Ancient Widget", { sell = 0, commodity = true })
+  Store.AddScanSample("90010", Stub.now - 20 * 86400, { { p = 3000, q = 10 } })
+  Store.AddScanSample("90011", Stub.now - 45 * 86400, { { p = 5000, q = 10 } })
+  ref, src, conf = H.Reference("90010", 90010)
+  eq(ref, 3000, "off: twenty-day-old history is the reference")
+  eq(src, "market", "and counts as history")
+  eq(conf, 0, "with no confidence")
+  eq((H.Reference("90011", 90011)), 5000, "off: the last scan's value when nothing is within thirty days")
+  check(string.find(H.ReferenceSource(src, select(4, H.Reference("90010", 90010))), "last scanned 20d ago", 1, true),
+    "the source says how old: " .. H.ReferenceSource(src, select(4, H.Reference("90010", 90010))))
+  Browse.Invalidate()
+  e = Browse.Evaluate({ itemKey = C_AuctionHouse.MakeItemKey(90010), minPrice = 1500, totalQuantity = 5 })
+  check(e.history and e.deal, "old history judges a Buy tab row")
+  eq(select(1, Browse.CellText(e)), H.MoneyShort(3000), "and reads as history")
   local _, asrc = H.Fan.Anchor("2934", 2934)
   eq(asrc, "none", "off: the fan has no prior to center on")
   check(string.find(H.NoReferenceLine(), "estimates are off", 1, true), "the no-reference line says why")
@@ -1175,7 +1218,7 @@ do
   -- adoption: an auction of ours the store never saw joins the posts
   local before = #H.Store.Posts()
   Stub.ah.owned = {
-    { auctionID = 8201, itemKey = C_AuctionHouse.MakeItemKey(2770), status = 0, quantity = 5, buyoutAmount = 700, timeLeftSeconds = 3600 },
+    { auctionID = 8201, itemKey = C_AuctionHouse.MakeItemKey(2770, 10), status = 0, quantity = 5, buyoutAmount = 700, timeLeftSeconds = 3600 },
     { auctionID = 8202, itemKey = C_AuctionHouse.MakeItemKey(2771), status = 0, quantity = 1, bidAmount = 900 },
     { auctionID = 8203, itemKey = C_AuctionHouse.MakeItemKey(2840), status = Enum.AuctionStatus.Sold, quantity = 3, buyoutAmount = 500, timeLeft = 2 },
   }
@@ -1190,6 +1233,7 @@ do
     if p.auctionID == 8203 then soldOne = p end
   end
   check(adopted and adopted.adopted and adopted.status == "active", "active auction adopted as active")
+  eq(adopted.key, "2770", "adopted under the scan's key, item level and all")
   eq(adopted.unit, 700, "adopted unit is the buyout")
   eq(adopted.qty, 5, "adopted units")
   eq(adopted.dur, 3600, "remaining time from the exact figure")
@@ -1299,12 +1343,21 @@ do
   eq(Ladder.Color("deal", true), Ladder.COLORS.low, "flagged listing takes the low color")
   check(string.find(Ladder.Lines(L)[3], "low in the list", 1, true), "line three says so")
 
-  -- no reference, vendor reference, nothing
+  -- nothing scanned: the listings are the reference; vendor; nothing
   L = Ladder.Build({ { p = 500, q = 3 } }, "90001", 90001)
-  eq(L.ref, nil, "unknown item has no reference")
-  eq(Ladder.Verdict(L, 500), "none", "no verdict without a reference")
-  eq(Ladder.Off(L, 500), "", "no discount text without a reference")
-  check(string.find(Ladder.Lines(L)[1], "no reference", 1, true), "line one says there is no reference")
+  eq(L.ref, 500, "unscanned item: one price is its own reference")
+  eq(L.refSrc, "listings", "and says it comes from the listings")
+  eq(Ladder.Verdict(L, 500), "over", "the floor sits at it")
+  check(string.find(Ladder.Lines(L)[1], "value of these listings; no history", 1, true), "line one names the listings: " .. Ladder.Lines(L)[1])
+  L = Ladder.Build({ { p = 100, q = 1 }, { p = 200, q = 10 }, { p = 210, q = 10 } }, "90001", 90001)
+  eq(L.refSrc, "listings", "a stray floor on an unscanned item")
+  eq(L.ref, 200, "is judged against the rest")
+  eq(Ladder.Verdict(L, 100), "deal", "so the stray is a deal")
+  eq(L.dealUnits, 1, "one unit of it")
+  eq(Ladder.Verdict(L, 200), "over", "the bulk sits at the reference")
+  L = Ladder.Build({ { p = 100, q = 30 }, { p = 200, q = 10 } }, "90001", 90001)
+  eq(L.ref, 100, "a wall at the floor is the value")
+  eq(L.dealUnits, 0, "and no deal")
   L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
   eq(L.refSrc, "vendor", "vendor price stands in")
   eq(L.limit, 999, "limit sits just under the vendor price")
@@ -1798,6 +1851,50 @@ do
   SlashCmdList.HOUND("discount 25")
   eq(Depth.Get(leatherRow).dealUnits, 40, "and back")
   eq(Stub.ah.searchCalls, calls, "none of it searched")
+
+  -- nothing scanned: once the row's depth is read, the floor is judged
+  -- against the rest of its listings; a row with an item level still
+  -- meets its history
+  Stub.DefineItem(90020, "Unscanned Widget", { sell = 0, commodity = true })
+  SlashCmdList.HOUND("estimates off")
+  local strayRow = { itemKey = C_AuctionHouse.MakeItemKey(90020, 12), minPrice = 100, totalQuantity = 21 }
+  local leveledOre = { itemKey = C_AuctionHouse.MakeItemKey(2770, 10), minPrice = H.Round(refOre * 0.5), totalQuantity = 30 }
+  Stub.ah.searchResults["90020:12:0"] = { commodity = true, listings = { { 100, 1 }, { 200, 10 }, { 210, 10 } } }
+  Stub.ah.searchResults["2770:10:0"] = { commodity = true, listings = { { leveledOre.minPrice, 30 } } }
+  S.browseDepth = false
+  Stub.ah.browse = { strayRow, leveledOre }
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Sub.text, "no reference", "depth off: the unscanned row has nothing to go on")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "judge the floor against the rest", 1, true), "tooltip points at Depth for it")
+  r.rows[1][4]:OnLeave()
+  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre), "the leveled ore row reads its history")
+  S.browseDepth = true
+  r = br.ItemList:Render()
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  check(Depth.Get(strayRow) ~= nil, "the unscanned row's depth is read")
+  local se = H.Browse.Evaluate(strayRow)
+  eq(se.refSrc, "listings", "and its reference is the listings")
+  check(se.deal and not se.history, "the stray floor is a deal, not history")
+  r = br.ItemList:Render()
+  local sub = r.rows[1][4].Sub.text
+  check(string.find(sub, "^ask ") and string.find(sub, " x1$"), "the note marks the listings and the floor units: " .. sub)
+  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[2], H.Browse.COLORS.deal[2], "and the figure is green")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  tip = table.concat(GameTooltip.lines, "\n")
+  check(string.find(tip, "value of these listings; no history", 1, true), "tooltip says where the reference came from: " .. tip)
+  check(string.find(tip, "1 units at or under", 1, true), "and counts the stray: " .. tip)
+  r.rows[1][4]:OnLeave()
+  local LO = Depth.Get(leveledOre)
+  eq(LO and LO.refSrc, "market", "the leveled ore's ladder is read against its history")
+  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre) .. " x30", "and its cell shows it")
+  check(H.Browse.BuildIndex(2, function(i) return ({ strayRow, leveledOre })[i] end, { deals = true })[1] == 1,
+    "deals only keeps the stray")
+  SlashCmdList.HOUND("estimates on")
 
   -- leaving the house forgets it all
   H.Events:Fire("AH_CLOSED")

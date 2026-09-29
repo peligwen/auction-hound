@@ -600,7 +600,7 @@ function Fan.Reconcile(owned, now, partial)
       local known = false
       for _, p in ipairs(posts) do if p.auctionID == a.auctionID then known = true break end end
       if not known then
-        local key = H.KeyString(a.itemKey)
+        local key = H.KeyFromItemKey(a.itemKey)
         local matched = false
         for _, p in ipairs(posts) do
           local sum = a.status == SOLD and p.unit * (p.qty or 1) or p.unit

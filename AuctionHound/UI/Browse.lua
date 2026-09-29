@@ -61,12 +61,6 @@ function AuctionHoundBrowseCellMixin:Populate(rowData)
   self.Text:SetTextColor(color[1], color[2], color[3])
 end
 
-local function sourceText(e)
-  if e.refSrc == "market" then return string.format("market, %d scans", e.st and e.st.samples or 0) end
-  if e.refSrc == "vendor" then return "vendor price" end
-  return "estimate: " .. string.sub(e.refSrc or "", 7)
-end
-
 function AuctionHoundBrowseCellMixin:OnEnter()
   UI.RowScript(self, "OnEnter")
   local e = H.Browse.Evaluate(self.rowData)
@@ -81,7 +75,7 @@ function AuctionHoundBrowseCellMixin:OnEnter()
     end
   else
     if e.ref then
-      GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), sourceText(e)), 0.8, 0.8, 0.8, true)
+      GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
       if string.sub(e.refSrc or "", 1, 6) == "prior:" then
         GameTooltip:AddLine("untick estimates on the Hound tab to judge by history alone", 0.6, 0.6, 0.6, true)
       end
@@ -93,6 +87,8 @@ function AuctionHoundBrowseCellMixin:OnEnter()
       GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
     elseif depthOn then
       GameTooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
+    elseif not e.ref then
+      GameTooltip:AddLine("tick Depth to judge the floor against the rest of the listings", 0.6, 0.6, 0.6, true)
     else
       GameTooltip:AddLine("tick Depth for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
     end

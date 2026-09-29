@@ -28,7 +28,13 @@ the checklist below is where that stands.
   note then ends in the units at the floor ("12.3g x40"), and hovering
   the cell shows the row's ladder, the units at or under the limit,
   the next price step and the value of the listings. A ladder is kept
-  while the row still shows the same floor and count. The usual
+  while the row still shows the same floor and count. An item with no
+  history at all is judged by its ladder once read: the floor against
+  the value of the rest of its listings, the value a scan would take
+  from them, and the note starts with "ask". A row meets its history
+  by item ID whatever item level the house gives it; only gear keeps
+  its level and suffix. History older than the two weeks the market
+  value spans still counts: the 30-day mean, else the last scan. The usual
   category tree, search box and filters do the narrowing; clicking a
   row buys through Blizzard's frames as always.
 - **Auctions tab.** A Total column on Blizzard's list of your auctions:
@@ -67,7 +73,8 @@ the checklist below is where that stands.
   under its crafted cost reads as a deal for as long as its history
   stays thin, so the crafted cost and input value can be turned off:
   untick "estimates" on the Hound tab, or `/hound estimates off`, and
-  the reference is history alone, thin or not, plus the vendor price.
+  the reference is history alone, thin or old, plus the vendor price,
+  and with Depth ticked the listings themselves.
   The Item view still shows what an item costs to make either way.
 - **Connections.** Smelting, leather, hides and bolts, with input cost,
   output value, spread per craft and gold per hour at your labor rate.
@@ -126,7 +133,11 @@ Found so far in the beta: `GetItemCommodityStatus` wants a bag location,
 not an item key (commodity status now comes from `GetItemKeyInfo`); the
 auction house frame only moves its tab highlight for its own modes, so
 the Hound tab is now selected by hand; the frame's portrait hangs down
-the left edge, so the view buttons now start to the right of it.
+the left edge, so the view buttons now start to the right of it; the
+Buy tab read most rows as "no reference" with plenty of history
+stored, since a browse row's item key can carry an item level even
+for ore and cloth, where the scan keys all but gear by item ID alone
+(rows, searches and owned auctions are now read by the scan's rule).
 
 1. **Open the auction house.** Verified: no error, the Hound tab is
    there. Re-check after the fixes above: the Hound tab stays lit while
@@ -150,7 +161,11 @@ the left edge, so the view buttons now start to the right of it.
 5. **Buy tab.** Open, and new. Pick any category or search: every row
    gets a Hound column, the reference on the left and the discount on
    the right, green for a deal, amber under reference, grey above, and
-   "no reference" for an item the addon knows nothing about. Tick
+   "no reference" for an item the addon knows nothing about. Any item
+   the scan has seen must show a reference, estimates on or off; if a
+   row says "no reference" for an item in the Markets view, `/hound
+   debug buy 5` prints the first rows with the item level the house
+   gave, the history key, and whether history is stored under it. Tick
    "Sort by off": deals rise to the top and the count on the right
    climbs as the remaining pages load. Tick "Deals only", then "Not
    mine" with one of your own auctions in the list. Change the minimum
@@ -219,6 +234,9 @@ the left edge, so the view buttons now start to the right of it.
     While it reads, click a row: the buy frame must still fill with
     that item's listings (a query dropped by the throttle is sent
     again), and type a new search: the results must still arrive.
+    A row for an item never scanned should turn from "no reference"
+    to "ask" and a price once its depth is read, green if the floor
+    sits well under the rest of its listings.
     Report if any click leaves an empty buy frame, if the strip no
     longer fits its five toggles, or if the count on the right stops
     changing while rows still lack their "xN".
@@ -263,6 +281,7 @@ the left edge, so the view buttons now start to the right of it.
 /hound discount <pct>  minimum discount for a deal, on the Buy tab and in passes, default 25
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound debug rep [n]   print raw full-scan rows
+/hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
 /hound wipe            erase this market's history (your own posts are kept)
 ```
 
@@ -285,7 +304,7 @@ Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent a
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
-Reference.lua the reference: market history when deep enough, else a prior
+Reference.lua the reference: market history when deep enough, else a prior, else older history
 Browse.lua   the Buy tab's read of each row: reference, discount, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
@@ -301,7 +320,9 @@ Data/        conversion recipes with classic item ids
 
 History is scoped by region, ruleset and faction, for example
 `US-ClassicBetaPvP2-Horde`. Commodities are keyed by item id; equippable
-items by `id:level:suffix` so suffix variants never share a record. Your
+items by `id:level:suffix` so suffix variants never share a record. An
+item key from the house (a Buy tab row, a search, an owned auction) is
+read by the same rule, whatever item level it carries. Your
 own posts live in the same market record, as plain tables, for 30 days
 after they resolve.
 

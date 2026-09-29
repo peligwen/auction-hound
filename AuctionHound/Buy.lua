@@ -98,7 +98,7 @@ local function noteResults(itemKey)
     local r = AH.GetItemSearchResultInfo(itemKey, i)
     if r and r.auctionID then
       local k = r.itemKey or itemKey
-      seen[r.auctionID] = { key = H.KeyString(k), itemID = k.itemID, buyout = r.buyoutAmount, qty = r.quantity or 1, t = now }
+      seen[r.auctionID] = { key = H.KeyFromItemKey(k), itemID = k.itemID, buyout = r.buyoutAmount, qty = r.quantity or 1, t = now }
     end
   end
 end
