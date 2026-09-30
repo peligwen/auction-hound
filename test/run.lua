@@ -368,6 +368,30 @@ do
   eq(src, "prior:value as an input", "scraps priced from a prior")
   ref, src = H.Reference("424242", 424242)
   eq(ref, nil, "nothing known, no reference")
+
+  -- bronze fell from 10s to 5s and stayed: the two-week value still
+  -- carries last week, but the latest scan has the whole market at 5s,
+  -- and that is the reference
+  local stB = select(4, H.Reference("2841", 2841))
+  check(stB.market > 500, "bronze's two-week value still carries last week: " .. tostring(stB.market))
+  eq((H.Reference("2841", 2841)), 500, "a settled drop is the reference from the next scan on")
+  check(string.find(H.ReferenceSource("market", stB), "the last scan, under the two-week", 1, true),
+    "and the source says so: " .. H.ReferenceSource("market", stB))
+  -- a wall at a new low fills the latest scan's cheapest slice; a
+  -- stray under the rest is too few units to move it
+  Stub.DefineItem(90030, "Wall Widget", { sell = 0, commodity = true })
+  Stub.DefineItem(90031, "Stray Widget", { sell = 0, commodity = true })
+  for d = 10, 1, -1 do
+    local t = Stub.now - d * 86400
+    Store.AddScanSample("90030", t, { { p = 100, q = 200 } })
+    Store.AddScanSample("90031", t, { { p = 100, q = 200 } })
+  end
+  Store.AddScanSample("90030", Stub.now, { { p = 60, q = 150 }, { p = 100, q = 50 } })
+  Store.AddScanSample("90031", Stub.now, { { p = 60, q = 1 }, { p = 100, q = 200 } })
+  eq((H.Reference("90030", 90030)), 60, "a wall at a new low is the reference")
+  eq((H.Reference("90031", 90031)), 100, "a stray under the rest leaves the reference alone")
+  check(string.find(H.ReferenceSource("market", select(4, H.Reference("90031", 90031))), "market, ", 1, true),
+    "a reference the latest scan agrees with reads as market")
 end
 
 ------------------------------------------------------------------------
@@ -1024,6 +1048,18 @@ do
   eq(select(1, Browse.CellText(e)), H.MoneyShort(refOre), "its note is the reference")
   eq(select(2, Browse.CellText(Browse.Evaluate(empty))), "", "no units, no figure")
   eq(Browse.Evaluate({}), nil, "row without a key reads as nil")
+  -- a floor that has filled in at a new low is the price from the next
+  -- scan on; a stray under the rest is still a deal
+  local wallRow = { itemKey = C_AuctionHouse.MakeItemKey(90030), minPrice = 60, totalQuantity = 200 }
+  local strayLow = { itemKey = C_AuctionHouse.MakeItemKey(90031), minPrice = 60, totalQuantity = 201 }
+  e = Browse.Evaluate(wallRow)
+  check(e.history and not e.deal, "a wall at a new low is no deal against the latest scan")
+  near(e.disc, 0, 1e-9, "its floor sits at the reference")
+  eq(select(1, Browse.CellText(e)), H.MoneyShort(60), "the note is the latest scan's value")
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.over, "and the cell is grey")
+  e = Browse.Evaluate(strayLow)
+  check(e.deal, "a stray under the rest is a deal")
+  near(e.disc, 0.4, 0.01, "forty percent under")
 
   -- the index
   local rows = { half, tenOff, over, none, vendorRow, mineRow, empty }

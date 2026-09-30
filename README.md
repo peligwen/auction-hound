@@ -16,7 +16,11 @@ the checklist below is where that stands.
   points. Records are stored as compact strings so login stays fast.
 - **Market value.** A robust estimate from the cheapest slice of units
   with outliers trimmed, then decay-weighted over two weeks. A wall of
-  expensive listings or a single one-copper unit does not move it.
+  expensive listings or a single one-copper unit does not move it. The
+  reference a floor is judged against is that two-week value or the
+  value at the latest scan, whichever is lower: a price that has fallen
+  and stayed down sits in the latest scan's cheapest slice long before
+  the two-week value follows it.
 - **Buy tab.** A Hound column on Blizzard's own browse list: the
   reference for each row and how far the floor sits under it, green
   when it clears the minimum discount, amber under reference, grey
@@ -34,9 +38,11 @@ the checklist below is where that stands.
   the cell shows the row's ladder, the units at or under the limit,
   the next price step and the value of the listings. A ladder is kept
   while the row still shows the same floor and count. The reference is
-  the market price from the scan's history, never the listings on
-  screen, and the figure is the floor's percentage under it: an item
-  never scanned reads "no reference". A row meets its history by item
+  the market price from the scan's history, or the value at the latest
+  scan when that is lower, never the listings on screen, and the figure
+  is the floor's percentage under it: a floor that has filled in at a
+  new low is the price from the next scan on, a stray under the rest
+  is still a deal, and an item never scanned reads "no reference". A row meets its history by item
   ID whatever item level the house gives it; only gear keeps its level
   and suffix. History older than the two weeks the market value spans
   still counts: the 30-day mean, else the last scan. The usual
@@ -284,6 +290,13 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     nothing happens with shift held (the double-click never reached
     the row), if the dialog opens with the wrong quantity, or if the
     house complains about a hardware event.
+22. **Latest scan.** Open, and new. Find an item whose price has
+    fallen and stayed down, with plenty of units at the new low. Its
+    Buy tab row should read grey or amber at that price, and the cell
+    tooltip should name the reference as the last scan under the
+    two-week value. A stray unit far under the rest of its listings
+    should still read green. Report a row that reads green for a floor
+    the whole market sits at.
 
 ## Taint
 
@@ -347,7 +360,8 @@ Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent a
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
-Reference.lua the reference: market history when deep enough, else a prior, else older history
+Reference.lua the reference: history when deep enough, the two-week value or the
+             latest scan's, whichever is lower; else a prior, else older history
 Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict, order
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand

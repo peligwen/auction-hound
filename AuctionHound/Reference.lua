@@ -8,7 +8,19 @@
 -- weeks the market value spans still counts: the 30-day mean, else the
 -- value at the last scan. The Buy tab, the listing ladder and the depth
 -- reads all start here.
+--
+-- History is read as the lower of the two-week value and the value at
+-- the latest scan. The two-week value follows a price that has fallen
+-- and stayed down only over days, while the latest scan already has
+-- the new low in its cheapest slice: from the next scan on, a floor
+-- that has filled in is the price, not a discount. A stray under the
+-- rest is too few units to move that slice, and still reads as a deal.
 local ADDON, H = ...
+
+local function judged(st)
+  if st.recent and st.recent > 0 and st.recent < st.market then return st.recent end
+  return st.market
+end
 
 -- Returns ref, source, confidence, stats. source is "market",
 -- "prior:<kind>" or nil.
@@ -17,14 +29,14 @@ function H.Reference(key, itemID)
   local st = rec and H.Market.Stats(rec) or nil
   local conf = st and H.Market.Confidence(st) or 0
   if st and st.market and conf >= 0.3 then
-    return st.market, "market", conf, st
+    return judged(st), "market", conf, st
   end
   local prior, src = H.Priors.Estimate(itemID)
   if prior then
     return prior, "prior:" .. src, 0.2, st
   end
   if st and st.market then
-    return st.market, "market", conf, st
+    return judged(st), "market", conf, st
   end
   local old = st and (st.hist or st.recent)
   if old and old > 0 then
@@ -38,6 +50,9 @@ function H.ReferenceSource(src, st)
   if src == "market" then
     if st and not st.market and st.age then
       return "history, last scanned " .. H.Ago(st.age)
+    end
+    if st and st.market and st.recent and st.recent > 0 and st.recent < st.market then
+      return string.format("the last scan, under the two-week %s", H.Money(st.market))
     end
     return string.format("market, %d scans", st and st.samples or 0)
   end
