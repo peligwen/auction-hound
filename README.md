@@ -20,7 +20,9 @@ the checklist below is where that stands.
   reference a floor is judged against is that two-week value or the
   value at the latest scan, whichever is lower: a price that has fallen
   and stayed down sits in the latest scan's cheapest slice long before
-  the two-week value follows it.
+  the two-week value follows it. Not while supply is scarce, under a
+  quarter of the units usually listed: the few cheap units left are
+  then the deals, not the price.
 - **Buy tab.** A Hound column on Blizzard's own browse list: the
   reference for each row and how far the floor sits under it, green
   when it clears the minimum discount, amber under reference, grey
@@ -37,7 +39,13 @@ the checklist below is where that stands.
   note then ends in the units at the floor ("12.3g x40"), and hovering
   the cell shows the row's ladder, the units at or under the limit,
   the next price step and the value of the listings. A ladder is kept
-  while the row still shows the same floor and count. The reference is
+  while the row still shows the same floor and count. The ladder's own
+  value, the cheapest slice of its units, caps the reference when it
+  sits under history, the way the latest scan does: a floor the market
+  has moved to reads as the price before the next scan, the note
+  showing the listings' value, while a stray under the rest is too few
+  units to move it and still reads as a deal. Not while supply is
+  scarce, when the few cheap units left are the deals. The reference is
   the market price from the scan's history, or the value at the latest
   scan when that is lower, never the listings on screen, and the figure
   is the floor's percentage under it: a floor that has filled in at a
@@ -66,7 +74,8 @@ the checklist below is where that stands.
   for that item, and Hound reads the listings there: an info block with
   the reference, how many units sit at or under the deal limit and
   what they cost, the floor and the next price step, and the value of
-  these listings alone. On the commodity list each units figure takes
+  these listings alone. The listings' own value caps the reference
+  there the same way, and the block says so. On the commodity list each units figure takes
   the verdict's color, green for a deal and amber under reference; the
   item list gets a discount column. A floor the scans have seen on
   offer past the sat hours reads amber on both, and the block says
@@ -312,6 +321,13 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     `/hound sat 0` should turn it green again at once, `/hound sat 1`
     amber. Report a row that stays green past the hour, or one that
     turns amber while the scans have not seen its floor.
+24. **Wall.** Open, and new. With Depth on, find a row whose floor most
+    of its units sit at, well under history. Once its depth is read
+    the cell should show the listings' value as the reference and no
+    discount, and the tooltip's first line should say "these listings,
+    under history". A row with one cheap unit under a wall at the old
+    price should stay green. Report a wall that stays green with its
+    depth read, or a stray that goes grey.
 
 ## Taint
 

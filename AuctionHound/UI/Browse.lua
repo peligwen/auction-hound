@@ -186,17 +186,20 @@ H.Depth.SetGate(function()
   return B.list ~= nil and B.br ~= nil and B.br:IsShown() and not B.loading
 end)
 
-H.Events:On("DEPTH_UPDATED", function()
-  if B.list then B.list:DirtyScrollFrame() end
-  B.UpdateStrip()
-end)
+-- A ladder landing can move a row's reference and verdict, so the
+-- filtered, sorted order is built again, not only redrawn. No page is
+-- asked for: one may already be on its way, and the depth queue has
+-- been ticked by the landing itself.
+H.Events:On("DEPTH_UPDATED", function() B.Reindex() end)
 
 H.Events:On("DEPTH_STATUS", function() B.UpdateStrip() end)
 
 ------------------------------------------------------------------------
--- Rebuild after Blizzard's rows change or a toggle moves.
+-- The order is built again after Blizzard's rows change, a toggle
+-- moves, or a ladder lands; a rebuild also asks for the next page and
+-- the next depth search.
 ------------------------------------------------------------------------
-function B.Rebuild()
+function B.Reindex()
   if not B.list then return end
   local S = H.Settings()
   if H.Browse.Active(S) then
@@ -210,6 +213,12 @@ function B.Rebuild()
     B.index = nil
   end
   B.list:DirtyScrollFrame()
+  B.UpdateStrip()
+end
+
+function B.Rebuild()
+  if not B.list then return end
+  B.Reindex()
   B.LoadMore()
   H.Depth.Tick()
   B.UpdateStrip()

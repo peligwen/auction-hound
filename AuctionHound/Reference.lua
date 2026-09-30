@@ -15,10 +15,15 @@
 -- the new low in its cheapest slice: from the next scan on, a floor
 -- that has filled in is the price, not a discount. A stray under the
 -- rest is too few units to move that slice, and still reads as a deal.
+-- Nor does the latest scan count while supply is scarce, under a
+-- quarter of the units usually listed: the few cheap units left are
+-- then the deals, not the price.
 local ADDON, H = ...
 
 local function judged(st)
-  if st.recent and st.recent > 0 and st.recent < st.market then return st.recent end
+  if st.recent and st.recent > 0 and st.recent < st.market and not H.Market.Scarce(st, st.qty) then
+    return st.recent
+  end
   return st.market
 end
 
@@ -51,7 +56,8 @@ function H.ReferenceSource(src, st)
     if st and not st.market and st.age then
       return "history, last scanned " .. H.Ago(st.age)
     end
-    if st and st.market and st.recent and st.recent > 0 and st.recent < st.market then
+    if st and st.market and st.recent and st.recent > 0 and st.recent < st.market
+        and not H.Market.Scarce(st, st.qty) then
       return string.format("the last scan, under the two-week %s", H.Money(st.market))
     end
     return string.format("market, %d scans", st and st.samples or 0)

@@ -20,6 +20,13 @@ Ladder.COLORS = {
 -- any order. key and itemID pick the reference. Returns nil without
 -- listings.
 --
+-- The listings' own value, the cheapest slice of these units, caps the
+-- reference when it sits under it, the way the latest scan does: a
+-- floor that has filled in is the price before the next scan sees it,
+-- while a stray under the rest is too few units to move the slice.
+-- Not while supply is scarce, under a quarter of the units usually
+-- listed: then the few cheap units left are the deals.
+--
 --   steps           merged price steps, cheapest first: p, q, cum
 --   units, floor, floorUnits, next, nextPct, lowFloor, mineUnits
 --   age, scans, sat how long the scans have seen this floor, as the
@@ -27,6 +34,8 @@ Ladder.COLORS = {
 --   mv              value from these listings alone
 --   within10        units within ten percent of the floor
 --   ref, refSrc, conf, st, vendor
+--   capped, under   the reference is mv, under the history or estimate
+--                   it would have been, which under keeps
 --   limit           the price a deal must sit at or under: the minimum
 --                   discount off the reference, and the minimum copper
 --                   a unit under it, whichever bites first; a floor
@@ -53,6 +62,10 @@ function Ladder.Build(listings, key, itemID)
 
   local ref, src, conf, st = H.Reference(key, itemID)
   local vendor = H.Priors.VendorSell(itemID)
+  if ref and ref > 0 and L.mv and L.mv < ref and not H.Market.Scarce(st, L.units) then
+    L.capped, L.under = true, ref
+    ref = L.mv
+  end
   L.age, L.scans = H.Market.FloorAge(H.Store.Get(key), L.floor)
   L.sat = L.age ~= nil and (S.satHours or 0) > 0 and L.age >= S.satHours * 3600 or false
   if not ref and vendor and L.floor < vendor then
@@ -132,7 +145,10 @@ end
 function Ladder.Lines(L)
   if not L then return { "no listings loaded" } end
   local lines = {}
-  if L.ref then
+  if L.capped then
+    lines[1] = string.format("reference %s  (these listings, under %s %s)", H.Money(L.ref),
+      L.refSrc == "market" and "history" or "the estimate", H.Money(L.under))
+  elseif L.ref then
     lines[1] = string.format("reference %s  (%s)", H.Money(L.ref), H.ReferenceSource(L.refSrc, L.st))
   else
     lines[1] = H.NoReferenceLine()

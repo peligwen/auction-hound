@@ -37,6 +37,8 @@ end
 --   key, itemID, min, qty, mine
 --   ref, refSrc   market | prior:<kind> | vendor | nil
 --   history       the reference is real market history
+--   capped        with Depth on and the row's ladder read, its value
+--                 sat under the reference and is the reference now
 --   disc          fraction under the reference; negative above it
 --   saving        copper a unit under the reference; negative above it
 --   vendorFlip    the floor sits under the vendor sell price
@@ -72,6 +74,12 @@ function Browse.Evaluate(row)
   if e.min > 0 and r.vendor and e.min < r.vendor then
     e.vendorFlip = true
     if not e.ref then e.ref, e.refSrc = r.vendor, "vendor" end
+  end
+  if S.browseDepth and H.Depth then
+    local L = H.Depth.Get(row)
+    if L and L.capped and e.ref and L.ref < e.ref then
+      e.ref, e.capped = L.ref, true
+    end
   end
   if e.ref and e.ref > 0 and e.min > 0 then
     e.disc = 1 - e.min / e.ref

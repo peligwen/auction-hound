@@ -131,6 +131,7 @@ end
 --   trend   recent versus the previous week's mean, as a fraction
 --   stab    coefficient of variation of daily values over 14 days
 --   qty     units listed at the latest scan
+--   listed  decay-weighted mean of the units listed, over 14 days
 --   moved   estimated units consumed per day over the last week
 --   days, samples, age
 ------------------------------------------------------------------------
@@ -146,6 +147,7 @@ function Market.Stats(rec, now)
   local histSum, histN = 0, 0
   local vals14 = {}
   local weekSum, weekN = 0, 0
+  local listedSum = 0
 
   for d = today - 29, today do
     local b = rec.days[d]
@@ -159,6 +161,7 @@ function Market.Stats(rec, now)
         local w = 0.5 ^ (age / 3.5)
         sum = sum + b.mv * w
         wsum = wsum + w
+        listedSum = listedSum + (b.qty or 0) * w
         table.insert(vals14, b.mv)
       end
       if age >= 1 and age <= 7 then
@@ -168,7 +171,10 @@ function Market.Stats(rec, now)
     end
   end
 
-  if wsum > 0 then st.market = H.Round(sum / wsum) end
+  if wsum > 0 then
+    st.market = H.Round(sum / wsum)
+    st.listed = listedSum / wsum
+  end
   if histN > 0 then st.hist = H.Round(histSum / histN) end
 
   local last = rec.pts[#rec.pts]
@@ -202,6 +208,16 @@ function Market.Stats(rec, now)
 
   rec.stats = st
   return st
+end
+
+-- Whether this many units on offer is scarce for the item: under a
+-- quarter of the units usually listed. With supply that thin, the low
+-- asks are the deals, not the price.
+Market.SCARCE = 0.25
+
+function Market.Scarce(st, units)
+  if not st or not st.listed or st.listed <= 0 or not units then return false end
+  return units < Market.SCARCE * st.listed
 end
 
 -- 0..1 confidence in the market value, from history depth alone.

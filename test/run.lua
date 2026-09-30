@@ -1633,6 +1633,25 @@ do
   eq(Ladder.Color("deal", true), Ladder.COLORS.low, "flagged listing takes the low color")
   check(string.find(Ladder.Lines(L)[3], "low in the list", 1, true), "line three says so")
 
+  -- a wall: the listings' own value sits under history and caps the
+  -- reference, so a floor the market has moved to is no deal before
+  -- the next scan sees it; a stray under the rest leaves it alone
+  L = Ladder.Build({ { p = at(0.5), q = 400 }, { p = at(1.0), q = 100 } }, "2770", 2770)
+  check(L.capped and L.ref == at(0.5), "four hundred of five hundred units at half price set the reference")
+  eq(L.under, refOre, "under the history it would have been")
+  eq(Ladder.Verdict(L, at(0.5)), "over", "the wall's floor is at the reference, no deal")
+  eq(Ladder.Off(L, at(0.5)), "0%", "and reads as no discount")
+  check(string.find(Ladder.Lines(L)[1], "these listings, under history", 1, true), "line one says so: " .. Ladder.Lines(L)[1])
+  L = Ladder.Build({ { p = at(0.5), q = 3 }, { p = at(1.0), q = 497 } }, "2770", 2770)
+  check(not L.capped and L.ref == refOre, "three units at half price leave history as the reference")
+  eq(Ladder.Verdict(L, at(0.5)), "deal", "and are a deal")
+  -- scarce: with a fraction of the usual units listed, the few cheap
+  -- ones are the deals, not the price
+  check(H.Market.Scarce(select(4, H.Reference("2770", 2770)), 5), "five units of ore is scarce")
+  L = Ladder.Build({ { p = at(0.5), q = 5 } }, "2770", 2770)
+  check(not L.capped and L.ref == refOre, "five units alone at half price: history stays the reference")
+  eq(Ladder.Verdict(L, at(0.5)), "deal", "and they are a deal")
+
   -- no reference, vendor reference, nothing
   L = Ladder.Build({ { p = 500, q = 3 } }, "90001", 90001)
   eq(L.ref, nil, "unknown item has no reference")
@@ -2188,6 +2207,47 @@ do
   eq(H.Browse.BuildIndex(2, function(i) return ({ strayRow, leveledOre })[i] end, { deals = true })[1], 2,
     "deals only keeps the row under market")
   SlashCmdList.HOUND("estimates on")
+
+  -- a wall behind a row: with its depth read, the listings' value sits
+  -- under history and is the reference, so the row is no deal before
+  -- the next scan, drops out of "Deals only", and its tooltip says so
+  local wallRow = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 120 }
+  Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 100 }, { 300, 20 } } }
+  Stub.ah.browse = { wallRow }
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  local we = H.Browse.Evaluate(wallRow)
+  check(we.deal and not we.capped, "half price reads as a deal before the depth is read")
+  local function wallOnly() return wallRow end
+  eq(#H.Browse.BuildIndex(1, wallOnly, { deals = true }), 1, "and passes deals only")
+  r = br.ItemList:Render()
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  local LW = Depth.Get(wallRow)
+  check(LW and LW.capped, "the depth finds the listings' value under history")
+  we = H.Browse.Evaluate(wallRow)
+  check(we.capped and not we.deal, "with the depth read, the row is no deal")
+  eq(we.ref, 150, "its reference is the listings' value")
+  eq(#H.Browse.BuildIndex(1, wallOnly, { deals = true }), 0, "and deals only drops it")
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Sub.text, H.MoneyShort(150) .. " x100", "the cell notes the listings' value and the units at the floor")
+  eq(r.rows[1][4].Text.text, "0%", "no discount off it")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "these listings, under history", 1, true), "the tooltip says the listings set the reference")
+  r.rows[1][4]:OnLeave()
+  -- a stray under the rest leaves history as the reference
+  local strayUnder = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 121 }
+  Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 1 }, { 300, 120 } } }
+  Stub.ah.browse = { strayUnder }
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  r = br.ItemList:Render()
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  check(Depth.Get(strayUnder) ~= nil and not Depth.Get(strayUnder).capped, "one unit at half price leaves history alone")
+  we = H.Browse.Evaluate(strayUnder)
+  check(we.deal and not we.capped and we.ref == 300, "and the row is a deal")
+  r = br.ItemList:Render()
+  eq(r.rows[1][4].Text.text, "-50%", "its cell shows the discount off history")
 
   -- leaving the house forgets it all
   H.Events:Fire("AH_CLOSED")
