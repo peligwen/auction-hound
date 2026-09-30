@@ -42,7 +42,13 @@ the checklist below is where that stands.
   scan when that is lower, never the listings on screen, and the figure
   is the floor's percentage under it: a floor that has filled in at a
   new low is the price from the next scan on, a stray under the rest
-  is still a deal, and an item never scanned reads "no reference". A row meets its history by item
+  is still a deal, and an item never scanned reads "no reference". A
+  floor the scans have kept seeing at its price for an hour or more
+  has been passed over by every buyer since: it reads amber, under the
+  reference but not a deal, and the cell tooltip says how long it has
+  been on offer and over how many scans, or that it is new since the
+  last scan. The hour is the `sat` setting; a floor under the vendor
+  price is a deal however long it sat. A row meets its history by item
   ID whatever item level the house gives it; only gear keeps its level
   and suffix. History older than the two weeks the market value spans
   still counts: the 30-day mean, else the last scan. The usual
@@ -62,7 +68,9 @@ the checklist below is where that stands.
   what they cost, the floor and the next price step, and the value of
   these listings alone. On the commodity list each units figure takes
   the verdict's color, green for a deal and amber under reference; the
-  item list gets a discount column. A floor far under the next step is
+  item list gets a discount column. A floor the scans have seen on
+  offer past the sat hours reads amber on both, and the block says
+  how long. A floor far under the next step is
   flagged in blue as low in the list, reference or not.
   Shift-double-click a listing to buy it: an item is bought out on the
   spot, and a commodity row hands the units selected up to it to the
@@ -297,6 +305,13 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     two-week value. A stray unit far under the rest of its listings
     should still read green. Report a row that reads green for a floor
     the whole market sits at.
+23. **Sat.** Open, and new. With auto scan on, find a green row and
+    leave it. If nobody buys it, after an hour of scans it should turn
+    amber, the cell tooltip saying "on offer 1.0h over N scans: not a
+    deal", and clicking it should show the same on the buy frame.
+    `/hound sat 0` should turn it green again at once, `/hound sat 1`
+    amber. Report a row that stays green past the hour, or one that
+    turns amber while the scans have not seen its floor.
 
 ## Taint
 
@@ -335,6 +350,7 @@ none is known.
 /hound cut <pct>       auction house cut, default 5
 /hound discount [pct] [money]  the minimum a deal clears: a percentage off the reference, default 25,
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
+/hound sat <hours>     a floor on offer this long is no longer a deal, default 1; 0 judges by price alone
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference

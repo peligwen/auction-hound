@@ -25,7 +25,7 @@ local function reference(key, itemID)
   local r = refs[key]
   if not r then
     local ref, src, conf, st = H.Reference(key, itemID)
-    r = { ref = ref, src = src, conf = conf or 0, st = st, vendor = H.Priors.VendorSell(itemID) }
+    r = { ref = ref, src = src, conf = conf or 0, st = st, vendor = H.Priors.VendorSell(itemID), rec = H.Store.Get(key) }
     refs[key] = r
   end
   return r
@@ -40,14 +40,22 @@ end
 --   disc          fraction under the reference; negative above it
 --   saving        copper a unit under the reference; negative above it
 --   vendorFlip    the floor sits under the vendor sell price
---   deal          under the reference by the minimum, or a vendor flip,
---                 with units there to buy. The minimum is a percentage
---                 and a number of copper a unit, and both must hold: a
---                 three-copper item at half price is fifty percent off
---                 and still not worth the click.
+--   age, scans    how long the scans have seen this floor, and over
+--                 how many of them; 0 and 0 for a floor new since the
+--                 last scan, nil without history
+--   new           new since a scan within the last hour
+--   sat           on offer for the sat setting's hours or more: passed
+--                 over by every buyer since, so no longer a deal
+--   deal          under the reference by the minimum and not sat, or a
+--                 vendor flip, with units there to buy. The minimum is
+--                 a percentage and a number of copper a unit, and both
+--                 must hold: a three-copper item at half price is fifty
+--                 percent off and still not worth the click.
 --   small         far enough under by the percentage, or under vendor,
 --                 but not by the copper: the reason it is not a deal
 ------------------------------------------------------------------------
+Browse.NEW_WITHIN = 3600
+
 function Browse.Evaluate(row)
   if type(row) ~= "table" or type(row.itemKey) ~= "table" or not row.itemKey.itemID then return nil end
   local S = H.Settings()
@@ -69,11 +77,31 @@ function Browse.Evaluate(row)
     e.disc = 1 - e.min / e.ref
     e.saving = e.ref - e.min
   end
-  local far = e.vendorFlip or (e.disc ~= nil and e.disc >= (S.minDiscount or 0)) or false
+  e.age, e.scans = H.Market.FloorAge(r.rec, e.min)
+  if e.age then
+    local since = r.st and r.st.age
+    e.new = e.age == 0 and since ~= nil and since <= Browse.NEW_WITHIN
+    e.sat = (S.satHours or 0) > 0 and e.age >= S.satHours * 3600
+  end
+  local far = e.vendorFlip or (not e.sat and e.disc ~= nil and e.disc >= (S.minDiscount or 0)) or false
   local enough = (e.saving or 0) >= (S.minSaving or 0)
   e.deal = e.qty > 0 and far and enough
   e.small = e.qty > 0 and far and not enough
   return e
+end
+
+-- The floor as the tooltip reads it: the price, the units, and how
+-- long the scans have seen it on offer.
+function Browse.FloorLine(e)
+  local line = string.format("floor %s, %d units listed", H.Money(e.min), e.qty)
+  if e.sat then
+    line = line .. string.format(", on offer %s over %d scan%s: not a deal", H.Span(e.age), e.scans, e.scans == 1 and "" or "s")
+  elseif e.age and e.age > 0 then
+    line = line .. string.format(", on offer %s over %d scan%s", H.Span(e.age), e.scans, e.scans == 1 and "" or "s")
+  elseif e.new then
+    line = line .. ", new since the scan " .. H.Ago(e.st.age)
+  end
+  return line
 end
 
 ------------------------------------------------------------------------

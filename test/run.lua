@@ -108,6 +108,9 @@ eq(H.CommodityStatusAt(ItemLocation:CreateFromBagAndSlot(4, 1)), nil, "empty slo
 eq(H.MaxStack(2770), 20, "max stack from item info")
 eq(H.MaxStack(9999), nil, "max stack unknown until cached")
 eq(H.DayLabel(H.DayIndex(Stub.now)), os.date("%m/%d", H.DayIndex(Stub.now) * 86400 + 43200), "day label")
+eq(H.Span(2700), "45m", "short span in minutes")
+eq(H.Span(5400), "1.5h", "short span in hours")
+eq(H.Span(3 * 86400), "3d", "short span in days")
 
 ------------------------------------------------------------------------
 -- Market value
@@ -1255,6 +1258,96 @@ do
   eq(Stub.ah.browseServed, 7, "fetching resumes when the list shows")
   H.Settings().browseSort = false
   BUI.Rebuild()
+end
+
+------------------------------------------------------------------------
+-- Sat: a floor the scans have kept seeing at its price for an hour or
+-- more has been passed over; it is under the reference, not a deal
+------------------------------------------------------------------------
+do
+  local Browse, S = H.Browse, H.Settings()
+  local br = AuctionHouseFrame.BrowseResultsFrame
+  eq(S.satHours, 1, "sat defaults to an hour")
+  Stub.DefineItem(90032, "Sitting Widget", { sell = 0, commodity = true })
+  -- ten days at 1s, then three units at 50c that the last seven scans,
+  -- over ninety minutes, all saw sitting under the rest at 1s
+  for d = 10, 1, -1 do
+    Store.AddScanSample("90032", Stub.now - d * 86400, { { p = 100, q = 200 } })
+  end
+  for i = 6, 0, -1 do
+    Store.AddScanSample("90032", Stub.now - i * 900, { { p = 50, q = 3 }, { p = 100, q = 200 } })
+  end
+  Browse.Invalidate()
+  eq((H.Reference("90032", 90032)), 100, "three units at half price leave the reference at 1s")
+  local rec = Store.Get("90032")
+  local age, scans = H.Market.FloorAge(rec, 50)
+  eq(age, 6 * 900, "the floor has been on offer since the first of the seven scans")
+  eq(scans, 7, "over seven scans")
+  eq((H.Market.FloorAge(rec, 51)), 6 * 900, "a copper's undercut is the same floor")
+  age, scans = H.Market.FloorAge(rec, 40)
+  eq(age, 0, "a floor under it is new since the last scan")
+  eq(scans, 0, "seen by no scan")
+  eq(H.Market.FloorAge(nil, 50), nil, "no record, no age")
+
+  local sat = { itemKey = C_AuctionHouse.MakeItemKey(90032), minPrice = 50, totalQuantity = 203 }
+  local fresh = { itemKey = C_AuctionHouse.MakeItemKey(90032), minPrice = 40, totalQuantity = 203 }
+  local e = Browse.Evaluate(sat)
+  near(e.disc, 0.5, 0.01, "half off the reference")
+  check(e.sat and not e.deal, "but it has sat for ninety minutes: no deal")
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "amber, not green")
+  eq(select(2, Browse.CellText(e)), "-50%", "the figure still shows the discount")
+  check(string.find(Browse.FloorLine(e), "on offer 1.5h over 7 scans: not a deal", 1, true),
+    "the floor line says why: " .. Browse.FloorLine(e))
+  e = Browse.Evaluate(fresh)
+  check(e.new and e.deal and not e.sat, "a floor under it since the last scan is new, and a deal")
+  check(string.find(Browse.FloorLine(e), "new since the scan", 1, true), "and the floor line says so: " .. Browse.FloorLine(e))
+  eq(select(3, Browse.CellText(e)), Browse.COLORS.deal, "green")
+  local pair = { sat, fresh }
+  local function getRow(i) return pair[i] end
+  eq(table.concat(Browse.BuildIndex(2, getRow, { sort = true }), ","), "2,1", "sorted, the fresh deal comes first")
+  eq(#Browse.BuildIndex(2, getRow, { deals = true }), 1, "deals only drops the sitting floor")
+
+  -- the cell tooltip on the Buy tab
+  Stub.ah.browse, Stub.ah.browseServed = { sat }, 1
+  br:UpdateBrowseResults()
+  local r = br.ItemList:Render()
+  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[1], Browse.COLORS.under[1], "the cell is amber")
+  GameTooltip:ClearLines()
+  r.rows[1][4]:OnEnter()
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "on offer", 1, true), "the tooltip says the floor has sat")
+  r.rows[1][4]:OnLeave()
+
+  -- the buy frame's ladder reads the same age
+  local listings = { { p = 50, q = 3 }, { p = 100, q = 200 } }
+  local L = H.Ladder.Build(listings, "90032", 90032)
+  check(L.sat, "the ladder reads the floor's age")
+  eq(H.Ladder.Verdict(L, 50), "under", "a sitting floor is under, not a deal, on the buy frame")
+  check(string.find(H.Ladder.Lines(L)[2], "on offer", 1, true), "and its line says why: " .. H.Ladder.Lines(L)[2])
+
+  -- the hours are a setting
+  SlashCmdList.HOUND("sat 2")
+  eq(S.satHours, 2, "the sat command sets the hours")
+  check(Browse.Evaluate(sat).deal, "at two hours, ninety minutes is still a deal")
+  SlashCmdList.HOUND("sat 0")
+  check(string.find(Stub.printed[#Stub.printed], "sat is off", 1, true), "and says when it is off")
+  e = Browse.Evaluate(sat)
+  check(e.deal and not e.sat, "off: judged by price alone")
+  L = H.Ladder.Build(listings, "90032", 90032)
+  eq(H.Ladder.Verdict(L, 50), "deal", "on the buy frame too")
+  SlashCmdList.HOUND("sat 1")
+  check(not Browse.Evaluate(sat).deal, "and back")
+
+  -- a floor under the vendor price is a deal however long it sat
+  Stub.DefineItem(90033, "Sitting Vendor Widget", { sell = 1000, commodity = true })
+  for i = 6, 0, -1 do
+    Store.AddScanSample("90033", Stub.now - i * 900, { { p = 800, q = 2 }, { p = 1500, q = 50 } })
+  end
+  Browse.Invalidate()
+  e = Browse.Evaluate({ itemKey = C_AuctionHouse.MakeItemKey(90033), minPrice = 800, totalQuantity = 52 })
+  check(e.sat and e.vendorFlip and e.deal, "a vendor flip never sits")
+  L = H.Ladder.Build({ { p = 800, q = 2 }, { p = 1500, q = 50 } }, "90033", 90033)
+  eq(H.Ladder.Verdict(L, 800), "deal", "on the buy frame too")
+  check(not string.find(H.Ladder.Lines(L)[2], "not a deal", 1, true), "and the line does not say otherwise")
 end
 
 ------------------------------------------------------------------------

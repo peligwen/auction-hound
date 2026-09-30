@@ -22,6 +22,8 @@ Ladder.COLORS = {
 --
 --   steps           merged price steps, cheapest first: p, q, cum
 --   units, floor, floorUnits, next, nextPct, lowFloor, mineUnits
+--   age, scans, sat how long the scans have seen this floor, as the
+--                   Buy tab reads it; sat demotes every deal to under
 --   mv              value from these listings alone
 --   within10        units within ten percent of the floor
 --   ref, refSrc, conf, st, vendor
@@ -51,6 +53,8 @@ function Ladder.Build(listings, key, itemID)
 
   local ref, src, conf, st = H.Reference(key, itemID)
   local vendor = H.Priors.VendorSell(itemID)
+  L.age, L.scans = H.Market.FloorAge(H.Store.Get(key), L.floor)
+  L.sat = L.age ~= nil and (S.satHours or 0) > 0 and L.age >= S.satHours * 3600 or false
   if not ref and vendor and L.floor < vendor then
     ref, src, conf = vendor, "vendor", 1
   end
@@ -91,7 +95,10 @@ function Ladder.Verdict(L, p)
   if not L or not p then return "none", false end
   local low = L.lowFloor and p == L.floor or false
   if not L.ref then return "none", low end
-  if L.limit and p <= L.limit then return "deal", low end
+  if L.limit and p <= L.limit then
+    if L.vendor and p < L.vendor then return "deal", low end
+    return L.sat and "under" or "deal", low
+  end
   if p < L.ref then return "under", low end
   return "over", low
 end
@@ -132,7 +139,9 @@ function Ladder.Lines(L)
   end
 
   if L.limit then
-    if L.dealUnits > 0 then
+    if L.dealUnits > 0 and L.sat and not (L.vendor and L.floor < L.vendor) then
+      lines[2] = string.format("%d units at or under %s, on offer %s: not a deal", L.dealUnits, H.Money(L.limit), H.Span(L.age))
+    elseif L.dealUnits > 0 then
       lines[2] = string.format("%d units at or under %s, %s all in", L.dealUnits, H.Money(L.limit), H.Money(L.dealCost))
     elseif L.limit < 1 and (H.Settings().minSaving or 0) > 0 then
       lines[2] = string.format("no price here clears the %s a unit minimum; the floor is %s",

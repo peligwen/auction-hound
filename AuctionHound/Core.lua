@@ -5,6 +5,7 @@ H.DEFAULTS = {
   cut = 0.05,            -- auction house cut on the faction AH
   minDiscount = 0.25,    -- a floor this far under reference counts as a deal
   minSaving = 0,         -- and at least this many copper a unit under it; 0 is no such floor
+  satHours = 1,          -- a floor the scans have seen at its price this long is no longer a deal; 0 judges by price alone
   snipePages = 40,       -- Buy tab: result pages fetched on their own with a toggle on
   autoScan = false,      -- start a full scan whenever one is allowed at the AH
   browseSort = false,    -- Buy tab: order rows by discount off reference
@@ -126,6 +127,7 @@ commands.help = function()
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
   H.Print("  /hound labor <gold per hour> / cut <percent>")
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
+  H.Print("  /hound sat <hours>          a floor on offer this long is no longer a deal; 0 judges by price alone")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
@@ -261,6 +263,26 @@ commands.discount = function(rest)
     H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
   else
     H.Printf("minimum discount is %s", minimumLine(S))
+  end
+end
+
+-- Sat: a floor the scans have seen at the same price for this long
+-- has been passed over by every buyer since, so it is under the
+-- reference but no longer a deal. Zero judges by price alone.
+commands.sat = function(rest)
+  local S = H.Settings()
+  local v = tonumber(rest)
+  if v then
+    S.satHours = math.max(0, v)
+    H.Events:Fire("SETTINGS_CHANGED", "satHours")
+  elseif rest and rest ~= "" then
+    H.Print("usage: /hound sat <hours>")
+    return
+  end
+  if (S.satHours or 0) > 0 then
+    H.Printf("a floor on offer for %s hours or more is no longer a deal", tostring(S.satHours))
+  else
+    H.Print("sat is off: floors are judged by price alone")
   end
 end
 

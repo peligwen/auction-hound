@@ -95,6 +95,33 @@ function Market.UnitsWithin(ladder, pct)
 end
 
 ------------------------------------------------------------------------
+-- How long a floor has been on offer, as the scans saw it: the run of
+-- latest scan points whose floor is this price, within a small
+-- tolerance for a copper's undercut. Returns the seconds since the
+-- first point of the run and the number of points; 0 and 0 when the
+-- latest scan had a different floor, so this one is new since it; nil
+-- without a record or points. A floor the scans have kept seeing has
+-- been passed over by every buyer in between.
+------------------------------------------------------------------------
+Market.FLOOR_TOL = 0.02
+
+function Market.FloorAge(rec, floor, now)
+  if not rec or not floor or floor <= 0 or #rec.pts == 0 then return nil end
+  now = now or H.Now()
+  local first, n = nil, 0
+  for i = #rec.pts, 1, -1 do
+    local p = rec.pts[i]
+    if p.min and math.abs(p.min - floor) <= floor * Market.FLOOR_TOL then
+      first, n = p, n + 1
+    else
+      break
+    end
+  end
+  if not first then return 0, 0 end
+  return math.max(0, now - first.t), n
+end
+
+------------------------------------------------------------------------
 -- Stats over a stored record.
 --
 --   market  decay-weighted mean of daily values over the last 14 days

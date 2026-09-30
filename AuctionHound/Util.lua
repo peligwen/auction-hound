@@ -44,6 +44,14 @@ function H.Ago(seconds)
   return string.format("%dd ago", math.floor(seconds / 86400 + 0.5))
 end
 
+-- A duration, short: "45m", "1.5h", "3d".
+function H.Span(seconds)
+  seconds = seconds or 0
+  if seconds < 3600 then return string.format("%dm", math.floor(seconds / 60 + 0.5)) end
+  if seconds < 86400 then return string.format("%.1fh", seconds / 3600) end
+  return string.format("%dd", math.floor(seconds / 86400 + 0.5))
+end
+
 ------------------------------------------------------------------------
 -- Numbers
 ------------------------------------------------------------------------

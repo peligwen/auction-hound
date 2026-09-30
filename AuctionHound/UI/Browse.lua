@@ -82,7 +82,7 @@ function AuctionHoundBrowseCellMixin:OnEnter()
     else
       GameTooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
     end
-    GameTooltip:AddLine(string.format("floor %s, %d units listed", H.Money(e.min), e.qty), 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine(H.Browse.FloorLine(e), 0.8, 0.8, 0.8, true)
     if e.small then
       GameTooltip:AddLine(string.format("%s under, but only %s a unit; the minimum is %s",
         H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
