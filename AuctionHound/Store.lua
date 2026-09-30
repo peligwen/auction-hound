@@ -8,6 +8,8 @@
 --   days  = { [dayIndex] = { mv, min, qty, n, s } }   daily aggregates
 --   pts   = { { t, mv, min, qty, n }, ... }           recent scan points
 --   moved = { [dayIndex] = units }                    consumed-units proxy
+--   fills = { [dayIndex] = { u = units, v = value } } units gone to buyers between
+--                                                     scans, and what they went for
 local ADDON, H = ...
 
 local Store = {}
@@ -27,7 +29,7 @@ local FORMAT = "1"
 -- number a double holds exactly, up to 2^53. Every field here is
 -- already rounded, so the string reads the same.
 local function encode(rec)
-  local days, pts, moved = {}, {}, {}
+  local days, pts, moved, fills = {}, {}, {}, {}
   local order = {}
   for d in pairs(rec.days) do table.insert(order, d) end
   table.sort(order)
@@ -44,15 +46,23 @@ local function encode(rec)
   for _, d in ipairs(order) do
     table.insert(moved, string.format("%.0f:%.0f", d, rec.moved[d]))
   end
-  return FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",")
+  order = {}
+  for d in pairs(rec.fills or {}) do table.insert(order, d) end
+  table.sort(order)
+  for _, d in ipairs(order) do
+    local f = rec.fills[d]
+    table.insert(fills, string.format("%d:%d:%d", d, f.u, f.v))
+  end
+  return FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",") .. "#F" .. table.concat(fills, ",")
 end
 
 local function decode(str)
-  local rec = { days = {}, pts = {}, moved = {} }
+  local rec = { days = {}, pts = {}, moved = {}, fills = {} }
   if type(str) ~= "string" then return rec end
   local daysStr = string.match(str, "#D([^#]*)") or ""
   local ptsStr = string.match(str, "#P([^#]*)") or ""
   local movedStr = string.match(str, "#M([^#]*)") or ""
+  local fillsStr = string.match(str, "#F([^#]*)") or ""
   for entry in string.gmatch(daysStr, "[^,]+") do
     local d, mv, min, qty, n, s = strsplit(":", entry)
     d = tonumber(d)
@@ -71,6 +81,11 @@ local function decode(str)
     local d, units = strsplit(":", entry)
     d = tonumber(d)
     if d then rec.moved[d] = tonumber(units) or 0 end
+  end
+  for entry in string.gmatch(fillsStr, "[^,]+") do
+    local d, u, v = strsplit(":", entry)
+    d = tonumber(d)
+    if d then rec.fills[d] = { u = tonumber(u) or 0, v = tonumber(v) or 0 } end
   end
   return rec
 end
@@ -100,7 +115,7 @@ end
 function Store.GetOrCreate(key)
   local rec = Store.Get(key)
   if rec then return rec end
-  rec = { days = {}, pts = {}, moved = {} }
+  rec = { days = {}, pts = {}, moved = {}, fills = {} }
   cache[key] = rec
   dirty[key] = true
   return rec
@@ -183,7 +198,29 @@ function Store.AddScanSample(key, t, listings)
   for d in pairs(rec.moved) do
     if d < cutoff then rec.moved[d] = nil end
   end
+  rec.fills = rec.fills or {}
+  for d in pairs(rec.fills) do
+    if d < cutoff then rec.fills[d] = nil end
+  end
 
+  rec.stats = nil
+  dirty[key] = true
+  return rec
+end
+
+-- Units seen to go to buyers between two scans, and what they went
+-- for, added to the day's fills.
+function Store.AddFills(key, t, units, value)
+  if not units or units <= 0 then return nil end
+  local rec = Store.GetOrCreate(key)
+  rec.fills = rec.fills or {}
+  local day = H.DayIndex(t)
+  local f = rec.fills[day]
+  if f then
+    f.u, f.v = f.u + units, f.v + (value or 0)
+  else
+    rec.fills[day] = { u = units, v = value or 0 }
+  end
   rec.stats = nil
   dirty[key] = true
   return rec

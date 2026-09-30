@@ -133,6 +133,9 @@ end
 --   qty     units listed at the latest scan
 --   listed  decay-weighted mean of the units listed, over 14 days
 --   moved   estimated units consumed per day over the last week
+--   cleared units seen to go to buyers between scans, per day over
+--           the last week, when any were
+--   clearing the mean price they went for over the last three days
 --   days, samples, age
 ------------------------------------------------------------------------
 function Market.Stats(rec, now)
@@ -206,8 +209,33 @@ function Market.Stats(rec, now)
   end
   if movedDays >= 2 then st.moved = movedSum / movedDays end
 
+  local fillDays, fillUnits, fillUnits3, fillValue3 = 0, 0, 0, 0
+  for d = today - 6, today do
+    if rec.days[d] then
+      fillDays = fillDays + 1
+      local f = rec.fills and rec.fills[d]
+      if f then
+        fillUnits = fillUnits + f.u
+        if today - d <= 2 then
+          fillUnits3 = fillUnits3 + f.u
+          fillValue3 = fillValue3 + f.v
+        end
+      end
+    end
+  end
+  if fillDays > 0 and fillUnits > 0 then st.cleared = fillUnits / fillDays end
+  if fillUnits3 > 0 then st.clearing = H.Round(fillValue3 / fillUnits3) end
+
   rec.stats = st
   return st
+end
+
+-- What has been seen to sell, as a tooltip reads it, or nil.
+function Market.ClearedLine(st)
+  if not st or not st.cleared then return nil end
+  local line = string.format("cleared ~%d a day", H.Round(st.cleared))
+  if st.clearing then line = line .. " at ~" .. H.Money(st.clearing) end
+  return line
 end
 
 -- Whether this many units on offer is scarce for the item: under a
@@ -280,7 +308,8 @@ function Market.DailySeries(rec, numDays, now)
   for d = today - numDays + 1, today do
     local b = rec.days[d]
     if b then
-      table.insert(out, { day = d, mv = b.mv, min = b.min, qty = b.qty, s = b.s, moved = rec.moved[d] })
+      local f = rec.fills and rec.fills[d]
+      table.insert(out, { day = d, mv = b.mv, min = b.min, qty = b.qty, s = b.s, moved = rec.moved[d], cleared = f and f.u or nil })
     else
       table.insert(out, { day = d })
     end

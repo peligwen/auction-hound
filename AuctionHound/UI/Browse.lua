@@ -69,10 +69,12 @@ function AuctionHoundBrowseCellMixin:OnEnter()
   GameTooltip:AddLine("|cffe6b800Hound|r", 1, 1, 1)
   local depthOn = H.Settings().browseDepth
   local L = depthOn and H.Depth.Get(self.rowData) or nil
+  local cleared = H.Market.ClearedLine(e.st)
   if L then
     for _, line in ipairs(H.Ladder.Lines(L)) do
       GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true)
     end
+    if cleared then GameTooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
   else
     if e.ref then
       GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
@@ -87,6 +89,7 @@ function AuctionHoundBrowseCellMixin:OnEnter()
       GameTooltip:AddLine(string.format("%s under, but only %s a unit; the minimum is %s",
         H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
     end
+    if cleared then GameTooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
     if depthOn and H.Depth.Failed(self.rowData) then
       GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
     elseif depthOn then

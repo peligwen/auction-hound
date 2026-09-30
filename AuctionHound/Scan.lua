@@ -27,6 +27,41 @@ stepFrame:SetScript("OnUpdate", function() Scan.Step() end)
 -- Set to false if /hound debug rep shows per-unit buyouts for stacks.
 Scan.REPLICATE_BUYOUT_IS_TOTAL = true
 
+------------------------------------------------------------------------
+-- Fills. A scan keeps its ladders, price by price, for the next one.
+-- Units gone from a price between two scans went to a buyer, unless
+-- they could have expired in between: the house gives each listing a
+-- time-left band, and a band's floor says how long the listing had
+-- for sure. Units in a band that could run out over the gap are taken
+-- off the count first, so the fills are a lower bound; new listings
+-- at the same price hide fills too. Nothing is read across a gap
+-- longer than FILL_GAP, where expiries and relistings take over.
+------------------------------------------------------------------------
+Scan.FILL_GAP = 4 * 3600
+local BAND_MIN = { [0] = 0, [1] = 30 * 60, [2] = 2 * 3600, [3] = 12 * 3600 }
+local SOON = 2       -- bands up to this one can run out within FILL_GAP
+
+local function fillsBetween(prevBucket, prevSoon, bucket, gap)
+  local units, value = 0, 0
+  for price, had in pairs(prevBucket) do
+    local gone = had - ((bucket and bucket[price]) or 0)
+    if gone > 0 then
+      local soon = prevSoon and prevSoon[price]
+      if soon then
+        for band = 0, SOON do
+          if soon[band] and gap >= BAND_MIN[band] then gone = gone - soon[band] end
+        end
+      end
+      if gone > 0 then
+        units = units + gone
+        value = value + gone * price
+      end
+    end
+  end
+  return units, value
+end
+Scan.FillsBetween = fillsBetween
+
 local function setState(s)
   Scan.state = s
   H.Events:Fire("SCAN_STATUS")
@@ -102,6 +137,7 @@ function Scan.Abort()
   disarmWatchdog()
   pendingSend = nil
   Scan.byKey = nil
+  Scan.soon = nil
   setState("idle")
 end
 
@@ -151,19 +187,33 @@ local function unitPrice(buyout, count)
   return buyout
 end
 
-local function addListing(key, price, count)
+local function addListing(key, price, count, band)
   local bucket = Scan.byKey[key]
   if not bucket then
     bucket = {}
     Scan.byKey[key] = bucket
   end
   bucket[price] = (bucket[price] or 0) + count
+  if band and band <= SOON then
+    local soon = Scan.soon[key]
+    if not soon then
+      soon = {}
+      Scan.soon[key] = soon
+    end
+    local at = soon[price]
+    if not at then
+      at = {}
+      soon[price] = at
+    end
+    at[band] = (at[band] or 0) + count
+  end
 end
 
 function Scan.ProcessRow(i)
   local name, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID, hasAllInfo = AH.GetReplicateItemInfo(i)
   if not itemID or not count or count == 0 then return end
   if not buyout or buyout == 0 then return end
+  local band = AH.GetReplicateItemTimeLeft and AH.GetReplicateItemTimeLeft(i) or nil
   local link = AH.GetReplicateItemLink(i)
   local key
   if link then
@@ -176,7 +226,7 @@ function Scan.ProcessRow(i)
     if C_Item and C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(itemID) end
     return
   end
-  addListing(key, unitPrice(buyout, count), count)
+  addListing(key, unitPrice(buyout, count), count, band)
   if name and hasAllInfo then H.Store.SetName(itemID, name) end
 end
 
@@ -186,6 +236,7 @@ function Scan.BeginProcess()
   Scan.total = AH.GetNumReplicateItems() or 0
   Scan.index = 0
   Scan.byKey = {}
+  Scan.soon = {}
   Scan.missing = {}
   Scan.retries = 0
   stepFrame:Show()
@@ -230,14 +281,33 @@ function Scan.Finish()
     H.Store.AddScanSample(key, t, arr)
     keys = keys + 1
   end
+  local prev = Scan.prev
+  local filled = 0
+  if prev and t > prev.t and t - prev.t <= Scan.FILL_GAP then
+    local gap = t - prev.t
+    for key, had in pairs(prev.byKey) do
+      local units, value = fillsBetween(had, prev.soon[key], Scan.byKey[key], gap)
+      if units > 0 then
+        H.Store.AddFills(key, t, units, value)
+        filled = filled + units
+      end
+    end
+  end
+  Scan.prev = { t = t, byKey = Scan.byKey, soon = Scan.soon }
+  Scan.filled = filled
   local skipped = #Scan.missing
   Scan.byKey = nil
+  Scan.soon = nil
   Scan.missing = {}
   if H.db then H.db.lastFull = t end
   H.Store.LogScan({ t = t, kind = "full", rows = Scan.total, keys = keys, secs = t - (Scan.startedAt or t), skipped = skipped })
   H.Store.FlushAsync()
   setState("idle")
-  H.Printf("full scan: %d listings, %d items, %d unresolved, %ds", Scan.total, keys, skipped, t - (Scan.startedAt or t))
+  if prev and filled > 0 then
+    H.Printf("full scan: %d listings, %d items, %d unresolved, %ds; %d units cleared since the last", Scan.total, keys, skipped, t - (Scan.startedAt or t), filled)
+  else
+    H.Printf("full scan: %d listings, %d items, %d unresolved, %ds", Scan.total, keys, skipped, t - (Scan.startedAt or t))
+  end
   H.Events:Fire("SCAN_DONE", "full")
 end
 

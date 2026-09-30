@@ -551,6 +551,7 @@ function UI.CreateBarGraph(parent, opts)
       if p.y2 then GameTooltip:AddDoubleLine("floor", H.Money(p.y2), 1, 1, 1, 1, 1, 1) end
       if p.vol then GameTooltip:AddDoubleLine("listed", tostring(H.Round(p.vol)), 1, 1, 1, 1, 1, 1) end
       if p.moved then GameTooltip:AddDoubleLine("moved", "~" .. tostring(H.Round(p.moved)), 1, 1, 1, 1, 1, 1) end
+      if p.cleared then GameTooltip:AddDoubleLine("cleared", tostring(H.Round(p.cleared)), 1, 1, 1, 1, 1, 1) end
       if p.s then GameTooltip:AddDoubleLine("scans", tostring(p.s), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6) end
       GameTooltip:Show()
     end)

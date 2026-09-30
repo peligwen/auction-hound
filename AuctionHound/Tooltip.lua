@@ -22,7 +22,11 @@ local function addLines(tooltip, itemID, link)
     end
     local parts = {}
     if st.trend then table.insert(parts, "trend " .. H.Pct(st.trend, true)) end
-    if st.moved then table.insert(parts, string.format("~%d/day", H.Round(st.moved))) end
+    if st.cleared then
+      table.insert(parts, string.format("cleared ~%d/day%s", H.Round(st.cleared), st.clearing and (" at ~" .. H.MoneyShort(st.clearing)) or ""))
+    elseif st.moved then
+      table.insert(parts, string.format("~%d/day", H.Round(st.moved)))
+    end
     table.insert(parts, string.format("%d scans", st.samples))
     tooltip:AddDoubleLine("  " .. table.concat(parts, ", "), H.Ago(st.age), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
   end

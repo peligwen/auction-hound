@@ -170,6 +170,12 @@ do
   eq(#back.pts, 60, "roundtrip points")
   eq(back.days[lastDay].mv, rec.days[lastDay].mv, "roundtrip mv")
   eq(back.moved[lastDay], 80, "roundtrip moved")
+  rec.fills[lastDay] = { u = 12, v = 1440 }
+  back = Store.Decode(Store.Encode(rec))
+  eq(back.fills[lastDay] and back.fills[lastDay].u, 12, "roundtrip fills")
+  eq(back.fills[lastDay] and back.fills[lastDay].v, 1440, "roundtrip fill value")
+  check(next(Store.Decode("1#D#P#M").fills) == nil, "an old record decodes with empty fills")
+  rec.fills[lastDay] = nil
   check(not string.find(encoded, "|", 1, true), "encoding has no pipe characters")
 
   eq(Store.Flush(), 1, "flush writes one dirty record")
@@ -334,6 +340,95 @@ do
   eq(ok, false, "throttle blocks a second scan")
   check(string.find(why, "available in"), "throttle message: " .. tostring(why))
   eq(H.db.names[2770], "Copper Ore", "name cached from scan")
+end
+
+------------------------------------------------------------------------
+-- Fills: units gone between two scans before they could expire
+------------------------------------------------------------------------
+do
+  Stub.DefineItem(90040, "Traded Widget", { sell = 0, commodity = true })
+  Store.Wipe()
+  H.Scan.prev = nil
+  local function scan()
+    AuctionHoundDB.lastFull = 0
+    eq(H.Scan.StartFull(), true, "scan starts")
+    Stub.Advance(1) Stub.Pump()
+    Stub.Advance(1) Stub.Pump()
+    eq(H.Scan.state, "idle", "scan done")
+  end
+  local function fillUnits(rec)
+    local u = 0
+    for _, f in pairs(rec.fills) do u = u + f.u end
+    return u
+  end
+  Stub.ah.replicate = {
+    { itemID = 90040, count = 10, buyout = 1000 },               -- 100c, plenty of time
+    { itemID = 90040, count = 5, buyout = 500, timeLeft = 0 },   -- 100c, about to expire
+    { itemID = 90040, count = 8, buyout = 960 },                 -- 120c
+    { itemID = 90040, count = 4, buyout = 600, timeLeft = 1 },   -- 150c, under two hours left
+  }
+  scan()
+  check(H.Scan.prev ~= nil and H.Scan.prev.byKey["90040"] ~= nil, "the scan keeps its ladders for the next")
+  eq(H.Scan.prev.byKey["90040"][100], 15, "fifteen units at 100c, both bands")
+  eq(H.Scan.prev.soon["90040"][100][0], 5, "five of them about to expire")
+  check(next(Store.Get("90040").fills) == nil, "no fills from a first scan")
+  check(not string.find(Stub.printed[#Stub.printed], "cleared", 1, true), "and the scan line says nothing of them")
+
+  -- fifteen minutes on: the five expiring units are gone, two of the
+  -- ten at 100c, all eight at 120c, and a new listing at 90c has come
+  Stub.Advance(900)
+  Stub.ah.replicate = {
+    { itemID = 90040, count = 8, buyout = 800 },
+    { itemID = 90040, count = 4, buyout = 600, timeLeft = 1 },
+    { itemID = 90040, count = 6, buyout = 540 },
+  }
+  scan()
+  local rec = Store.Get("90040")
+  eq(fillUnits(rec), 10, "two at 100c and eight at 120c cleared; the five that could expire did not count")
+  local day = H.DayIndex(Stub.now)
+  eq(rec.fills[day] and rec.fills[day].v, 2 * 100 + 8 * 120, "at what they went for")
+  check(string.find(Stub.printed[#Stub.printed], "10 units cleared since the last", 1, true),
+    "the scan line reports them: " .. tostring(Stub.printed[#Stub.printed]))
+  local st = H.Market.Stats(rec)
+  eq(st.cleared, 10, "cleared per day")
+  eq(st.clearing, 116, "the mean price they went at")
+  eq(H.Market.ClearedLine(st), "cleared ~10 a day at ~" .. H.Money(116), "the line for it")
+  GameTooltip.lines = {}
+  Stub.tooltipHandler(GameTooltip, { id = 90040 })
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "cleared ~10/day at ~1s", 1, true),
+    "the item tooltip shows it: " .. table.concat(GameTooltip.lines, " | "))
+  Stub.printed = {}
+  SlashCmdList.HOUND("stats 90040")
+  check(string.find(table.concat(Stub.printed, "\n"), "cleared ~10 a day at", 1, true), "stats shows it")
+  eq(M.DailySeries(rec, 1, Stub.now)[1].cleared, 10, "the daily series carries it")
+
+  -- an hour on: the four with under two hours left are gone, which
+  -- could be expiry, and nothing else moved
+  Stub.Advance(3600)
+  Stub.ah.replicate = { { itemID = 90040, count = 8, buyout = 800 }, { itemID = 90040, count = 6, buyout = 540 } }
+  scan()
+  eq(fillUnits(rec), 10, "units that could have expired over the gap are not fills")
+
+  -- a gap too long to read: nothing counted, but the ladders are kept
+  Stub.Advance(5 * 3600)
+  Stub.ah.replicate = { { itemID = 90040, count = 1, buyout = 100 } }
+  scan()
+  eq(fillUnits(rec), 10, "nothing read across five hours")
+  Stub.Advance(900)
+  Stub.ah.replicate = {}
+  scan()
+  eq(fillUnits(rec), 11, "the last unit gone counts against the scan before")
+
+  -- the count itself, without the house
+  local u, v = H.Scan.FillsBetween({ [100] = 10, [200] = 3 }, { [100] = { [1] = 4 } }, { [100] = 2 }, 1000)
+  eq(u, 11, "eight gone at 100c, none of which could expire within a thousand seconds, plus three at 200c")
+  eq(v, 8 * 100 + 3 * 200, "valued at their prices")
+  u = H.Scan.FillsBetween({ [100] = 10 }, { [100] = { [1] = 4 } }, { [100] = 2 }, 2000)
+  eq(u, 4, "over two thousand seconds the four could have expired")
+  u = H.Scan.FillsBetween({ [100] = 10 }, nil, { [100] = 12 }, 900)
+  eq(u, 0, "more units than before is no fill")
+  Store.Wipe()
+  H.Scan.prev = nil
 end
 
 ------------------------------------------------------------------------
@@ -1307,7 +1402,9 @@ do
   eq(table.concat(Browse.BuildIndex(2, getRow, { sort = true }), ","), "2,1", "sorted, the fresh deal comes first")
   eq(#Browse.BuildIndex(2, getRow, { deals = true }), 1, "deals only drops the sitting floor")
 
-  -- the cell tooltip on the Buy tab
+  -- the cell tooltip on the Buy tab, with what has been seen to sell
+  Store.AddFills("90032", Stub.now, 40, 40 * 100)
+  Browse.Invalidate()
   Stub.ah.browse, Stub.ah.browseServed = { sat }, 1
   br:UpdateBrowseResults()
   local r = br.ItemList:Render()
@@ -1315,6 +1412,8 @@ do
   GameTooltip:ClearLines()
   r.rows[1][4]:OnEnter()
   check(string.find(table.concat(GameTooltip.lines, "\n"), "on offer", 1, true), "the tooltip says the floor has sat")
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "cleared ~6 a day at", 1, true),
+    "and what has cleared, forty units over the week's seven scan days: " .. table.concat(GameTooltip.lines, " | "))
   r.rows[1][4]:OnLeave()
 
   -- the buy frame's ladder reads the same age

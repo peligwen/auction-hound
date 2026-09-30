@@ -204,6 +204,8 @@ commands.stats = function(rest)
       tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
     H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
       st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
+    local cleared = H.Market.ClearedLine(st)
+    if cleared then H.Printf("  %s (units gone between scans before they could expire)", cleared) end
   end
   if cl then H.Printf("  yours: %s", H.Fan.ClearingLine(cl)) end
 end

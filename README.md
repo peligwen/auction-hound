@@ -14,6 +14,10 @@ the checklist below is where that stands.
 - **History.** A full scan at the auction house records every listing.
   Each item keeps daily aggregates for 90 days and the last 120 scan
   points. Records are stored as compact strings so login stays fast.
+  Each scan also keeps its ladders for the next: units gone from a
+  price between two scans went to a buyer, unless their time-left
+  band says they could have expired in between, and those fills are
+  noted per day with what they went for.
 - **Market value.** A robust estimate from the cheapest slice of units
   with outliers trimmed, then decay-weighted over two weeks. A wall of
   expensive listings or a single one-copper unit does not move it. The
@@ -124,8 +128,11 @@ the checklist below is where that stands.
   unsold. The result is a sold / unsold bracket per item, shown in the
   Item view, the tooltip and `/hound stats`, and the next fan centers on
   the best price buyers actually paid.
-- **Tooltips.** Market, floor, 30-day mean, trend and estimated units
-  moved per day on every item tooltip, plus your own sold / unsold line.
+- **Tooltips.** Market, floor, 30-day mean, trend and the units
+  cleared a day at what price (or the units moved estimate where no
+  fills have been seen) on every item tooltip, plus your own sold /
+  unsold line. The Buy tab's cell tooltip and the Item view carry the
+  cleared line too.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
   a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
@@ -328,6 +335,14 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     under history". A row with one cheap unit under a wall at the old
     price should stay green. Report a wall that stays green with its
     depth read, or a stray that goes grey.
+25. **Fills.** Open, and new. With auto scan on, leave the house open
+    for two scans. The second scan's chat line should end in "N units
+    cleared since the last" when anything sold in between, and `/hound
+    stats <link>` on a busy item should show "cleared ~N a day at ~X";
+    the item's tooltip and its Buy tab cell tooltip carry the same
+    line. Buy something yourself between two scans: it should count.
+    Report a scan line that never reports fills on a busy market, or a
+    stats line claiming fills for an item nobody trades.
 
 ## Taint
 
@@ -387,7 +402,7 @@ batches never post on their own.
 The addon lives in `AuctionHound/`; `test/` and this file sit beside it.
 
 ```
-Scan.lua     ReplicateItems (full), and any search answer as listings
+Scan.lua     ReplicateItems (full), fills between scans, and any search answer as listings
 Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent again
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
@@ -425,12 +440,27 @@ margin after the cut scores zero and is dropped. Anything under vendor
 price scores five and is labelled a vendor flip. The reasons are shown
 under the table when a row is selected.
 
-### Units moved
+### Units moved, and cleared
 
-Blizzard exposes no sales feed. The estimate is the quantity that
+Blizzard exposes no sales feed. The moved estimate is the quantity that
 vanished between two scans no more than eight hours apart, which is a
 lower bound since new listings offset it. It is labelled as an estimate
 everywhere and treated as the weakest input.
+
+Cleared is the better read of the same thing. A scan keeps its ladders,
+price by price, and the next scan within four hours counts the units
+gone from each price. The house gives every listing a time-left band,
+and a band's floor says how long the listing had for sure: units in a
+band that could have run out over the gap are taken off the count
+first. What is left went to a buyer, at that price. It is still a lower
+bound, since new listings at a price hide fills there and a cancelled
+auction looks like a sale, and it accrues only while scans follow each
+other, which auto scan does. The stats carry the units cleared a day
+over the last week and the mean price they went for over the last
+three days; the scan's chat line reports the units cleared since the
+scan before. This is the one input that says what buyers pay rather
+than what sellers ask, and the reference will lean on it as it fills
+in.
 
 ## Tests
 

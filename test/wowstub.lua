@@ -561,7 +561,10 @@ C_AuctionHouse = {
     if not (it and it.loaded) then return nil end
     return r.link or string.format("|cffffffff|Hitem:%d:0:0:0:0:0:%d:0:60:0:0:0:0|h[%s]|h|r", r.itemID, r.suffix or 0, it.name)
   end,
-  GetReplicateItemTimeLeft = function() return 3 end,
+  GetReplicateItemTimeLeft = function(i)
+    local r = Stub.ah.replicate[i + 1]
+    return r and r.timeLeft or 3
+  end,
 
   SendBrowseQuery = function(query)
     Stub.Throttled(function(done)

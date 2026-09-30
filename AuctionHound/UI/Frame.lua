@@ -262,9 +262,10 @@ local function buildItemView(parent)
     local rec = H.Store.Get(key)
     local st = rec and H.Market.Stats(rec) or nil
     if st and st.market then
-      statsLeft:SetText(string.format("market %s   floor %s   30 day %s\nlisted %d   moved ~%s a day   trend %s\nswing %s   %d scans over %d days   last %s",
+      local demand = H.Market.ClearedLine(st) or string.format("moved ~%s a day", st.moved and tostring(H.Round(st.moved)) or "?")
+      statsLeft:SetText(string.format("market %s   floor %s   30 day %s\nlisted %d   %s   trend %s\nswing %s   %d scans over %d days   last %s",
         H.Money(st.market), H.Money(st.min or 0), H.Money(st.hist or 0),
-        st.qty or 0, st.moved and tostring(H.Round(st.moved)) or "?", H.Pct(st.trend, true),
+        st.qty or 0, demand, H.Pct(st.trend, true),
         H.Pct(st.stab), st.samples, st.days, H.Ago(st.age)))
       graph:SetSeries(UI.SeriesFor(rec))
     else
