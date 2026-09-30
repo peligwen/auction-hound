@@ -855,41 +855,97 @@ do
   ok, err = pcall(H.UI.UpdateStatus)
   check(ok, "status: " .. tostring(err))
 
-  -- auction house tab hook with a fake Blizzard frame
+  -- auction house tab hook with a fake Blizzard frame. The tab stays
+  -- out of the frame's tab list, count and modes: a value an addon
+  -- writes there taints the frame's own code (see UI/Frame.lua).
   AuctionHouseFrame = CreateFrame("Frame", "AuctionHouseFrame")
   AuctionHouseFrame.Tabs = { CreateFrame("Button"), CreateFrame("Button"), CreateFrame("Button") }
   AuctionHouseFrame.displayMode = nil
-  -- the Blizzard frame only moves the highlight for modes in this table
-  local buyMode = { "SearchBar" }
-  AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1 }
+  AuctionHouseFrame.numTabs = 3
   AuctionHouseFrame.selectedTab = 1
+  local buyMode = { "SearchBar" }
+  local sellMode = { "ItemSellFrame" }
+  AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1, [sellMode] = 2 }
   function AuctionHouseFrame:SetDisplayMode(mode)
+    if self.displayMode == mode then return end
     self.displayMode = mode
-    local tab = self.tabsForDisplayMode and self.tabsForDisplayMode[mode]
+    local tab = self.tabsForDisplayMode[mode]
     if tab then PanelTemplates_SetTab(self, tab) end
   end
-  PanelTemplates_SetNumTabs = function() end
-  PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id end
+  local numTabsCalls = 0
+  PanelTemplates_SetNumTabs = function(frame, n) numTabsCalls = numTabsCalls + 1 frame.numTabs = n end
+  PanelTemplates_SelectTab = function(tab) tab.lit = true end
+  PanelTemplates_DeselectTab = function(tab) tab.lit = false end
+  PanelTemplates_UpdateTabs = function(frame)
+    for i = 1, frame.numTabs do
+      if i == frame.selectedTab then PanelTemplates_SelectTab(frame.Tabs[i]) else PanelTemplates_DeselectTab(frame.Tabs[i]) end
+    end
+  end
+  PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id PanelTemplates_UpdateTabs(frame) end
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "auction house hook: " .. tostring(err))
-  eq(#AuctionHouseFrame.Tabs, 4, "tab added")
-  eq(AuctionHouseFrame.tabsForDisplayMode[H.UI.displayMode], 4, "hound mode registered with the frame")
-  AuctionHouseFrame:SetDisplayMode(H.UI.displayMode)
+  eq(#AuctionHouseFrame.Tabs, 3, "the frame's tab list is left alone")
+  eq(AuctionHouseFrame.numTabs, 3, "the frame's tab count is left alone")
+  eq(numTabsCalls, 0, "the frame's tab count is never set by the addon")
+  local modes = 0
+  for _ in pairs(AuctionHouseFrame.tabsForDisplayMode) do modes = modes + 1 end
+  eq(modes, 2, "no mode of ours in the frame's mode table")
+  eq(rawget(AuctionHouseFrame, "HoundFrame"), nil, "nothing of ours written on the frame")
+  check(H.UI.ahTab ~= nil and H.UI.ahTab.parent == AuctionHouseFrame, "hound tab built inside the frame")
+  check(H.UI.ahTab and H.UI.ahTab:GetScript("OnClick") ~= nil, "hound tab answers its own click")
+  AuctionHouseFrame:SetDisplayMode(buyMode)
+  H.UI.ahTab:Click()
   check(AuctionHoundPanel.shown, "panel shown in the auction house")
-  eq(AuctionHouseFrame.selectedTab, 4, "hound tab highlighted")
+  check(AuctionHoundPanel.parent and AuctionHoundPanel.parent.parent == AuctionHouseFrame, "panel seated inside the frame")
+  eq(AuctionHouseFrame.displayMode, buyMode, "the frame's own mode is untouched by the hound tab")
+  eq(AuctionHouseFrame.selectedTab, 1, "the frame's own selection is untouched by the hound tab")
+  check(H.UI.ahTab.lit, "hound tab lit")
+  check(not AuctionHouseFrame.Tabs[1].lit, "buy tab dimmed while hound is up")
   local hp = AuctionHoundPanel.header.points
   eq(hp[#hp - 1][1], "TOPLEFT", "header anchored at the top left")
   eq(hp[#hp - 1][4], H.UI.AH_INSETS.header, "header starts clear of the portrait")
+  -- the frame's own tab clicked for the mode it is already in
   AuctionHouseFrame:SetDisplayMode(buyMode)
-  check(not AuctionHoundPanel.shown, "panel hidden on another tab")
-  eq(AuctionHouseFrame.selectedTab, 1, "buy tab highlighted again")
-  -- a frame without the mode table still gets the highlight from the hook
-  AuctionHouseFrame.tabsForDisplayMode = nil
-  AuctionHouseFrame.selectedTab = 1
-  AuctionHouseFrame:SetDisplayMode(H.UI.displayMode)
-  eq(AuctionHouseFrame.selectedTab, 4, "hound tab highlighted without the mode table")
-  AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1 }
+  check(not AuctionHoundPanel.shown, "panel hidden on the frame's own tab")
+  check(not H.UI.ahTab.lit, "hound tab dimmed again")
+  check(AuctionHouseFrame.Tabs[1].lit, "buy tab lit again")
+  -- a mode change of the frame's own, as a bag item or a browse row makes
+  H.UI.ahTab:Click()
+  check(AuctionHoundPanel.shown, "panel shown again")
+  AuctionHouseFrame:SetDisplayMode(sellMode)
+  check(not AuctionHoundPanel.shown, "panel hidden on a mode change")
+  eq(AuctionHouseFrame.selectedTab, 2, "sell tab selected by the frame")
+  check(AuctionHouseFrame.Tabs[2].lit and not AuctionHouseFrame.Tabs[1].lit, "sell tab lit, buy tab dimmed")
+  -- the window and the tab do not show at once
+  H.UI.ahTab:Click()
+  H.UI.Toggle()
+  check(AuctionHoundWindow.shown and AuctionHoundPanel.parent == AuctionHoundWindow, "window takes the panel from the house")
   AuctionHouseFrame:SetDisplayMode(buyMode)
+  H.UI.ahTab:Click()
+  check(not AuctionHoundWindow.shown, "hound tab closes the window")
+  AuctionHouseFrame:SetDisplayMode(sellMode)
+
+  -- Escape closes the window without a line in UISpecialFrames
+  eq(#UISpecialFrames, 0, "no line of ours in UISpecialFrames")
+  if not AuctionHoundWindow.shown then H.UI.Toggle() end
+  check(AuctionHoundWindow.shown, "window up")
+  check(AuctionHoundWindow.keyboard == true and AuctionHoundWindow.propagate == true, "window reads keys and passes them on")
+  AuctionHoundWindow.scripts.OnKeyDown(AuctionHoundWindow, "A")
+  eq(AuctionHoundWindow.propagate, true, "another key passes on")
+  AuctionHoundWindow.scripts.OnKeyDown(AuctionHoundWindow, "ESCAPE")
+  check(not AuctionHoundWindow.shown, "escape closes the window")
+  check(AuctionHoundWindow.propagate == false and AuctionHoundWindow.keyboard == false, "escape used up, keyboard let go")
+  -- in combat the key is left alone
+  Stub.combat = true
+  H.UI.Toggle()
+  check(AuctionHoundWindow.shown and AuctionHoundWindow.keyboard == false, "shown in combat without the keyboard")
+  AuctionHoundWindow.scripts.OnKeyDown(AuctionHoundWindow, "ESCAPE")
+  check(AuctionHoundWindow.shown, "escape does nothing in combat")
+  Stub.combat = false
+  Stub.FireEvent("PLAYER_REGEN_ENABLED")
+  check(AuctionHoundWindow.keyboard == true and AuctionHoundWindow.propagate == true, "keyboard taken back after combat")
+  H.UI.Toggle()
+  check(not AuctionHoundWindow.shown, "window down")
 
   -- template missing: tab creation fails gracefully
   H.UI.ahHooked = false

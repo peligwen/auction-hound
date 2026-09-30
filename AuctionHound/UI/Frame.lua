@@ -797,6 +797,45 @@ end
 ------------------------------------------------------------------------
 -- Standalone window
 ------------------------------------------------------------------------
+local function inCombat()
+  return type(InCombatLockdown) == "function" and InCombatLockdown() == true
+end
+
+-- Escape closes the window. The usual way is a line in Blizzard's
+-- UISpecialFrames list, but a line an addon writes there taints every
+-- walk of that list by Blizzard's own code, and a protected call made
+-- after such a walk is blocked in the name of whichever addon wrote
+-- last, whatever it was doing; that list was the one piece of Blizzard
+-- state Hound wrote that is read away from the house. So the key is
+-- read on the window itself, and every other key is passed on.
+-- Changing what is passed on is protected in combat, so the keyboard
+-- is only taken out of combat: in combat the key does nothing and the
+-- close button does the job.
+local function armEscape(w)
+  if inCombat() then return end
+  w:SetPropagateKeyboardInput(true)
+  w:EnableKeyboard(true)
+end
+
+local function watchEscape(w)
+  w:SetScript("OnKeyDown", function(self, key)
+    if inCombat() then return end
+    if key == "ESCAPE" then
+      self:SetPropagateKeyboardInput(false)
+      -- the keyboard is let go with the window, so nothing is swallowed
+      -- if it is shown again in combat; OnShow takes it back
+      self:EnableKeyboard(false)
+      self:Hide()
+    else
+      self:SetPropagateKeyboardInput(true)
+    end
+  end)
+  w:SetScript("OnShow", armEscape)
+  H.RegisterEvent("PLAYER_REGEN_ENABLED", function()
+    if w:IsShown() then armEscape(w) end
+  end)
+end
+
 local function ensureWindow()
   if window then return window end
   window = UI.Create("Frame", "AuctionHoundWindow", UIParent, "BackdropTemplate")
@@ -828,7 +867,7 @@ local function ensureWindow()
     fs:SetPoint("CENTER")
   end
   window:Hide()
-  tinsert(UISpecialFrames, "AuctionHoundWindow")
+  watchEscape(window)
   return window
 end
 
@@ -860,8 +899,55 @@ end
 
 ------------------------------------------------------------------------
 -- Auction house tab
+--
+-- The tab is a button of Blizzard's own tab template hung after the
+-- last of the frame's tabs, and that is all it shares with them. It
+-- stays out of the frame's tab list, tab count and display modes: the
+-- frame's own code reads those on every mode change, an item
+-- right-clicked in the bags with the house open included, and a value
+-- an addon wrote there taints that code from then on, after which any
+-- protected call made on the way is blocked in the addon's name. So
+-- the tab is worked by hand. Its click seats the panel over the
+-- frame's body and lights the tab, and the frame's own tabs are dimmed
+-- with the template's cosmetics. Any mode change of the frame's own, a
+-- tab click, a browse row, an item from the bags, takes the panel down
+-- again: the hook runs after every call, a repeat of the current mode
+-- included.
 ------------------------------------------------------------------------
-UI.displayMode = { "HoundFrame" }
+local ahHolder
+
+local function lightTabs(ah, hound)
+  local tab = UI.ahTab
+  if hound then
+    if tab and PanelTemplates_SelectTab then pcall(PanelTemplates_SelectTab, tab) end
+    if PanelTemplates_DeselectTab and type(ah.Tabs) == "table" then
+      for _, t in ipairs(ah.Tabs) do pcall(PanelTemplates_DeselectTab, t) end
+    end
+  else
+    if tab and PanelTemplates_DeselectTab then pcall(PanelTemplates_DeselectTab, tab) end
+    if PanelTemplates_UpdateTabs then pcall(PanelTemplates_UpdateTabs, ah) end
+  end
+end
+
+function UI.ShowInAuctionHouse()
+  local ah = AuctionHouseFrame
+  if not ah or not ahHolder then return end
+  if window and window:IsShown() then window:Hide() end
+  placePanel(ahHolder, UI.AH_INSETS)
+  ahHolder:Show()
+  panel:Show()
+  UI.UpdateStatus()
+  lightTabs(ah, true)
+  if ah.SetTitle then pcall(ah.SetTitle, ah, "Auction Hound") end
+end
+
+function UI.HideInAuctionHouse()
+  local ah = AuctionHouseFrame
+  if not ah or not ahHolder or not ahHolder:IsShown() then return end
+  ahHolder:Hide()
+  if panel:GetParent() == ahHolder then panel:Hide() end
+  lightTabs(ah, false)
+end
 
 local function hookAuctionHouse()
   local ah = AuctionHouseFrame
@@ -869,56 +955,34 @@ local function hookAuctionHouse()
   UI.ahHooked = true
   UI.EnsurePanel()
 
-  local holder = CreateFrame("Frame", nil, ah)
-  holder:SetAllPoints()
-  holder:Hide()
-  ah.HoundFrame = holder
+  -- the panel's seat: a child of the frame, never a field on it
+  ahHolder = CreateFrame("Frame", nil, ah)
+  ahHolder:SetAllPoints()
+  ahHolder:Hide()
 
   local ok, err = pcall(function()
-    local id = #ah.Tabs + 1
+    local tabs = type(ah.Tabs) == "table" and ah.Tabs or nil
+    local last = tabs and tabs[#tabs]
+    if not last then error("the frame has no tabs") end
     local tab
     for _, template in ipairs({ "AuctionHouseFrameDisplayModeTabTemplate", "PanelTabButtonTemplate", "CharacterFrameTabButtonTemplate" }) do
-      local created, f = pcall(CreateFrame, "Button", "AuctionHouseFrameTab" .. id, ah, template)
+      local created, f = pcall(CreateFrame, "Button", "AuctionHoundTab", ah, template)
       if created and f then tab = f break end
     end
     if not tab then error("no tab template available") end
-    tab:SetID(id)
     tab:SetText("Hound")
-    tab.displayMode = UI.displayMode
-    tab:SetPoint("LEFT", ah.Tabs[id - 1], "RIGHT", -15, 0)
-    table.insert(ah.Tabs, tab)
-    if PanelTemplates_SetNumTabs then PanelTemplates_SetNumTabs(ah, id) end
+    tab:SetPoint("LEFT", last, "RIGHT", -15, 0)
     if PanelTemplates_TabResize then PanelTemplates_TabResize(tab, 0) end
-    if not tab:GetScript("OnClick") then
-      tab:SetScript("OnClick", function() ah:SetDisplayMode(UI.displayMode) end)
-    end
-    if type(ah.tabsForDisplayMode) == "table" then ah.tabsForDisplayMode[UI.displayMode] = id end
+    if PanelTemplates_DeselectTab then PanelTemplates_DeselectTab(tab) end
+    -- the template's own click would hand the frame a mode of ours
+    tab:SetScript("OnClick", function() UI.ShowInAuctionHouse() end)
     UI.ahTab = tab
   end)
   if not ok then
     H.Print("could not add the auction house tab (" .. tostring(err) .. "); use /hound for the window")
   end
 
-  -- SetDisplayMode only moves the tab highlight (and the title) for
-  -- modes in its own table, so a click on Hound would leave the old
-  -- tab lit. Registering the mode lets the frame treat ours like its
-  -- own; the explicit select covers a client without that table.
-  hooksecurefunc(ah, "SetDisplayMode", function(frame, mode)
-    if mode == UI.displayMode then
-      if window and window:IsShown() then window:Hide() end
-      placePanel(frame, UI.AH_INSETS)
-      holder:Show()
-      panel:Show()
-      UI.UpdateStatus()
-      if UI.ahTab and PanelTemplates_SetTab and frame.selectedTab ~= UI.ahTab:GetID() then
-        pcall(PanelTemplates_SetTab, frame, UI.ahTab:GetID())
-      end
-      if frame.SetTitle then pcall(frame.SetTitle, frame, "Auction Hound") end
-    else
-      holder:Hide()
-      if panel:GetParent() == frame then panel:Hide() end
-    end
-  end)
+  hooksecurefunc(ah, "SetDisplayMode", function() UI.HideInAuctionHouse() end)
 end
 
 H.Events:On("AH_UI_LOADED", hookAuctionHouse)

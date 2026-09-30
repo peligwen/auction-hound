@@ -136,7 +136,9 @@ plausible it looks.
 Found so far in the beta: `GetItemCommodityStatus` wants a bag location,
 not an item key (commodity status now comes from `GetItemKeyInfo`); the
 auction house frame only moves its tab highlight for its own modes, so
-the Hound tab is now selected by hand; the frame's portrait hangs down
+the Hound tab is now selected by hand, and it now stays out of the
+frame's own tab list, tab count and display modes altogether (see
+Taint below); the frame's portrait hangs down
 the left edge, so the view buttons now start to the right of it; the
 Buy tab read most rows as "no reference" with plenty of history
 stored, since a browse row's item key can carry an item level even
@@ -144,10 +146,18 @@ for ore and cloth, where the scan keys all but gear by item ID alone
 (rows, searches and owned auctions are now read by the scan's rule).
 
 1. **Open the auction house.** Verified: no error, the Hound tab is
-   there. Re-check after the fixes above: the Hound tab stays lit while
-   the panel is up, and nothing sits under the portrait. Adjust
-   `UI.AH_INSETS` at the top of `AuctionHound/UI/Frame.lua` if anything
-   still overlaps.
+   there. Re-check after the fixes above: the Hound tab lights and the
+   Buy tab dims while the panel is up, clicking Buy or Sell brings
+   their tab back and takes the panel down, and nothing sits under the
+   portrait. Adjust `UI.AH_INSETS` at the top of
+   `AuctionHound/UI/Frame.lua` if anything still overlaps. Then leave
+   the house, open `/hound`, press Escape: the window closes. Right-click
+   a recipe in your bags to learn it, and use any other item: no
+   "blocked from an action only available to the Blizzard UI" popup.
+   If one does appear, in the addon's name or another's, type
+   `/console taintLog 2`, `/reload`, do the same thing again, and send
+   `Logs/taint.log` from the game folder: it names the call that was
+   blocked and the value that was read to get there.
 2. **Full scan.** Open: a scan ran and stored items, but the price
    check has not been done. `/hound debug rep 5` prints raw rows. Check
    that row `[0]` exists (indices are 0-based) and whether `buyout` for
@@ -274,6 +284,29 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     nothing happens with shift held (the double-click never reached
     the row), if the dialog opens with the wrong quantity, or if the
     house complains about a hardware event.
+
+## Taint
+
+The client blocks a protected call, using an item from the bags say,
+whenever the code on the way to it has read a value an addon wrote, and
+it names the addon. The blame follows the value, not the action, so
+the popup can name Hound for something far from the house. Two things
+the addon did were of that kind and are gone: a line in Blizzard's
+`UISpecialFrames` list, which every walk of that list by the game's
+own code then read (Escape now closes the window from a key handler on
+the window itself, out of combat), and the Hound tab's place in the
+auction house frame's own tab list, tab count and display modes, which
+the frame reads on every mode change, an item right-clicked with the
+house open included (the tab now sits beside the frame's tabs and is
+worked by hand, and nothing of Hound's is written on the frame). The
+rules the code keeps: hook Blizzard functions with `hooksecurefunc`,
+never replace them; write nothing on a Blizzard frame or table that
+Blizzard's own code reads back; put Hound's own frames beside
+Blizzard's, not in their lists. The browse list on the Buy tab is the
+one exception, and a knowing one: its data provider and layout are
+Hound's so the column and the ordering can exist at all, and any
+protected call the house makes from a browse row would be blocked;
+none is known.
 
 ## Commands
 

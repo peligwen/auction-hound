@@ -329,6 +329,8 @@ function Frame:GetFontString() return self.fontString end
 function Frame:GetNormalTexture() return newObject("Texture") end
 function Frame:GetFrameLevel() return 1 end
 function Frame:GetItem() return nil end
+function Frame:EnableKeyboard(v) self.keyboard = v end
+function Frame:SetPropagateKeyboardInput(v) self.propagate = v end
 
 function CreateFrame(kind, name, parent, template)
   if template and Stub.badTemplates and Stub.badTemplates[template] then
@@ -363,6 +365,7 @@ function CreateFromMixins(...)
 end
 
 function IsShiftKeyDown() return Stub.shift == true end
+function InCombatLockdown() return Stub.combat == true end
 function GetMoney() return Stub.money or 100000000 end
 
 function ExecuteFrameScript(frame, name, ...)
