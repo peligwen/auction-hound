@@ -9,6 +9,14 @@ local UI = H.UI
 -- clear of it already.
 UI.AH_INSETS = { left = 8, top = 30, right = 8, bottom = 34, header = 52 }
 UI.WINDOW_SIZE = { 780, 500 }
+-- The panel's body starts this far under its top: the row of view
+-- buttons and the divider. In the house that is also where the body
+-- comes clear of the portrait.
+UI.BODY_TOP = 32
+-- How many frame levels the panel's seat sits above the house frame.
+-- The frame's own mode stays shown underneath (see the tab section),
+-- and its deepest list cells are a handful of levels up.
+UI.AH_LEVELS = 20
 
 local panel, window
 local views = {}
@@ -775,7 +783,7 @@ function UI.EnsurePanel()
   line:SetPoint("TOPRIGHT", panel, "TOPRIGHT", 0, -26)
 
   local body = CreateFrame("Frame", nil, panel)
-  body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -32)
+  body:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -UI.BODY_TOP)
   body:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 0, 0)
   panel.body = body
 
@@ -874,6 +882,9 @@ end
 
 local function placePanel(parent, insets)
   panel:SetParent(parent)
+  -- one level above the seat's cover in the house; the window has no
+  -- cover and nothing else of its own that deep
+  panel:SetFrameLevel(parent:GetFrameLevel() + 2)
   panel:ClearAllPoints()
   panel:SetPoint("TOPLEFT", parent, "TOPLEFT", insets.left, -insets.top)
   panel:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -insets.right, insets.bottom)
@@ -914,8 +925,37 @@ end
 -- tab click, a browse row, an item from the bags, takes the panel down
 -- again: the hook runs after every call, a repeat of the current mode
 -- included.
+--
+-- The frame's own mode stays as it is while the panel is up. Hiding
+-- its frames would run their scripts in Hound's name, and whatever
+-- they wrote would carry the taint; so they are covered instead. The
+-- seat sits well above anything the frame draws in a mode of its own,
+-- and a solid cover under the panel takes the view and the mouse. It
+-- leaves the portrait's corner alone, the way the view buttons do.
 ------------------------------------------------------------------------
 local ahHolder
+
+UI.COVER = { 0.08, 0.07, 0.05 }
+
+local function buildCover(seat, insets)
+  local cover = CreateFrame("Frame", "AuctionHoundCover", seat)
+  cover:SetPoint("TOPLEFT", seat, "TOPLEFT", insets.left, -insets.top)
+  cover:SetPoint("BOTTOMRIGHT", seat, "BOTTOMRIGHT", -insets.right, insets.bottom)
+  cover:SetFrameLevel(seat:GetFrameLevel() + 1)
+  cover:EnableMouse(true)
+  -- the header row, to the right of the portrait
+  local top = cover:CreateTexture(nil, "BACKGROUND")
+  top:SetPoint("TOPLEFT", cover, "TOPLEFT", insets.header or 0, 0)
+  top:SetPoint("BOTTOMRIGHT", cover, "TOPRIGHT", 0, -UI.BODY_TOP)
+  top:SetColorTexture(UI.COVER[1], UI.COVER[2], UI.COVER[3], 1)
+  -- the body, clear of the portrait already
+  local body = cover:CreateTexture(nil, "BACKGROUND")
+  body:SetPoint("TOPLEFT", cover, "TOPLEFT", 0, -UI.BODY_TOP)
+  body:SetPoint("BOTTOMRIGHT", cover, "BOTTOMRIGHT", 0, 0)
+  body:SetColorTexture(UI.COVER[1], UI.COVER[2], UI.COVER[3], 1)
+  cover.top, cover.body = top, body
+  return cover
+end
 
 local function lightTabs(ah, hound)
   local tab = UI.ahTab
@@ -956,10 +996,13 @@ local function hookAuctionHouse()
   UI.ahHooked = true
   UI.EnsurePanel()
 
-  -- the panel's seat: a child of the frame, never a field on it
+  -- the panel's seat: a child of the frame, never a field on it, and
+  -- above whatever the frame shows of its own
   ahHolder = CreateFrame("Frame", nil, ah)
   ahHolder:SetAllPoints()
+  ahHolder:SetFrameLevel(ah:GetFrameLevel() + UI.AH_LEVELS)
   ahHolder:Hide()
+  buildCover(ahHolder, UI.AH_INSETS)
 
   local ok, err = pcall(function()
     local tabs = type(ah.Tabs) == "table" and ah.Tabs or nil

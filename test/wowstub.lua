@@ -315,6 +315,23 @@ function Frame:GetHeight() return self.height end
 function Frame:SetParent(p) self.parent = p end
 function Frame:GetParent() return self.parent end
 function Frame:SetPoint(...) table.insert(self.points, { ... }) end
+function Frame:ClearAllPoints() self.points = {} end
+function Frame:GetNumPoints() return #self.points end
+function Frame:GetPoint(i) local p = self.points[i or 1] if p then return unpack(p, 1, 5) end end
+function Frame:EnableMouse(v) self.mouse = v end
+function Frame:IsMouseEnabled() return self.mouse == true end
+-- levels are relative to the parent, as the client keeps them
+function Frame:SetFrameLevel(l) self.level = l end
+function Frame:GetFrameLevel()
+  if self.level then return self.level end
+  local p = self.parent
+  return (type(p) == "table" and p.GetFrameLevel and p:GetFrameLevel() or 0) + 1
+end
+function Frame:SetScale(s) self.scale = s end
+function Frame:GetEffectiveScale()
+  local p = self.parent
+  return (self.scale or 1) * (type(p) == "table" and p.GetEffectiveScale and p:GetEffectiveScale() or 1)
+end
 function Frame:SetID(id) self.id = id end
 function Frame:GetID() return self.id end
 function Frame:SetChecked(v) self.checked = v end
@@ -327,7 +344,7 @@ function Frame:SetValue(v) self.value = v if self.scripts.OnValueChanged then se
 function Frame:GetValue() return self.value or 0 end
 function Frame:GetFontString() return self.fontString end
 function Frame:GetNormalTexture() return newObject("Texture") end
-function Frame:GetFrameLevel() return 1 end
+
 function Frame:GetItem() return nil end
 function Frame:EnableKeyboard(v) self.keyboard = v end
 function Frame:SetPropagateKeyboardInput(v) self.propagate = v end
@@ -365,6 +382,8 @@ function CreateFromMixins(...)
 end
 
 function IsShiftKeyDown() return Stub.shift == true end
+Stub.cursor = { 500, 300 }   -- screen pixels, from the bottom left
+function GetCursorPosition() return Stub.cursor[1], Stub.cursor[2] end
 function InCombatLockdown() return Stub.combat == true end
 function GetMoney() return Stub.money or 100000000 end
 
@@ -787,6 +806,9 @@ function Stub.NewCommoditiesBuyFrame()
   frame.BuyDisplay.BuyButton:SetScript("OnClick", function()
     Stub.ah.buyClicks = (Stub.ah.buyClicks or 0) + 1
     C_AuctionHouse.StartCommoditiesPurchase(frame.itemID, frame.BuyDisplay.quantity)
+    -- the client's dialog opens inside the click, the quote landing later
+    local dialog = type(AuctionHouseFrame) == "table" and AuctionHouseFrame.BuyDialog
+    if dialog then dialog:Show() end
   end)
   local list = Stub.NewItemList()
   frame.ItemList = list
@@ -803,6 +825,16 @@ function Stub.NewCommoditiesBuyFrame()
       function() return true end)
   end
   return frame
+end
+
+-- Blizzard's confirm dialog for a commodity, hung in the middle of the
+-- house frame, shown by the Buy button above.
+function Stub.NewBuyDialog(ah)
+  local dialog = CreateFrame("Frame", nil, ah)
+  dialog:SetSize(400, 200)
+  dialog:SetPoint("CENTER", ah, "CENTER", 0, 0)
+  dialog:Hide()
+  return dialog
 end
 
 -- Blizzard's item buy frame: the item header and the wide auction list.

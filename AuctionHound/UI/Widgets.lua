@@ -22,6 +22,48 @@ function UI.Create(kind, name, parent, template)
   return CreateFrame(kind, name, parent)
 end
 
+-- A frame's anchors, read back so they can be put back: a list of the
+-- values GetPoint gives, each with its count, since the relative frame
+-- can be nil in the middle.
+function UI.Points(f)
+  local pts = {}
+  local n = type(f.GetNumPoints) == "function" and f:GetNumPoints() or 0
+  for i = 1, n do
+    local p = { f:GetPoint(i) }
+    p.n = select("#", f:GetPoint(i))
+    pts[i] = p
+  end
+  return pts
+end
+
+-- Puts anchors from UI.Points back. Nothing is cleared without
+-- something to put in its place; returns whether anything was set.
+function UI.SetPoints(f, pts)
+  if type(pts) ~= "table" or #pts == 0 then return false end
+  f:ClearAllPoints()
+  for _, p in ipairs(pts) do f:SetPoint(unpack(p, 1, p.n or #p)) end
+  return true
+end
+
+-- Centers a frame under the cursor, kept on the screen. The cursor is
+-- read in screen pixels, so the sizes are taken there too, and the
+-- anchor goes back into the frame's own units. Returns true, or false
+-- where the client gives no cursor.
+function UI.CenterOnCursor(f)
+  if type(GetCursorPosition) ~= "function" or type(UIParent) ~= "table" then return false end
+  local x, y = GetCursorPosition()
+  local s = f.GetEffectiveScale and f:GetEffectiveScale() or 1
+  local us = UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+  if type(x) ~= "number" or type(y) ~= "number" or s <= 0 or us <= 0 then return false end
+  local w, h = (f:GetWidth() or 0) * s, (f:GetHeight() or 0) * s
+  local sw, sh = (UIParent:GetWidth() or 0) * us, (UIParent:GetHeight() or 0) * us
+  if sw > w then x = math.max(w / 2, math.min(sw - w / 2, x)) end
+  if sh > h then y = math.max(h / 2, math.min(sh - h / 2, y)) end
+  f:ClearAllPoints()
+  f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / s, y / s)
+  return true
+end
+
 -- A cell on one of Blizzard's lists. The row's hover calls OnLineEnter
 -- and OnLineLeave on every cell it holds, so a cell without them
 -- crashes the row; Blizzard's cells inherit both from

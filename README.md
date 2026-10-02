@@ -85,10 +85,10 @@ the checklist below is where that stands.
   offer past the sat hours reads amber on both, and the block says
   how long. A floor far under the next step is
   flagged in blue as low in the list, reference or not.
-  Shift-double-click a listing to buy it: an item is bought out on the
-  spot, and a commodity row hands the units selected up to it to the
-  house's own Buy button, whose dialog quotes the total for one more
-  click.
+  Double-click a listing to buy it: an item is bought out on the spot,
+  and a commodity row hands the units selected up to it to the house's
+  own Buy button, whose dialog opens under the cursor and quotes the
+  total for one more click.
 - **History.** Every auction of yours the addon has seen, with what
   became of it: active, sold, expired or cancelled, units and gold. Fan
   batches and auctions posted from Blizzard's own Sell tab alike; the
@@ -168,7 +168,9 @@ not an item key (commodity status now comes from `GetItemKeyInfo`); the
 auction house frame only moves its tab highlight for its own modes, so
 the Hound tab is now selected by hand, and it now stays out of the
 frame's own tab list, tab count and display modes altogether (see
-Taint below); the frame's portrait hangs down
+Taint below), which left the frame's own tab showing through the
+panel, so the panel now sits on a solid cover well above it; the
+frame's portrait hangs down
 the left edge, so the view buttons now start to the right of it; the
 Buy tab read most rows as "no reference" with plenty of history
 stored, since a browse row's item key can carry an item level even
@@ -177,10 +179,14 @@ for ore and cloth, where the scan keys all but gear by item ID alone
 
 1. **Open the auction house.** Verified: no error, the Hound tab is
    there. Re-check after the fixes above: the Hound tab lights and the
-   Buy tab dims while the panel is up, clicking Buy or Sell brings
-   their tab back and takes the panel down, and nothing sits under the
-   portrait. Adjust `UI.AH_INSETS` at the top of
-   `AuctionHound/UI/Frame.lua` if anything still overlaps. Then leave
+   Buy tab dims while the panel is up, nothing of the Buy tab (its
+   search box, categories or results) shows through the panel or
+   answers the mouse under it, clicking Buy or Sell brings their tab
+   back with everything on it and takes the panel down, and nothing
+   sits under the portrait. Adjust `UI.AH_INSETS` at the top of
+   `AuctionHound/UI/Frame.lua` if anything still overlaps, and
+   `UI.AH_LEVELS` beside it if any piece of the Buy tab still pokes
+   through. Then leave
    the house, open `/hound`, press Escape: the window closes. Right-click
    a recipe in your bags to learn it, and use any other item: no
    "blocked from an action only available to the Blizzard UI" popup.
@@ -305,15 +311,17 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     buyout should record nothing. Report if a purchase goes unnoted,
     or is noted twice.
 21. **Quick buyout.** Open, and new. On the item buy frame,
-    shift-double-click an auction: it should be bought out at once,
-    chat saying "buying ... for X" and then "bought ...". On the
-    commodity buy frame, click a row so the units up to it fill the
-    quantity, then shift-double-click it: the house's own confirm
-    dialog should open with that quantity, and one click there buys.
-    A plain double-click must do nothing on either list. Report if
-    nothing happens with shift held (the double-click never reached
-    the row), if the dialog opens with the wrong quantity, or if the
-    house complains about a hardware event.
+    double-click an auction: it should be bought out at once, chat
+    saying "buying ... for X" and then "bought ...". On the commodity
+    buy frame, click a row so the units up to it fill the quantity,
+    then double-click it: the house's own confirm dialog should open
+    with that quantity, centered under the cursor and kept on the
+    screen at its edges, and one click there buys. Press the house's
+    own Buy button next: the dialog should be back in its usual
+    place. Shift held makes no difference. Report if nothing happens
+    on a double-click (it never reached the row), if the dialog opens
+    with the wrong quantity or somewhere other than under the cursor,
+    or if the house complains about a hardware event.
 22. **Latest scan.** Open, and new. Find an item whose price has
     fallen and stayed down, with plenty of units at the new low. Its
     Buy tab row should read grey or amber at that price, and the cell
@@ -357,11 +365,19 @@ the window itself, out of combat), and the Hound tab's place in the
 auction house frame's own tab list, tab count and display modes, which
 the frame reads on every mode change, an item right-clicked with the
 house open included (the tab now sits beside the frame's tabs and is
-worked by hand, and nothing of Hound's is written on the frame). The
-rules the code keeps: hook Blizzard functions with `hooksecurefunc`,
-never replace them; write nothing on a Blizzard frame or table that
-Blizzard's own code reads back; put Hound's own frames beside
-Blizzard's, not in their lists. The browse list on the Buy tab is the
+worked by hand, and nothing of Hound's is written on the frame). For
+the same reason the frame's own tab is not hidden while the panel is
+up: hiding its frames would run their scripts in Hound's name, and
+whatever they wrote would carry the taint. The panel sits on a solid
+cover well above them instead, and they come back untouched. The
+confirm dialog met under the cursor is Blizzard's too: its show is
+hooked, and only its anchors are set, and put back. The rules the
+code keeps: hook Blizzard functions with `hooksecurefunc` and their
+scripts with `HookScript`, never replace either; write nothing on a
+Blizzard frame or table that Blizzard's own code reads back; put
+Hound's own frames beside Blizzard's, not in their lists; show or
+hide nothing of Blizzard's, since its scripts would run in Hound's
+name. The browse list on the Buy tab is the
 one exception, and a knowing one: its data provider and layout are
 Hound's so the column and the ordering can exist at all, and any
 protected call the house makes from a browse row would be blocked;

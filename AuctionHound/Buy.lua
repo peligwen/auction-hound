@@ -3,7 +3,7 @@
 -- Scans show what sellers ask and your own sales show what buyers pay;
 -- what you paid is the third column of the ledger. Every purchase that
 -- goes through the house's API is noted, from Blizzard's buy frames or
--- the shift-double-click on their lists (UI/Ladder.lua): a commodity
+-- the double-click on their lists (UI/Ladder.lua): a commodity
 -- from its quote and confirm, an item from the bid placed at its
 -- buyout. The History view lists them beside your own auctions.
 local ADDON, H = ...

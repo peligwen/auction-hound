@@ -1004,6 +1004,10 @@ do
     end
   end
   PanelTemplates_SetTab = function(frame, id) frame.selectedTab = id PanelTemplates_UpdateTabs(frame) end
+  -- the frame's own content in a mode of its own: a results frame
+  -- with its list, scroll box and cells, each a level deeper
+  local results = CreateFrame("Frame", nil, AuctionHouseFrame)
+  local cells = CreateFrame("Frame", nil, CreateFrame("Frame", nil, CreateFrame("Frame", nil, results)))
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "auction house hook: " .. tostring(err))
   eq(#AuctionHouseFrame.Tabs, 3, "the frame's tab list is left alone")
@@ -1026,9 +1030,32 @@ do
   local hp = AuctionHoundPanel.header.points
   eq(hp[#hp - 1][1], "TOPLEFT", "header anchored at the top left")
   eq(hp[#hp - 1][4], H.UI.AH_INSETS.header, "header starts clear of the portrait")
+  -- the frame's own mode stays up underneath, untouched: the seat sits
+  -- above its deepest cells and a solid cover under the panel takes
+  -- the view and the mouse, the portrait's corner left alone
+  local seat = AuctionHoundPanel.parent
+  check(results.shown, "the frame's own frames are neither hidden nor moved")
+  eq(#results.points, 0, "nor anchored anew")
+  check(seat:GetFrameLevel() > cells:GetFrameLevel(), "the seat sits above the frame's deepest cells")
+  eq(seat:GetFrameLevel(), AuctionHouseFrame:GetFrameLevel() + H.UI.AH_LEVELS, "by the levels set aside")
+  local cover = AuctionHoundCover
+  check(cover and cover.parent == seat, "a cover sits on the seat")
+  eq(cover:GetFrameLevel(), seat:GetFrameLevel() + 1, "just above it")
+  eq(AuctionHoundPanel:GetFrameLevel(), cover:GetFrameLevel() + 1, "with the panel above the cover")
+  check(cover:IsMouseEnabled(), "the cover takes the mouse")
+  eq(cover.points[1][4], H.UI.AH_INSETS.left, "the cover starts at the panel's left inset")
+  eq(cover.points[1][5], -H.UI.AH_INSETS.top, "and its top inset")
+  eq(cover.points[2][4], -H.UI.AH_INSETS.right, "to its right inset")
+  eq(cover.points[2][5], H.UI.AH_INSETS.bottom, "and its bottom inset")
+  eq(cover.top.points[1][4], H.UI.AH_INSETS.header, "the header strip starts clear of the portrait")
+  eq(cover.top.points[2][5], -H.UI.BODY_TOP, "and ends where the body starts")
+  eq(cover.body.points[1][5], -H.UI.BODY_TOP, "the body cover starts under the portrait")
+  eq(cover.body.points[1][4], 0, "at the panel's left edge")
   -- the frame's own tab clicked for the mode it is already in
   AuctionHouseFrame:SetDisplayMode(buyMode)
   check(not AuctionHoundPanel.shown, "panel hidden on the frame's own tab")
+  check(not seat.shown, "the cover goes down with the seat")
+  check(results.shown, "and the frame's own frames were never touched")
   check(not H.UI.ahTab.lit, "hound tab dimmed again")
   check(AuctionHouseFrame.Tabs[1].lit, "buy tab lit again")
   -- a mode change of the frame's own, as a bag item or a browse row makes
@@ -1042,6 +1069,7 @@ do
   H.UI.ahTab:Click()
   H.UI.Toggle()
   check(AuctionHoundWindow.shown and AuctionHoundPanel.parent == AuctionHoundWindow, "window takes the panel from the house")
+  eq(AuctionHoundPanel:GetFrameLevel(), AuctionHoundWindow:GetFrameLevel() + 2, "seated above the window's own pieces")
   AuctionHouseFrame:SetDisplayMode(buyMode)
   H.UI.ahTab:Click()
   check(not AuctionHoundWindow.shown, "hound tab closes the window")
@@ -1785,9 +1813,10 @@ do
   eq(Ladder.Build({}, "2770", 2770), nil, "no listings, no ladder")
   eq(Ladder.Lines(nil)[1], "no listings loaded", "no ladder, one line")
 
-  -- the buy frames
+  -- the buy frames, and the house's confirm dialog for a commodity
   AuctionHouseFrame.CommoditiesBuyFrame = Stub.NewCommoditiesBuyFrame()
   AuctionHouseFrame.ItemBuyFrame = Stub.NewItemBuyFrame()
+  AuctionHouseFrame.BuyDialog = Stub.NewBuyDialog(AuctionHouseFrame)
   local LU = H.UI.Ladder
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "buy frame hooks: " .. tostring(err))
@@ -1901,7 +1930,7 @@ end
 
 ------------------------------------------------------------------------
 -- Purchases: noted from the house's calls and listed in the History
--- view, and the shift-double-click that makes them
+-- view, and the double-click that makes them
 ------------------------------------------------------------------------
 do
   local Buy, LU = H.Buy, H.UI.Ladder
@@ -1999,7 +2028,7 @@ do
   eq(H.Fan.SummaryLine(H.Fan.PostSummary({}, Stub.now), Buy.Summary({}, Stub.now)), "no auctions recorded yet", "nothing at all")
   H.UI.ShowView("markets")
 
-  -- shift-double-click on the item list buys the auction outright
+  -- a double-click on the item list buys the auction outright
   Stub.ah.currentSearch = { listings = { { 60000, 1, 811 }, { 65000, 1, 812 }, { nil, 1, 813 } } }
   itf:SetItemKey(key)
   Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", key)
@@ -2008,17 +2037,19 @@ do
   check(row.scripts.OnDoubleClick ~= nil, "auction rows answer a double-click")
   eq(row.houndKind, "item", "the row knows its list")
   local n = #Stub.ah.purchases
-  Stub.shift = false
-  row.scripts.OnDoubleClick(row)
-  eq(#Stub.ah.purchases, n, "a plain double-click buys nothing")
-  Stub.shift = true
   Stub.money = 100
+  Stub.shift = false
   row.scripts.OnDoubleClick(row)
   eq(#Stub.ah.purchases, n, "no purchase without the gold")
   check(string.find(Stub.printed[#Stub.printed], "not enough gold", 1, true), "and it says so")
+  Stub.printed[#Stub.printed + 1] = ""
+  Stub.shift = true
+  row.scripts.OnDoubleClick(row)
+  check(string.find(Stub.printed[#Stub.printed], "not enough gold", 1, true), "shift held makes no difference")
+  Stub.shift = false
   Stub.money = nil
   row.scripts.OnDoubleClick(row)
-  eq(#Stub.ah.purchases, n + 1, "shift-double-click places the bid")
+  eq(#Stub.ah.purchases, n + 1, "a plain double-click places the bid")
   eq(Stub.ah.purchases[n + 1].auctionID, 811, "on that auction")
   eq(Stub.ah.purchases[n + 1].amount, 60000, "at its buyout")
   check(string.find(Stub.printed[#Stub.printed], "buying Wolf Bracers for " .. H.Money(60000), 1, true), "chat says what is being bought")
@@ -2048,26 +2079,69 @@ do
   check(string.find(Stub.printed[#Stub.printed], "select the units first", 1, true), "and it says so")
   cf.BuyDisplay:SetQuantity(50)          -- the client's first click selected two rows
   Stub.ah.commodityPrice[2770] = 95
+  UIParent:SetSize(1600, 900)
+  Stub.cursor = { 500, 300 }
   row.scripts.OnDoubleClick(row)
   eq(Stub.ah.buyClicks, 1, "the house's Buy button is pressed")
   eq(Stub.ah.started and Stub.ah.started.qty, 50, "for the units selected")
   check(string.find(Stub.printed[#Stub.printed], "50 units", 1, true), "chat points at the house's dialog")
+  -- the house's dialog opened inside the press, and meets the cursor
+  local dialog = AuctionHouseFrame.BuyDialog
+  check(LU.dialog == dialog, "the house's dialog is watched")
+  check(dialog.shown, "the house's dialog is up")
+  eq(#dialog.points, 1, "its anchor is replaced, not added to")
+  local dp = dialog.points[1]
+  check(dp[1] == "CENTER" and dp[2] == UIParent and dp[3] == "BOTTOMLEFT", "the dialog is centered on a point of the screen")
+  eq(dp[4], 500, "under the cursor, across")
+  eq(dp[5], 300, "and up")
+  eq(LU.dialogToCursor, nil, "nothing is left armed after the press")
   Stub.Advance(1) Stub.Pump()                              -- the quote lands in the dialog
   C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 50)     -- the click in it
   Stub.Advance(1) Stub.Pump()
   eq(#H.Store.Buys(), 4, "the purchase is recorded")
   eq(H.Store.Buys()[4].total, 95 * 50, "at the quoted total")
-  Stub.shift = false
-  row.scripts.OnDoubleClick(row)
-  eq(Stub.ah.buyClicks, 1, "a plain double-click presses nothing")
-  -- a client without the button says so
+  dialog:Hide()
+  -- at the screen's edge the dialog is kept on it, shift or not
+  Stub.cursor = { 10, 890 }
   Stub.shift = true
+  row.scripts.OnDoubleClick(row)
+  Stub.shift = false
+  eq(Stub.ah.buyClicks, 2, "shift held makes no difference")
+  dp = dialog.points[1]
+  eq(dp[4], 200, "kept on the screen, across")
+  eq(dp[5], 800, "and up")
+  C_AuctionHouse.CancelCommoditiesPurchase()
+  dialog:Hide()
+  -- a scaled house: the anchor is in the dialog's own units
+  AuctionHouseFrame:SetScale(0.5)
+  Stub.cursor = { 500, 300 }
+  row.scripts.OnDoubleClick(row)
+  dp = dialog.points[1]
+  eq(dp[4], 1000, "the anchor is in the dialog's own units, across")
+  eq(dp[5], 600, "and up")
+  AuctionHouseFrame:SetScale(1)
+  C_AuctionHouse.CancelCommoditiesPurchase()
+  dialog:Hide()
+  -- the house's own Buy button puts the dialog back where the house keeps it
+  cf.BuyDisplay.BuyButton:Click()
+  eq(Stub.ah.buyClicks, 4, "the house's own press")
+  eq(#dialog.points, 1, "the dialog's own anchor is back, alone")
+  dp = dialog.points[1]
+  check(dp[1] == "CENTER" and dp[2] == AuctionHouseFrame and dp[3] == "CENTER" and dp[4] == 0 and dp[5] == 0, "where the house keeps it")
+  C_AuctionHouse.CancelCommoditiesPurchase()
+  dialog:Hide()
+  -- and left there by the next press of its own
+  cf.BuyDisplay.BuyButton:Click()
+  eq(#dialog.points, 1, "the dialog's own anchor is left alone")
+  C_AuctionHouse.CancelCommoditiesPurchase()
+  dialog:Hide()
+  -- a client without the button says so
   local saved = cf.BuyDisplay.BuyButton
   cf.BuyDisplay.BuyButton = nil
   row.scripts.OnDoubleClick(row)
   check(string.find(Stub.printed[#Stub.printed], "Buy button was not found", 1, true), "a missing Buy button is reported")
+  eq(LU.dialogToCursor, nil, "and nothing is armed")
   cf.BuyDisplay.BuyButton = saved
-  Stub.shift = false
   Stub.ah.purchases = {}
 end
 

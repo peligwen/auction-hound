@@ -6,8 +6,9 @@
 -- reference, the deal depth, the next price step and the ladder's own
 -- value. The commodity list is too narrow for a column, so its units
 -- figure takes the verdict's color instead; the item list gets a
--- discount column. On both lists a shift-double-click buys the listing
--- under the cursor.
+-- discount column. On both lists a double-click buys the listing under
+-- the cursor, and the house's confirm dialog for a commodity opens
+-- under it too.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -115,6 +116,35 @@ local function installCommodity(ah)
   block:SetPoint("BOTTOMLEFT", frame.BuyDisplay, "BOTTOMLEFT", 15, 14)
   block:SetPoint("BOTTOMRIGHT", frame.BuyDisplay, "BOTTOMRIGHT", -16, 14)
   LU.block.commodity = block
+  LU.WatchDialog(ah)
+  return true
+end
+
+-- The house's confirm dialog for a commodity is met at the cursor
+-- when the double-click opened it: the one click left is then under
+-- the hand already. Opened by the house's own Buy button, it goes
+-- back where the house keeps it. The dialog is a frame of Blizzard's:
+-- its show is hooked, never replaced, and only its anchors are
+-- touched, and only once its own are known so they can be put back.
+function LU.WatchDialog(ah)
+  local dialog = type(ah) == "table" and ah.BuyDialog
+  if LU.dialog or type(dialog) ~= "table" or type(dialog.HookScript) ~= "function" then return false end
+  local home = UI.Points(dialog)
+  if #home == 0 then return false end
+  LU.dialog, LU.dialogHome = dialog, home
+  dialog:HookScript("OnShow", function(d)
+    if LU.dialogToCursor then
+      LU.dialogToCursor = nil
+      if UI.CenterOnCursor(d) then
+        LU.dialogMoved = true
+        return
+      end
+    end
+    if LU.dialogMoved then
+      LU.dialogMoved = nil
+      UI.SetPoints(d, LU.dialogHome)
+    end
+  end)
   return true
 end
 
@@ -209,19 +239,16 @@ local function installItem(ah)
 end
 
 ------------------------------------------------------------------------
--- Shift-double-click on a listing buys it. An item goes straight to
--- its buyout: the double-click is the hardware event the house wants
--- for a bid. A commodity row is already selected by the first click,
--- with every unit up to it in the buy display, so the house's own Buy
--- button is pressed for it and its dialog quotes the total: the house
--- wants a second hardware event for the confirm, and that is the one
--- click left. Every purchase is noted by Buy.lua either way.
+-- A double-click on a listing buys it. An item goes straight to its
+-- buyout: the double-click is the hardware event the house wants for
+-- a bid. A commodity row is already selected by the first click, with
+-- every unit up to it in the buy display, so the house's own Buy
+-- button is pressed for it and its dialog quotes the total, under the
+-- cursor: the house wants a second hardware event for the confirm,
+-- and that is the one click left. Every purchase is noted by Buy.lua
+-- either way.
 ------------------------------------------------------------------------
 local watched = setmetatable({}, { __mode = "k" })
-
-local function shiftHeld()
-  return type(IsShiftKeyDown) == "function" and IsShiftKeyDown() == true
-end
 
 -- Buys one auction of the item list outright. Returns true, or false
 -- and why not.
@@ -252,12 +279,15 @@ function LU.BuyCommodity()
     return false, "select the units first"
   end
   H.Printf("%s: the house's dialog quotes the total, confirm it there", qty and (qty .. " units") or "buying")
+  -- the dialog opens inside the click; a click that opened none, the
+  -- house's own popup in its place say, leaves nothing armed
+  LU.dialogToCursor = true
   button:Click()
+  LU.dialogToCursor = nil
   return true
 end
 
 local function onDoubleClick(row)
-  if not shiftHeld() then return end
   local ok, why
   if row.houndKind == "item" then
     ok, why = LU.BuyItem(row.houndRow)
