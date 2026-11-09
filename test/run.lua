@@ -2469,6 +2469,236 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Waylaid Crates: each bundle that fills one, priced in its tooltip
+------------------------------------------------------------------------
+do
+  local Crate = H.Crate
+  local S = H.Settings()
+
+  -- the data: thirty crates and ninety-six bundles, each a real choice
+  -- of goods, no good in two crates, and no crate filling a crate
+  local crates, bundles, where = 0, 0, {}
+  for id, c in pairs(H.Crates) do
+    crates = crates + 1
+    check(type(id) == "number" and id >= 248682 and id <= 248713, "crate id in the crates' range: " .. tostring(id))
+    check(type(c.name) == "string" and c.name ~= "", "crate " .. tostring(id) .. " has a name")
+    check(type(c.bundles) == "table" and #c.bundles >= 2, tostring(c.name) .. " offers a choice of bundles")
+    for _, b in ipairs(c.bundles or {}) do
+      bundles = bundles + 1
+      local label = tostring(c.name) .. " / " .. tostring(b[3])
+      check(type(b[1]) == "number" and b[1] > 0 and not H.Crates[b[1]], label .. ": a good, not a crate")
+      check(type(b[2]) == "number" and b[2] >= 1 and b[2] == math.floor(b[2]), label .. ": whole units")
+      check(type(b[3]) == "string" and b[3] ~= "", label .. ": a name to fall back on")
+      check(where[b[1]] == nil, label .. ": in one crate only, not also in " .. tostring(where[b[1]]))
+      where[b[1]] = c.name
+    end
+  end
+  eq(crates, 30, "thirty crates")
+  eq(bundles, 96, "ninety-six bundles")
+  -- as the crates' own tooltips list them
+  local ore = H.Crates[248683]
+  eq(ore.name, "Apprentice Ore", "the apprentice ore crate")
+  eq(ore.bundles[1][1], 2770, "its first bundle is copper ore")
+  eq(ore.bundles[1][2], 20, "twenty of it")
+  eq(ore.bundles[2][1], 2771, "or tin ore")
+  eq(H.Crates[248697].bundles[3][1], 11370, "dark iron ore by the id that is mined, not the quest item's")
+  eq(H.Crates[248707].bundles[4][2], 45, "forty-five gold power cores")
+  eq(H.Crates[248712].bundles[1][2], 2, "two dark iron bars")
+  eq(H.Crates[248705].bundles[3][1], 4233, "cured medium hide by its own id")
+  eq(H.Crates[248549], nil, "the unread crate names no goods")
+  eq(Crate.Read(2770), nil, "an ore is no crate")
+  eq(Crate.Read(248549), nil, "nor is the crate not yet read")
+
+  -- Journeyman Ore: ten silver ore or twenty iron ore, both in the
+  -- scan just run
+  Stub.DefineItem(248687, "Waylaid Crate: Journeyman Ore", { stack = 1, commodity = false })
+  Stub.DefineItem(2775, "Silver Ore", { sell = 75, commodity = true })
+  Stub.DefineItem(2772, "Iron Ore", { sell = 150, commodity = true })
+  local function scan(t, samples)
+    for key, listing in pairs(samples) do
+      Store.AddScanSample(key, t, { { p = listing[1], q = listing[2] } })
+    end
+    Store.LogScan({ t = t, kind = "full", rows = 0, keys = 0, secs = 0, skipped = 0 })
+  end
+  scan(Stub.now, { ["2775"] = { 1500, 40 }, ["2772"] = { 600, 500 } })
+
+  local r = Crate.Read(248687)
+  eq(r.name, "Journeyman Ore", "the crate is read")
+  eq(#r.bundles, 2, "with its two bundles")
+  eq(r.priced, 2, "both priced")
+  eq(r.bundles[1].unit, 1500, "silver ore at its market value")
+  eq(r.bundles[1].total, 15000, "ten of it")
+  eq(r.bundles[1].src, "market", "from history")
+  eq(r.bundles[2].total, 12000, "twenty iron ore")
+  eq(r.bundles[1].listed, nil, "forty listed covers ten")
+  eq(r.best, 2, "the iron is the cheaper fill")
+  eq(r.scanAge, 0, "the scan is fresh")
+  eq((Crate.UnitPrice(2775)), (P.MarketValue(2775)), "a good is priced as its own tooltip prices it")
+
+  local lines = Crate.Lines(r)
+  eq(#lines, 3, "a header and a line per bundle")
+  eq(lines[1][1], "|cffe6b800Hound|r any one bundle fills it", "the header says one is enough")
+  eq(lines[1][2], "scanned 0s ago", "and how old the prices are")
+  eq(lines[2][1], "  10 Silver Ore, " .. H.Money(1500) .. " each", "units, name and the price of one")
+  eq(lines[2][2], H.Money(15000), "the bundle's total on the right")
+  eq(lines[2][3], Crate.COLORS.price, "the dearer bundle in white")
+  eq(lines[3][1], "  20 Iron Ore, " .. H.Money(600) .. " each", "the second bundle")
+  eq(lines[3][2], H.Money(12000), "its total")
+  eq(lines[3][3], Crate.COLORS.best, "the cheapest in green")
+
+  -- the crate's tooltip carries them, with nothing else of Hound's:
+  -- a crate has no history of its own
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 248687, hyperlink = "|cffffffff|Hitem:248687:0:0:0:0:0:0:0:60:0:0:0:0|h[Waylaid Crate: Journeyman Ore]|h|r" })
+  eq(#GameTooltip.lines, 4, "a blank line, the header and the bundles: " .. table.concat(GameTooltip.lines, " / "))
+  eq(GameTooltip.lines[1], " ", "set apart from the crate's own lines")
+  eq(GameTooltip.lines[3], "  10 Silver Ore, " .. H.Money(1500) .. " each | " .. H.Money(15000), "silver ore line in the tooltip")
+  eq(GameTooltip.lines[4], "  20 Iron Ore, " .. H.Money(600) .. " each | " .. H.Money(12000), "iron ore line in the tooltip")
+  eq(GameTooltip.rightColors[4][2], Crate.COLORS.best[2], "the cheapest total is green there too")
+  eq(GameTooltip.rightColors[3][2], Crate.COLORS.price[2], "and the other is not")
+  -- without the item id in the tooltip data, the displayed link gives it
+  GameTooltip:ClearLines()
+  TooltipUtil = { GetDisplayedItem = function() return "Waylaid Crate: Journeyman Ore", "|cffffffff|Hitem:248687:0:0:0:0:0:0:0:60:0:0:0:0|h[x]|h|r", 248687 end }
+  Stub.tooltipHandler(GameTooltip, {})
+  eq(#GameTooltip.lines, 4, "the crate is known by its link as well")
+  TooltipUtil = nil
+  -- an item that is no crate gets no crate lines, and a comparison
+  -- tooltip is left alone
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 248549 })
+  eq(#GameTooltip.lines, 0, "nothing on the crate not yet read")
+  local other = { lines = {}, AddLine = function(self, t) table.insert(self.lines, t) end, AddDoubleLine = function(self, a) table.insert(self.lines, a) end }
+  Stub.tooltipHandler(other, { id = 248687 })
+  eq(#other.lines, 0, "only the main tooltips are written on")
+  S.tooltip = false
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 248687 })
+  eq(#GameTooltip.lines, 0, "and none at all with tooltips off")
+  S.tooltip = true
+
+  -- the cheaper bundle is no use when the house cannot fill it: four
+  -- silver ore listed where ten are needed
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["2775"] = { 100, 4 }, ["2772"] = { 600, 500 } })
+  r = Crate.Read(248687)
+  check(r.bundles[1].total < r.bundles[2].total, "silver is now the cheaper on paper")
+  eq(r.bundles[1].listed, 4, "but only four are listed")
+  eq(r.best, 2, "so the iron is still the fill to buy")
+  lines = Crate.Lines(r)
+  check(string.find(lines[2][1], "only 4 listed", 1, true), "the line says so: " .. lines[2][1])
+  eq(lines[2][3], Crate.COLORS.price, "and is not the green one")
+
+  -- a good the last scan did not see at all still has its price, and
+  -- the line says none is listed
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["2772"] = { 600, 500 } })
+  r = Crate.Read(248687)
+  check(r.bundles[1].unit ~= nil, "silver keeps a price from its history")
+  eq(r.bundles[1].listed, 0, "with none in the last scan")
+  check(string.find(Crate.Lines(r)[2][1], "none listed", 1, true), "none listed: " .. Crate.Lines(r)[2][1])
+  eq(r.best, 2, "iron is the one to buy")
+  eq(r.scanAge, 0, "against the newest scan")
+  -- a saved record keeps its points to the minute; the scan's own point
+  -- must still read as seen in it
+  local at = Stub.now - (Stub.now % 60)
+  eq(Crate.Listed({ at = at, qty = 500 }), 500, "a point saved to the minute is still the last scan's")
+  eq(Crate.Listed({ at = Stub.now - 900, qty = 500 }), 0, "the scan before is not")
+  eq(Crate.Listed(nil), 0, "and a good with no record has none listed")
+
+  -- Expert Ingots: mithril, steel or gold bars. Only gold bars are on
+  -- the house; mithril and steel are priced by what they cost to make,
+  -- marked as estimates, and are not there to buy
+  Stub.DefineItem(248709, "Waylaid Crate: Expert Ingots", { stack = 1, commodity = false, quality = 2 })
+  Stub.DefineItem(3860, "Mithril Bar", { sell = 400, commodity = true })
+  Stub.DefineItem(3859, "Steel Bar", { sell = 60, commodity = true })
+  Stub.DefineItem(3577, "Gold Bar", { sell = 600, commodity = true })
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["3858"] = { 900, 300 }, ["3575"] = { 1200, 300 }, ["3577"] = { 5000, 100 }, ["2772"] = { 600, 500 } })
+  S.estimates = true
+  r = Crate.Read(248709)
+  eq(r.priced, 3, "all three bundles priced")
+  eq(r.bundles[1].src, "crafted", "mithril bars by their crafted cost")
+  eq(r.bundles[1].unit, (P.CraftCost(3860)), "which is the ore's")
+  eq(r.bundles[2].unit, (P.MarketValue(3575)) + 500, "steel by its iron bar and the vendor's coal")
+  eq(r.bundles[2].total, 15 * ((P.MarketValue(3575)) + 500), "fifteen of them")
+  eq(r.bundles[3].src, "market", "gold bars from the house")
+  eq(r.bundles[1].listed, 0, "no mithril bar is listed")
+  eq(r.best, 3, "so gold bars are the fill the house can sell, dearer or not")
+  lines = Crate.Lines(r)
+  eq(lines[2][1], "  20 Mithril Bar, ~" .. H.Money(r.bundles[1].unit) .. " each, |cffd9cc73none listed|r", "an estimate carries its mark")
+  eq(lines[2][2], "~" .. H.Money(r.bundles[1].total), "on the total too")
+  eq(lines[4][3], Crate.COLORS.best, "gold bars in green")
+  -- estimates off: history or nothing
+  S.estimates = false
+  r = Crate.Read(248709)
+  eq(r.priced, 1, "with estimates off only the gold bars have a price")
+  eq(r.bundles[1].unit, nil, "mithril bars have none")
+  eq(r.best, nil, "and one price alone is not called the cheapest")
+  lines = Crate.Lines(r)
+  eq(lines[2][1], "  20 Mithril Bar", "the bundle is still named")
+  eq(lines[2][2], "no price", "and says it has no price")
+  eq(lines[2][3], Crate.COLORS.none, "in grey")
+  eq(lines[4][3], Crate.COLORS.price, "the one price in white")
+  S.estimates = true
+
+  -- history older than the two weeks the market value spans still
+  -- prices a good: the 30-day mean
+  Stub.DefineItem(2776, "Gold Ore", { sell = 500, commodity = true })
+  Store.AddScanSample("2776", Stub.now - 20 * 86400, { { p = 4000, q = 30 } })
+  local unit, src = Crate.UnitPrice(2776)
+  eq(unit, 4000, "a good last seen three weeks ago keeps that price")
+  eq(src, "market", "as history")
+  r = Crate.Read(248692)
+  eq(r.bundles[1].listed, 0, "and reads as not listed now")
+
+  -- a good the client has not loaded goes by the name in the data, and
+  -- is asked for, so the next hover has the client's own
+  Stub.loadRequests = 0
+  r = Crate.Read(248697)
+  eq(r.bundles[1].name, "Truesilver Ore", "the data's name stands in")
+  eq(r.bundles[3].name, "Dark Iron Ore", "for each good")
+  check(Stub.loadRequests >= 3, "and the items are requested: " .. tostring(Stub.loadRequests))
+  eq(r.priced, 0, "nothing scanned, nothing priced")
+  eq(r.best, nil, "and no cheapest")
+  lines = Crate.Lines(r)
+  eq(lines[1][1], "|cffe6b800Hound|r any one bundle fills it", "the header still names the rule")
+  eq(lines[4][2], "no price", "each bundle says it has no price")
+  Stub.DefineItem(7911, "Echtsilbererz", { sell = 1, commodity = true })
+  eq(Crate.Read(248697).bundles[1].name, "Echtsilbererz", "the client's name wins once it is there")
+
+  -- before any scan in this market there is no age to give and no
+  -- listed count to hold a bundle to
+  local m = AuctionHoundDB.markets[H.marketKey]
+  local scans = m.scans
+  m.scans = {}
+  r = Crate.Read(248697)
+  eq(r.scanAge, nil, "no scan, no age")
+  eq(Crate.Lines(r)[1][2], "no scan yet", "the header says so")
+  r = Crate.Read(248687)
+  eq(r.bundles[1].listed, nil, "and a price is not held to a scan that never ran")
+  eq(Crate.Lines(r)[1][2], "", "nor given an age")
+  m.scans = scans
+
+  -- /hound crate prints the same, and names the id of anything else
+  Stub.printed = {}
+  SlashCmdList.HOUND("crate 248687")
+  local out = table.concat(Stub.printed, "\n")
+  check(string.find(out, "Waylaid Crate: Journeyman Ore (item 248687)", 1, true), "the command names the crate: " .. out)
+  check(string.find(out, "any one bundle fills it, scanned", 1, true), "its header")
+  check(string.find(out, "20 Iron Ore, " .. H.Money(600) .. " each: " .. H.Money(12000) .. " (cheapest)", 1, true), "and the cheapest bundle")
+  eq(#Stub.printed, 4, "a title, the header and a line per bundle")
+  Stub.printed = {}
+  SlashCmdList.HOUND("crate |cffffffff|Hitem:248687:0:0:0:0:0:0:0:60:0:0:0:0|h[Waylaid Crate: Journeyman Ore]|h|r")
+  check(string.find(table.concat(Stub.printed, "\n"), "Journeyman Ore (item 248687)", 1, true), "a link works as well")
+  Stub.printed = {}
+  SlashCmdList.HOUND("crate 2770")
+  check(string.find(Stub.printed[1] or "", "Copper Ore (item 2770) is not a crate Hound knows", 1, true), "anything else is named with its id: " .. tostring(Stub.printed[1]))
+  Stub.printed = {}
+  SlashCmdList.HOUND("crate")
+  check(string.find(Stub.printed[1] or "", "usage: /hound crate", 1, true), "and a bare command gives its usage")
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

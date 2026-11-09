@@ -467,8 +467,13 @@ local function newTooltip()
   local t = newObject("GameTooltip")
   t.lines = {}
   function t:AddLine(text) table.insert(self.lines, tostring(text)) end
-  function t:AddDoubleLine(a, b) table.insert(self.lines, tostring(a) .. " | " .. tostring(b)) end
-  function t:ClearLines() self.lines = {} end
+  -- a double line also keeps the color of its right side, by line
+  function t:AddDoubleLine(a, b, lr, lg, lb, rr, rg, rb)
+    table.insert(self.lines, tostring(a) .. " | " .. tostring(b))
+    self.rightColors = self.rightColors or {}
+    self.rightColors[#self.lines] = { rr, rg, rb }
+  end
+  function t:ClearLines() self.lines = {} self.rightColors = {} end
   function t:SetOwner() end
   function t:SetItemByID(id) self.itemID = id end
   return t

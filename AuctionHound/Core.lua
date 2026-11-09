@@ -122,6 +122,7 @@ commands.help = function()
   H.Print("  /hound scan       full scan (at the auction house)")
   H.Print("  /hound stats <link or id>   show stored stats")
   H.Print("  /hound key <link>           show the history key for a link")
+  H.Print("  /hound crate <link or id>   price the bundles that fill a Waylaid Crate")
   H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
@@ -214,6 +215,16 @@ commands.key = function(rest)
   local link = linkFromArgs(rest)
   if not link then H.Print("usage: /hound key <item link>") return end
   H.Printf("key for %s is %s", link, tostring(H.KeyFromLink(link)))
+end
+
+-- A Waylaid Crate's bundles, priced, as its tooltip shows them. For an
+-- item the data does not know as a crate it prints the item's ID, which
+-- is what to report when a crate's tooltip shows no Hound lines.
+commands.crate = function(rest)
+  local link, id = linkFromArgs(rest)
+  id = id or (link and tonumber(string.match(link, "item:(%d+)")))
+  if not id then H.Print("usage: /hound crate <crate link or id>") return end
+  H.Crate.Describe(id)
 end
 
 commands.labor = function(rest)

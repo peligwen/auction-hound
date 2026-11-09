@@ -1,4 +1,5 @@
--- Tooltip.lua: a few Hound lines on item tooltips.
+-- Tooltip.lua: a few Hound lines on item tooltips, and on a Waylaid
+-- Crate the price of each bundle that fills it (Crate.lua).
 local ADDON, H = ...
 
 local function addLines(tooltip, itemID, link)
@@ -35,6 +36,12 @@ local function addLines(tooltip, itemID, link)
   end
 end
 
+-- A crate has no history of its own, so its lines do not wait on any.
+local function addCrate(tooltip, itemID)
+  if not H.db or not H.Settings().tooltip then return end
+  H.Crate.AddTooltipLines(tooltip, itemID)
+end
+
 local function onTooltip(tooltip, data)
   if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
   local itemID = data and data.id
@@ -49,6 +56,7 @@ local function onTooltip(tooltip, data)
   end
   if not itemID then return end
   addLines(tooltip, itemID, link)
+  addCrate(tooltip, itemID)
 end
 
 H.Events:On("LOGIN", function()
@@ -59,10 +67,13 @@ H.Events:On("LOGIN", function()
       local _, link = tt:GetItem()
       if link then
         local itemID = tonumber(string.match(link, "item:(%d+)"))
-        if itemID then addLines(tt, itemID, link) end
+        if itemID then
+          addLines(tt, itemID, link)
+          addCrate(tt, itemID)
+        end
       end
     end)
   end
 end)
 
-H.Tooltip = { AddLines = addLines, OnTooltip = onTooltip }
+H.Tooltip = { AddLines = addLines, AddCrate = addCrate, OnTooltip = onTooltip }

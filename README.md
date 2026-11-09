@@ -133,6 +133,17 @@ the checklist below is where that stands.
   fills have been seen) on every item tooltip, plus your own sold /
   unsold line. The Buy tab's cell tooltip and the Item view carry the
   cleared line too.
+- **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
+  it, twenty copper ore or twenty tin ore say, and any one of them
+  does. Hound adds a line for each under it: the units, the good, the
+  market price of one and the bundle's total, with the cheapest fill
+  the house can sell in green. A good the last scan saw fewer of than
+  the bundle takes says so ("only 6 listed", "none listed") and is
+  passed over for the green. A good with no history is priced by what
+  it costs to make, marked "~", while estimates are on; otherwise the
+  line reads "no price". The header says how old the scan is.
+  `/hound crate <link>` prints the same lines in chat. All thirty
+  crates are covered, their bundles kept as data by crate ID.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
   a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
@@ -351,6 +362,18 @@ for ore and cloth, where the scan keys all but gear by item ID alone
     line. Buy something yourself between two scans: it should count.
     Report a scan line that never reports fills on a busy market, or a
     stats line claiming fills for an item nobody trades.
+26. **Waylaid Crates.** Open, and new. After a full scan, hover a crate
+    whose label has been read ("Waylaid Crate: Apprentice Ore"): under
+    the crate's own list there should be a Hound header and one line
+    per bundle, in the same order, with the price of one and the
+    bundle's total, the cheapest in green. The units and goods must
+    match the crate's own list line for line; the bundles are data
+    from the launch build's item records and have not been read off a
+    crate in game. If no Hound lines show, type `/hound crate ` and
+    shift-click the crate: for an item the data does not know it
+    prints the item's ID, which is the thing to report along with the
+    crate's list. Report what a partly filled crate's tooltip says as
+    well: the lines price the whole bundle whatever is already in it.
 
 ## Taint
 
@@ -390,6 +413,7 @@ none is known.
 /hound scan            full scan (once per 15 minutes, at the AH)
 /hound stats <link>    stored stats for an item, and what you sold it for
 /hound key <link>      the history key for a link
+/hound crate <link>    price the bundles that fill a Waylaid Crate, as its tooltip does
 /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center] [12h|24h|48h]
                        plan a fan for an item in your bags; alone, show the plan
 /hound post            post the next batch of the fan (bind it to a key)
@@ -430,12 +454,14 @@ Ladder.lua   one item's listings read against the reference: deal depth, next st
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Buy.lua      purchases noted from the house's calls, for the History view
+Crate.lua    a Waylaid Crate's bundles, each priced; the cheapest the house can fill
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
              block and colors, the Auctions tab total column (Cells.xml
              holds the cells)
-Data/        conversion recipes with classic item ids
+Data/        conversion recipes with classic item ids; the Waylaid
+             Crates and the bundles that fill them
 ```
 
 History is scoped by region, ruleset and faction, for example
@@ -493,8 +519,8 @@ template declares, so a cell template and its mixin must agree.
 `test/run.lua` runs the full scan, auto scan, reference, tooltip,
 slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
-auction adoption and history, purchases and the quick buyout, and UI
-construction paths. Where the beta has
+auction adoption and history, purchases and the quick buyout, the
+Waylaid Crate lines, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.
