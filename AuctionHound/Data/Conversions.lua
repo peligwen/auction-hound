@@ -2,8 +2,10 @@
 --
 -- Each entry: what comes out, how many, what goes in, which profession,
 -- the skill needed, and the cast time in seconds. Cast times are the
--- usual three seconds unless noted. Item IDs are the classic ones and
--- should be spot-checked against Forever with /hound key on a link.
+-- usual three seconds unless noted. Item IDs are the classic ones;
+-- Forever's item records for the salt, the coal and the cured hides
+-- were checked against them at launch. A wrong ID is quiet: the recipe
+-- prices some other item, so /hound key on a link is the check.
 local ADDON, H = ...
 
 H.Conversions = {
@@ -26,9 +28,9 @@ H.Conversions = {
   { out = 4234,  outQty = 1, inputs = { { 2319, 5 } },             prof = "Leatherworking", skill = 150, name = "Heavy Leather" },
   { out = 4304,  outQty = 1, inputs = { { 4234, 6 } },             prof = "Leatherworking", skill = 200, name = "Thick Leather" },
   { out = 8170,  outQty = 1, inputs = { { 4304, 6 } },             prof = "Leatherworking", skill = 250, name = "Rugged Leather" },
-  { out = 4231,  outQty = 1, inputs = { { 783, 1 }, { 4340, 1 } },  prof = "Leatherworking", skill = 35,  name = "Cured Light Hide" },
-  { out = 4236,  outQty = 1, inputs = { { 4232, 1 }, { 4340, 1 } }, prof = "Leatherworking", skill = 100, name = "Cured Medium Hide" },
-  { out = 4237,  outQty = 1, inputs = { { 4235, 1 }, { 4340, 3 } }, prof = "Leatherworking", skill = 150, name = "Cured Heavy Hide" },
+  { out = 4231,  outQty = 1, inputs = { { 783, 1 }, { 4289, 1 } },  prof = "Leatherworking", skill = 35,  name = "Cured Light Hide" },
+  { out = 4233,  outQty = 1, inputs = { { 4232, 1 }, { 4289, 1 } }, prof = "Leatherworking", skill = 100, name = "Cured Medium Hide" },
+  { out = 4236,  outQty = 1, inputs = { { 4235, 1 }, { 4289, 3 } }, prof = "Leatherworking", skill = 150, name = "Cured Heavy Hide" },
   { out = 8172,  outQty = 1, inputs = { { 8169, 1 }, { 8150, 1 } }, prof = "Leatherworking", skill = 200, name = "Cured Thick Hide" },
   { out = 15407, outQty = 1, inputs = { { 8171, 1 }, { 15409, 1 } }, prof = "Leatherworking", skill = 250, name = "Cured Rugged Hide" },
 
@@ -42,8 +44,10 @@ H.Conversions = {
 
 -- Vendor-sold inputs with an unlimited supply at a fixed price, in copper.
 -- Only entries we are sure about; anything else is priced from the market.
+-- These are never on the house, so without them a recipe has no cost.
 H.VendorBuy = {
-  [4340] = 500,   -- Salt
+  [4289] = 50,    -- Salt
+  [3857] = 500,   -- Coal
 }
 
 -- Default cast time in seconds when a recipe does not say.

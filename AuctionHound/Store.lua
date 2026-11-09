@@ -51,7 +51,7 @@ local function encode(rec)
   table.sort(order)
   for _, d in ipairs(order) do
     local f = rec.fills[d]
-    table.insert(fills, string.format("%d:%d:%d", d, f.u, f.v))
+    table.insert(fills, string.format("%.0f:%.0f:%.0f", d, f.u, f.v))
   end
   return FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",") .. "#F" .. table.concat(fills, ",")
 end

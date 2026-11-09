@@ -52,7 +52,7 @@ Stub.DefineItem(3576, "Tin Bar", { sell = 20, commodity = true })
 Stub.DefineItem(2841, "Bronze Bar", { sell = 30, commodity = true })
 Stub.DefineItem(2934, "Ruined Leather Scraps", { sell = 2, commodity = true })
 Stub.DefineItem(2318, "Light Leather", { sell = 15, commodity = true })
-Stub.DefineItem(4340, "Salt", { sell = 125, commodity = true })
+Stub.DefineItem(4289, "Salt", { sell = 12, commodity = true })
 Stub.DefineItem(783, "Light Hide", { sell = 20, commodity = true })
 Stub.DefineItem(4231, "Cured Light Hide", { sell = 40, commodity = true })
 Stub.DefineItem(6096, "Apprentice's Shirt", { sell = 1, equip = "INVTYPE_BODY", commodity = false, stack = 1, ilvl = 1 })
@@ -230,6 +230,21 @@ do
   check(type(AuctionHoundDB.markets[H.marketKey].items["424242"]) == "string", "gold cap record saved")
   eq(Store.Flush(), 0, "flush frame drained the dirty set")
 
+  -- A day's fills add up units times price, so a busy commodity passes
+  -- 2^31 copper long before any one listing does: 300,000 gold cleared
+  -- in a day is one stack of ore a minute on a region's house.
+  local busy = 3000000000
+  Store.AddFills("424242", Stub.now, 250000, busy)
+  ok, encoded = pcall(Store.Encode, rec)
+  check(ok, "a day's fills past 2^31 copper encode: " .. tostring(encoded))
+  back = ok and Store.Decode(encoded) or { fills = {} }
+  eq(back.fills[day] and back.fills[day].v, busy, "the fill value roundtrips")
+  eq(back.fills[day] and back.fills[day].u, 250000, "and its units")
+  eq(Store.Flush(), 1, "the record saves with them")
+  rec.fills[day] = nil
+  Store.Touch("424242")
+  Store.Flush()
+
   -- A record that cannot be encoded is reported once through the
   -- client's error handler and skipped; the record beside it still
   -- saves, and the frame stops instead of raising every frame.
@@ -286,10 +301,31 @@ do
   eq(#conn.makes, 1, "copper bar feeds bronze")
   check(conn.makes[1].spread ~= nil, "bronze spread computed")
   check(conn.makes[1].perHour ~= nil, "bronze gold per hour computed")
-  -- salt is vendor priced
-  local hidePrice, hsrc = P.InputPrice(4340)
-  eq(hidePrice, 500, "salt priced from vendor table")
+  -- salt and coal are vendor priced, by the ids the game gives them:
+  -- 4340 is gray dye, and the cured medium and heavy hides are 4233 and
+  -- 4236, where 4237 is a leather belt
+  local hidePrice, hsrc = P.InputPrice(4289)
+  eq(hidePrice, 50, "salt priced from vendor table")
   eq(hsrc, "vendor", "salt source")
+  eq((P.InputPrice(3857)), 500, "coal priced from vendor table")
+  eq(P.InputPrice(4340), nil, "gray dye is no salt")
+  local made = {}
+  for _, rcp in ipairs(H.Conversions) do made[rcp.name] = rcp.out end
+  eq(made["Cured Medium Hide"], 4233, "cured medium hide by its own id")
+  eq(made["Cured Heavy Hide"], 4236, "cured heavy hide by its own id")
+  -- a cured hide is its raw hide and the salt, and steel its iron and coal
+  Store.AddScanSample("4232", Stub.now, { { p = 800, q = 50 } })       -- medium hide 8s
+  Store.AddScanSample("4235", Stub.now, { { p = 1500, q = 50 } })      -- heavy hide 15s
+  Store.AddScanSample("3575", Stub.now, { { p = 1200, q = 50 } })      -- iron bar 12s
+  eq((P.CraftCost(4233)), 850, "cured medium hide costs its hide and one salt")
+  eq((P.CraftCost(4236)), 1650, "cured heavy hide costs its hide and three salt")
+  eq((P.CraftCost(3859)), 1700, "steel costs its iron bar and the coal")
+  -- no recipe makes its own input
+  for _, rcp in ipairs(H.Conversions) do
+    for _, inp in ipairs(rcp.inputs) do
+      check(inp[1] ~= rcp.out and inp[2] > 0, rcp.name .. " takes something other than itself")
+    end
+  end
 end
 
 ------------------------------------------------------------------------
