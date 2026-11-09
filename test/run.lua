@@ -2469,6 +2469,74 @@ do
 end
 
 ------------------------------------------------------------------------
+-- A full scan the house does not answer. It allows one every fifteen
+-- minutes whichever addon asks, and says nothing when it refuses; a
+-- region's house can also be slow with one. Auto scan must not ask
+-- again every minute, and an answer that lands after the wait is
+-- still the scan that was asked for.
+------------------------------------------------------------------------
+do
+  local Sc = H.Scan
+  eq(Sc.state, "idle", "no scan under way")
+  Stub.ah.replicate = {}
+  Stub.ah.replicateSilent = true
+  AuctionHoundDB.lastFull = Stub.now - Sc.FULL_INTERVAL - 1
+  H.Settings().autoScan = true
+  local calls = Stub.ah.replicateCalls
+  Stub.printed = {}
+  eq(Sc.AutoTick(), true, "auto scan asks for a scan")
+  eq(Stub.ah.replicateCalls, calls + 1, "once")
+  Stub.Advance(Sc.REPLY_TIMEOUT + 1)
+  eq(Sc.state, "idle", "and gives up when no answer comes")
+  check(string.find(table.concat(Stub.printed, "\n"), "no answer to the full scan", 1, true),
+    "saying so: " .. table.concat(Stub.printed, " | "))
+  check(string.find(H.UI.StatusLine(), "the house did not answer the last scan request", 1, true),
+    "the status line says so too, not that a scan is ready: " .. H.UI.StatusLine())
+  Stub.Advance(120)
+  eq(Stub.ah.replicateCalls, calls + 1, "auto scan leaves the house alone for a while after")
+  eq(Sc.AutoTick(), false, "asked by hand or by the ticker")
+  local logged = #AuctionHoundDB.markets[H.marketKey].scans
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  check(Sc.state ~= "idle", "the answer, late, is still read: " .. Sc.state)
+  Stub.Advance(2) Stub.Pump()
+  eq(Sc.state, "idle", "to the end")
+  eq(#AuctionHoundDB.markets[H.marketKey].scans, logged + 1, "and logged as the scan it is")
+  check(AuctionHoundDB.lastFull >= Stub.now - 3, "with the fifteen minutes counted from it")
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  eq(Sc.state, "idle", "a second list is not a second scan")
+
+  -- with no answer at all, auto scan asks again once the wait is over
+  AuctionHoundDB.lastFull = Stub.now - Sc.FULL_INTERVAL - 1
+  calls = Stub.ah.replicateCalls
+  eq(Sc.AutoTick(), true, "auto scan asks again when a scan is due")
+  Stub.Advance(Sc.REPLY_TIMEOUT + 1)
+  eq(Sc.state, "idle", "unanswered again")
+  Stub.Advance(Sc.RETRY_AFTER - 60)
+  eq(Stub.ah.replicateCalls, calls + 1, "still waiting inside the retry time")
+  -- a list that turns up with the house closed is nobody's scan
+  H.atAH = false
+  logged = #AuctionHoundDB.markets[H.marketKey].scans
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  Stub.Pump()
+  eq(#AuctionHoundDB.markets[H.marketKey].scans, logged, "a list landing with the house closed is not read")
+  H.atAH = true
+  Stub.Advance(60 + Sc.AUTO_INTERVAL + 1)
+  eq(Stub.ah.replicateCalls, calls + 2, "and past it the ticker asks once more")
+  -- a scan asked for by hand is not held back by the wait
+  Stub.Advance(Sc.REPLY_TIMEOUT + 1)
+  eq(Sc.state, "idle", "unanswered a third time")
+  calls = Stub.ah.replicateCalls
+  SlashCmdList.HOUND("scan")
+  eq(Stub.ah.replicateCalls, calls + 1, "/hound scan asks at once")
+  Stub.ah.replicateSilent = false
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  Stub.Advance(2) Stub.Pump()
+  eq(Sc.state, "idle", "and its answer is read")
+  check(not string.find(H.UI.StatusLine(), "did not answer", 1, true), "the status line is back to the timer: " .. H.UI.StatusLine())
+  H.Settings().autoScan = false
+end
+
+------------------------------------------------------------------------
 -- Waylaid Crates: each bundle that fills one, priced in its tooltip
 ------------------------------------------------------------------------
 do
@@ -2696,6 +2764,83 @@ do
   Stub.printed = {}
   SlashCmdList.HOUND("crate")
   check(string.find(Stub.printed[1] or "", "usage: /hound crate", 1, true), "and a bare command gives its usage")
+end
+
+------------------------------------------------------------------------
+-- Launch: the live client closes the house twice on a walk-away, a
+-- beta market may have come along in the saved file, and the TOC
+-- names the build the game shipped
+------------------------------------------------------------------------
+do
+  -- AUCTION_HOUSE_CLOSED fires twice when you walk away from the
+  -- auctioneer. With a scan, a queued message and a post all in flight,
+  -- the second close must find nothing left to do
+  local F = H.Fan
+  Stub.ah.replicateSilent = true
+  AuctionHoundDB.lastFull = Stub.now - H.Scan.FULL_INTERVAL - 1
+  F.Reset()
+  Stub.SetBag(0, 1, 2770, 40)
+  check(F.Setup({ key = "2770", itemID = 2770, center = 100, perBatch = 5, batches = 2, step = 0.05 }) ~= nil, "a fan is planned")
+  check(F.PostNext(), "and its first batch sent")
+  check(F.pending ~= nil, "the post waits on the house")
+  eq(H.Scan.StartFull(), true, "a scan is asked for")
+  Stub.ah.ready = false
+  H.Throttle.Send(function() end)
+  check(H.Throttle.Pending(), "and a message is queued")
+  Stub.printed = {}
+  local ok, err = pcall(function()
+    Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+    Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+  end)
+  check(ok, "two closes in a row raise nothing: " .. tostring(err))
+  eq(H.atAH, false, "the house is closed")
+  eq(H.Scan.state, "idle", "the scan is dropped")
+  check(not H.Throttle.Pending(), "the queue is emptied")
+  eq(F.pending, nil, "the post is given up on")
+  local told = 0
+  for _, line in ipairs(Stub.printed) do
+    if string.find(line, "auction house closed before batch", 1, true) then told = told + 1 end
+  end
+  eq(told, 1, "and said so once, not twice")
+  Stub.ah.ready = true
+  Stub.ah.replicateSilent = false
+  F.Reset()
+  Stub.FireEvent("AUCTION_HOUSE_SHOW")
+  eq(H.atAH, true, "the house opens again")
+
+  -- markets: the saved file can hold more than this one, the beta's
+  -- among them when its saved variables were copied to the live game
+  local beta = "US-ClassicBetaPvP2-Alliance"
+  AuctionHoundDB.markets[beta] = {
+    items = { ["2770"] = "1#D#P#M#F", ["2771"] = "1#D#P#M#F" },
+    scans = { { t = Stub.now - 30 * 86400, kind = "full" } }, posts = { { key = "2770" } },
+  }
+  local mine = H.Store.Count()
+  Stub.printed = {}
+  SlashCmdList.HOUND("markets")
+  local out = table.concat(Stub.printed, "\n")
+  check(string.find(out, "2 markets stored", 1, true), "both markets are counted: " .. out)
+  check(string.find(out, beta .. ": 2 items, last scan 30d ago", 1, true), "the other market with its items and its age")
+  check(string.find(out, H.marketKey .. ": " .. mine .. " items", 1, true), "this market with its own")
+  check(string.find(out, "(this one)", 1, true), "and marked as the one in use")
+  Stub.printed = {}
+  SlashCmdList.HOUND("wipe US-Nowhere-Horde")
+  check(string.find(Stub.printed[1] or "", "no market named US-Nowhere-Horde", 1, true), "a name that is not stored erases nothing")
+  check(AuctionHoundDB.markets[beta] ~= nil and H.Store.Count() == mine, "neither market touched")
+  SlashCmdList.HOUND("wipe " .. beta)
+  eq(AuctionHoundDB.markets[beta], nil, "a market named is erased whole")
+  eq(H.Store.Count(), mine, "and this market is left as it was")
+  check(H.market == AuctionHoundDB.markets[H.marketKey], "still the market in use")
+
+  -- the TOC and the code agree on the version, and the interface is
+  -- the one Forever launched with
+  local version, interface
+  for line in io.lines("AuctionHound/AuctionHound.toc") do
+    version = version or string.match(line, "^## Version:%s*(%S+)")
+    interface = interface or string.match(line, "^## Interface:%s*(%S+)")
+  end
+  eq(version, H.VERSION, "TOC and code agree on the version")
+  eq(interface, "16001", "interface 16001, patch 1.60.1")
 end
 
 ------------------------------------------------------------------------

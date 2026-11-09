@@ -132,7 +132,8 @@ commands.help = function()
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
-  H.Print("  /hound wipe       erase this market's history (your own posts are kept)")
+  H.Print("  /hound markets    list the markets stored: each region, realm and faction played")
+  H.Print("  /hound wipe [market]   erase this market's history (your own posts are kept), or another market whole")
 end
 
 commands.fan = function(rest)
@@ -321,7 +322,43 @@ commands.estimates = function(rest)
   end
 end
 
-commands.wipe = function()
+-- Every market in the saved file: this one, and any other realm,
+-- faction or region played. A market from the beta comes along if its
+-- saved variables were copied to the live game, and is never read
+-- again; /hound wipe <market> drops one by name.
+commands.markets = function()
+  local keys = {}
+  for key in pairs(H.db.markets) do table.insert(keys, key) end
+  table.sort(keys)
+  H.Printf("%d market%s stored:", #keys, #keys == 1 and "" or "s")
+  for _, key in ipairs(keys) do
+    local m = H.db.markets[key]
+    local items = 0
+    if key == H.marketKey then
+      items = H.Store.Count()
+    else
+      for _ in pairs(m.items or {}) do items = items + 1 end
+    end
+    local last = m.scans and m.scans[#m.scans]
+    H.Printf("  %s: %d items, %s%s", key, items,
+      last and ("last scan " .. H.Ago(H.Now() - last.t)) or "never scanned",
+      key == H.marketKey and " (this one)" or "")
+  end
+end
+
+-- Alone, erases this market's history and keeps your posts. With the
+-- name of another market, drops that market whole, posts and all:
+-- there is no one left to show them to.
+commands.wipe = function(rest)
+  if rest and rest ~= "" and rest ~= H.marketKey then
+    if not H.db.markets[rest] then
+      H.Printf("no market named %s; /hound markets lists them", rest)
+      return
+    end
+    H.db.markets[rest] = nil
+    H.Printf("market %s erased, with its posts and purchases", rest)
+    return
+  end
   H.Store.Wipe()
   H.Printf("history for %s erased", H.marketKey)
 end

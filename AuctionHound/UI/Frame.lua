@@ -45,6 +45,9 @@ local function statusLine()
       local wait = S.FullScanWait()
       if wait > 0 then
         table.insert(parts, string.format("next in %d:%02d", math.floor(wait / 60), wait % 60))
+      elseif S.Unanswered() then
+        -- the house counts its own 15 minutes; ours had run out, its had not
+        table.insert(parts, "the house did not answer the last scan request")
       else
         table.insert(parts, "full scan ready")
       end
@@ -53,6 +56,8 @@ local function statusLine()
   table.insert(parts, string.format("%d items", H.Store.Count()))
   return table.concat(parts, "  |  ")
 end
+
+UI.StatusLine = statusLine
 
 function UI.UpdateStatus()
   if statusText then statusText:SetText(statusLine()) end

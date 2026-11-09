@@ -2,7 +2,7 @@
 ## Title: Auction Hound
 ## Notes: A slim auction house companion for WoW Forever: price history, deals on the Buy tab, market connections.
 ## Author: peligwen
-## Version: 0.1.0
+## Version: 0.2.0
 ## SavedVariables: AuctionHoundDB
 ## IconTexture: Interface\Icons\Ability_Tracking
 

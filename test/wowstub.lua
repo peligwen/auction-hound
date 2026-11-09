@@ -565,8 +565,12 @@ C_AuctionHouse = {
   end,
   IsThrottledMessageSystemReady = function() return Stub.ah.ready end,
 
+  -- The house allows one of these every fifteen minutes, whichever
+  -- addon asks; a request inside that window, or one a busy house is
+  -- slow with, gets no answer. Stub.ah.replicateSilent models it.
   ReplicateItems = function()
     Stub.ah.replicateCalls = (Stub.ah.replicateCalls or 0) + 1
+    if Stub.ah.replicateSilent then return end
     C_Timer.After(1, function() Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE") end)
   end,
   GetNumReplicateItems = function() return #Stub.ah.replicate end,

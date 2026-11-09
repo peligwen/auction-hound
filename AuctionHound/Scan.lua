@@ -3,9 +3,12 @@
 -- ReplicateItems reads the whole house, throttled to one per 15
 -- minutes, a batch of rows per frame. The request goes through the
 -- throttle gate so a dropped message is retried instead of silently
--- lost. The Buy tab's own paging and searches live in Throttle.lua and
--- Depth.lua; the readers at the end turn any search answer into
--- listings for them.
+-- lost. The house counts those 15 minutes itself, whichever addon
+-- asked, and says nothing when it refuses: a request that gets no
+-- answer is given up on, auto scan waits before asking again, and an
+-- answer that lands late is still read. The Buy tab's own paging and
+-- searches live in Throttle.lua and Depth.lua; the readers at the end
+-- turn any search answer into listings for them.
 local ADDON, H = ...
 
 local Scan = {}
@@ -17,6 +20,8 @@ Scan.state = "idle"
 Scan.FULL_INTERVAL = 15 * 60 + 5
 Scan.BATCH = 1500
 Scan.MAX_RETRIES = 6
+Scan.REPLY_TIMEOUT = 45      -- seconds the house gets to answer a full scan request
+Scan.RETRY_AFTER = 5 * 60    -- after one went unanswered: auto scan waits this long, and a late answer still counts
 
 -- Rows are processed a batch per frame so a huge listing never freezes
 -- the client.
@@ -116,15 +121,32 @@ end)
 ------------------------------------------------------------------------
 local watchdog
 
-local function armWatchdog(seconds, label)
+-- No answer usually means the house refused: another addon has had
+-- its full scan inside the 15 minutes, or one of ours was asked for
+-- and then cut short by closing the house. It can also mean a busy
+-- house is slow, so the time is kept: the answer may still come
+-- (Scan.Late), and auto scan holds off meanwhile.
+local function armWatchdog()
   if watchdog then watchdog:Cancel() end
-  watchdog = C_Timer.NewTimer(seconds, function()
+  watchdog = C_Timer.NewTimer(Scan.REPLY_TIMEOUT, function()
     watchdog = nil
     if Scan.state ~= "idle" then
-      H.Printf("%s timed out, resetting", label)
+      H.Printf("no answer to the full scan after %ds; the house allows one every 15 minutes, whichever addon asks", Scan.REPLY_TIMEOUT)
+      Scan.unanswered = H.Now()
       Scan.Abort()
     end
   end)
+end
+
+-- Whether a full scan request of ours went unanswered a short while ago.
+function Scan.Unanswered()
+  return Scan.unanswered ~= nil and H.Now() - Scan.unanswered < Scan.RETRY_AFTER
+end
+
+-- A list landing after the request was given up on is the scan that
+-- was asked for, while the house is still open.
+function Scan.Late()
+  return Scan.state == "idle" and H.atAH and Scan.Unanswered()
 end
 
 local function disarmWatchdog()
@@ -170,14 +192,15 @@ function Scan.StartFull()
   local ok, why = Scan.FullScanReady()
   if not ok then H.Print(why) return false end
   Scan.startedAt = H.Now()
+  Scan.unanswered = nil
   setState("replicating")
-  armWatchdog(45, "full scan")
+  armWatchdog()
   AH.ReplicateItems()
   return true
 end
 
 H.RegisterEvent("REPLICATE_ITEM_LIST_UPDATE", function()
-  if Scan.state == "replicating" then Scan.BeginProcess() end
+  if Scan.state == "replicating" or Scan.Late() then Scan.BeginProcess() end
 end)
 
 local function unitPrice(buyout, count)
@@ -232,6 +255,7 @@ end
 
 function Scan.BeginProcess()
   disarmWatchdog()
+  Scan.unanswered = nil
   setState("processing")
   Scan.total = AH.GetNumReplicateItems() or 0
   Scan.index = 0
@@ -314,12 +338,14 @@ end
 ------------------------------------------------------------------------
 -- Auto scan: with the setting on, a full scan starts whenever one is
 -- allowed while the auction house is open. Checked every few seconds
--- and shortly after the house opens.
+-- and shortly after the house opens. After a request the house did not
+-- answer it waits RETRY_AFTER, rather than ask again at every check.
 ------------------------------------------------------------------------
 Scan.AUTO_INTERVAL = 20
 
 function Scan.AutoTick()
   if not H.Settings().autoScan then return false end
+  if Scan.Unanswered() then return false end
   if not Scan.FullScanReady() then return false end
   return Scan.StartFull()
 end

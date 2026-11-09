@@ -6,8 +6,10 @@ items connect through crafting. Built for one flipper's taste, with a
 classic look, on the modern auction house API.
 
 Status: solo prototype. The logic is covered by a headless test suite.
-The client integration is being checked in the beta one step at a time;
-the checklist below is where that stands.
+The client integration was checked in the beta one step at a time. The
+game has since launched (November 4, 2026, patch 1.60.1); the checklist
+below is where that stands, and what changed between the beta and
+launch is listed at its head.
 
 ## What it does
 
@@ -158,11 +160,14 @@ tables.
 ## Install
 
 1. Copy the `AuctionHound` folder from this repository into
-   `World of Warcraft/_classic_beta_/Interface/AddOns/`, so the TOC sits
-   at `Interface/AddOns/AuctionHound/AuctionHound.toc`. The folder name
-   must stay `AuctionHound` to match the TOC. Everything else in the
-   repository (README, tests) stays out of the game folder.
-2. Enable it on the character screen. It targets interface 16001.
+   `World of Warcraft/_forever_/Interface/AddOns/`, so the TOC sits
+   at `Interface/AddOns/AuctionHound/AuctionHound.toc`. That is the
+   live game's folder; the beta's, `_classic_beta_`, is not read by
+   it, so a copy left there does nothing. The folder name must stay
+   `AuctionHound` to match the TOC. Everything else in the repository
+   (README, tests) stays out of the game folder.
+2. Enable it on the character screen. It targets interface 16001, the
+   number the game launched with.
 3. In game, `/hound` opens the window; the Hound tab appears in the
    auction house.
 
@@ -187,6 +192,44 @@ Buy tab read most rows as "no reference" with plenty of history
 stored, since a browse row's item key can carry an item level even
 for ore and cloth, where the scan keys all but gear by item ID alone
 (rows, searches and owned auctions are now read by the scan's rule).
+
+Since the beta: the game launched as patch 1.60.1, still interface
+16001, so the TOC stands. Going by Blizzard's beta notes and the
+patch's list of API changes, as far as they could be read, nothing the
+addon calls was removed or renamed, and the restrictions on addons
+that came over from the modern client ("secrets") cover combat and
+unit data, which Hound never reads. An event the client no longer
+knows is named in chat as the addon loads, and only its feature is
+off. None of this has been run on the live client yet, so the steps
+below are still the real test. What did change around the addon:
+
+- **The folder.** The live game keeps addons and saved variables
+  under `_forever_`. History is kept per market, and a live realm is
+  a new market, so nothing from the beta is read on live. If the
+  beta's saved variables were copied across, its markets sit unused
+  in the file: `/hound markets` lists what is stored and `/hound wipe
+  <market>` drops one.
+- **The house.** It now shows item suffixes and their stats itself,
+  and its browse list gained a column for the level an item can be
+  equipped at (Blizzard's notes of October 1 and 16, after the
+  addon's last beta session). The Hound column goes in before the
+  list's last column whatever the house lays out, but its width was
+  fitted to the older layout: step 5. Suffixes are what a gear key is
+  built from: step 3.
+- **Closing.** The client fires `AUCTION_HOUSE_CLOSED` twice when you
+  walk away from the auctioneer, by a beta tester's report. Every
+  close handler is safe to run twice, and the tests now close the
+  house twice with a scan, a queued message and a post in flight.
+- **Other scanners.** The house allows one full scan every 15 minutes
+  whichever addon asks, and gives no answer when it refuses. With
+  another addon scanning, or after a scan of Hound's own was cut short
+  by closing the house, auto scan used to ask again every minute and
+  say "timed out" each time. It now says once that no answer came,
+  waits five minutes, and still reads an answer that lands late:
+  step 14.
+- **Recipes.** Salt, coal and the cured hides were checked against
+  Forever's item records for the patch. Three ids were wrong and are
+  fixed: salt (it was gray dye's), and cured medium and heavy hide.
 
 1. **Open the auction house.** Verified: no error, the Hound tab is
    there. Re-check after the fixes above: the Hound tab lights and the
@@ -215,7 +258,10 @@ for ore and cloth, where the scan keys all but gear by item ID alone
    match the key the Markets view shows for the same item after the
    scan, or history and the Buy tab will not line up for gear. For an item
    you have never seen this session the key may print as `nil` once;
-   run it again after the item loads.
+   run it again after the item loads. The house has started showing
+   suffixes itself since this step was written, so it is also the one
+   that says whether its item keys still carry them the way a link
+   does.
 4. **Tooltips.** Open. Hover a scanned item in your bags: the Hound
    market line appears. Hover something never scanned: no lines, no
    error.
@@ -238,7 +284,11 @@ for ore and cloth, where the scan keys all but gear by item ID alone
    box back. Report if the strip overlaps the column headers or the
    status on its right, if the star column lost its place, or if the
    list stops loading pages (the count says "stopped at N pages" at the
-   cap).
+   cap). New since the beta: the house's own column for the level an
+   item can be equipped at. On a gear category the Hound column should
+   still sit just before the star with the item names readable; if
+   they are squeezed, `B.COLUMN_WIDTH` at the top of
+   `AuctionHound/UI/Browse.lua` is the width to trim.
 6. **Persistence.** Verified: the item count survives `/reload`.
 7. **Item view.** Open, and new: with nothing picked it now explains
    itself. Type part of a name in its find box and press Enter; then
@@ -273,7 +323,12 @@ for ore and cloth, where the scan keys all but gear by item ID alone
 14. **Auto scan.** Open, and new. Tick "auto scan" at the right of the
     status line. With the timer at zero a scan starts at once; leave
     the house open and the next one should start by itself when the
-    timer runs out. Untick it and confirm nothing starts.
+    timer runs out. Untick it and confirm nothing starts. If another
+    addon has just had its own full scan, or one of Hound's was cut
+    short by closing the house, the house does not answer the next
+    request: chat should say "no answer to the full scan after 45s"
+    once, then nothing for five minutes, and a scan should follow by
+    itself once the house allows one.
 15. **History.** Open, and new. Open the History view. Every auction
     you have up should be listed as active, including ones posted from
     Blizzard's Sell tab, after the house has been open a few seconds.
@@ -425,7 +480,9 @@ none is known.
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
-/hound wipe            erase this market's history (your own posts are kept)
+/hound markets         list the markets stored: each region, realm and faction played
+/hound wipe [market]   erase this market's history (your own posts are kept); with another
+                       market's name, drop that market whole
 ```
 
 A fan by example: `/hound fan [Copper Ore] 10 5 5 bell` posts five
@@ -464,8 +521,9 @@ Data/        conversion recipes with classic item ids; the Waylaid
              Crates and the bundles that fill them
 ```
 
-History is scoped by region, ruleset and faction, for example
-`US-ClassicBetaPvP2-Horde`. Commodities are keyed by item id; equippable
+History is scoped by region, realm and faction: `US-ClassicBetaPvP2-Horde`
+was the beta's market, and `/hound markets` lists the ones stored.
+Commodities are keyed by item id; equippable
 items by `id:level:suffix` so suffix variants never share a record. An
 item key from the house (a Buy tab row, a search, an owned auction) is
 read by the same rule, whatever item level it carries. Your
@@ -510,7 +568,8 @@ template declares, so a cell template and its mixin must agree.
 slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
-Waylaid Crate lines, and UI construction paths. Where the beta has
+Waylaid Crate lines, a full scan the house does not answer, the house
+closing twice, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.
@@ -522,3 +581,5 @@ the gold cap overflows, is enforced the same way.
 - Disenchant tables as a third prior
 - Watchlists: items to flag on the Buy tab whatever the discount
 - Time-of-day view for the Oceanic overlap
+- Waylaid Crates: read a partly filled crate's tooltip and price only
+  what is still missing; Merchant's Favor per gold for each fill
