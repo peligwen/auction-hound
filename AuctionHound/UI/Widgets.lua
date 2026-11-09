@@ -196,31 +196,6 @@ function UI.CreateSparkline(parent, width, height, n)
 end
 
 ------------------------------------------------------------------------
--- Score pips: five small squares, lit up to the score
-------------------------------------------------------------------------
-function UI.CreatePips(parent)
-  local p = CreateFrame("Frame", nil, parent)
-  p:SetSize(5 * 9, 8)
-  p.pips = {}
-  for i = 1, 5 do
-    local t = p:CreateTexture(nil, "ARTWORK")
-    t:SetSize(7, 7)
-    t:SetPoint("LEFT", p, "LEFT", (i - 1) * 9, 0)
-    p.pips[i] = t
-  end
-  function p:SetScore(score)
-    for i = 1, 5 do
-      if i <= (score or 0) then
-        self.pips[i]:SetColorTexture(UI.GOLD[1], UI.GOLD[2], UI.GOLD[3], 1)
-      else
-        self.pips[i]:SetColorTexture(UI.DIM[1], UI.DIM[2], UI.DIM[3], 0.6)
-      end
-    end
-  end
-  return p
-end
-
-------------------------------------------------------------------------
 -- Table with sortable headers and its own scrollbar.
 --
 -- cols: array of
@@ -228,7 +203,7 @@ end
 --   title    header text
 --   width    pixels
 --   align    LEFT | RIGHT | CENTER
---   kind     text | money | int | pct | spct | item | spark | score
+--   kind     text | money | int | pct | spct | item | spark
 --   value    function(row) -> raw value (used for sort and display)
 --   text     optional function(row, raw) -> display string
 --   desc     sort descending first
@@ -376,9 +351,6 @@ function UI.CreateTable(parent, cols, opts)
       if col.kind == "spark" then
         cell = UI.CreateSparkline(row, col.width - 8, self.rowHeight - 4, col.points or 30)
         cell:SetPoint("LEFT", row, "LEFT", x + 4, 0)
-      elseif col.kind == "score" then
-        cell = UI.CreatePips(row)
-        cell:SetPoint("LEFT", row, "LEFT", x + 6, 0)
       elseif col.kind == "item" then
         cell = CreateFrame("Frame", nil, row)
         cell:SetSize(col.width, self.rowHeight)
@@ -507,8 +479,6 @@ function UI.CreateTable(parent, cols, opts)
             local raw = col.value and col.value(data) or nil
             if col.kind == "spark" then
               cell:SetValues(raw)
-            elseif col.kind == "score" then
-              cell:SetScore(raw)
             elseif col.kind == "item" then
               cell.icon:SetTexture(data.icon or H.ItemIcon(data.itemID) or 134400)
               cell.text:SetText(col.text and col.text(data, raw) or raw or "")

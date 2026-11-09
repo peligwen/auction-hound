@@ -20,7 +20,6 @@ UI.AH_LEVELS = 20
 
 local panel, window
 local views = {}
-local current
 local statusText
 
 ------------------------------------------------------------------------
@@ -529,7 +528,7 @@ local function buildFanView(parent)
     }
     local stepPct = tonumber(step:GetText())
     if stepPct then o.step = stepPct / 100 end
-    local plan, err = Fan.Setup(o)
+    local _, err = Fan.Setup(o)
     self.err = err
     self:Refresh()
   end
@@ -702,7 +701,6 @@ function UI.ShowView(name)
   for k, v in pairs(views) do
     if k == name then v:Show() else v:Hide() end
   end
-  current = name
   for k, b in pairs(tabButtons) do
     if k == name then
       b:SetAlpha(1)

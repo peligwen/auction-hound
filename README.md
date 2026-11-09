@@ -456,7 +456,7 @@ Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Buy.lua      purchases noted from the house's calls, for the History view
 Crate.lua    a Waylaid Crate's bundles, each priced; the cheapest the house can fill
 Tooltip.lua  tooltip lines
-UI/          table, graph, sparkline, pips; panel, views, AH tab, window;
+UI/          table, graph, sparkline; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
              block and colors, the Auctions tab total column (Cells.xml
              holds the cells)
@@ -471,16 +471,6 @@ item key from the house (a Buy tab row, a search, an owned auction) is
 read by the same rule, whatever item level it carries. Your
 own posts live in the same market record, as plain tables, for 30 days
 after they resolve.
-
-### Scoring
-
-Every candidate starts at two. Discount of 35 percent adds one, 50
-percent adds two. Solid history adds one; thin history, a stale
-reference, a falling price, a spike over the 30-day mean, a slow
-market, or a single commodity unit each subtract one. Anything with no
-margin after the cut scores zero and is dropped. Anything under vendor
-price scores five and is labelled a vendor flip. The reasons are shown
-under the table when a row is selected.
 
 ### Units moved, and cleared
 
@@ -530,7 +520,5 @@ the gold cap overflows, is enforced the same way.
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads
 - Disenchant tables as a third prior
-- Own sales from mail, for exact sale rates on markets you sell in
 - Watchlists: items to flag on the Buy tab whatever the discount
-- Record purchases made through Blizzard's buy frames in the ledger
 - Time-of-day view for the Oceanic overlap
