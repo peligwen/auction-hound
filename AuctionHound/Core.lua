@@ -123,6 +123,7 @@ commands.help = function()
   H.Print("  /hound stats <link or id>   show stored stats")
   H.Print("  /hound key <link>           show the history key for a link")
   H.Print("  /hound crate <link or id>   price the bundles that fill a Waylaid Crate")
+  H.Print("  /hound writ <link or id>    price the item a Craftsman's Writ asks for")
   H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
@@ -226,6 +227,15 @@ commands.crate = function(rest)
   id = id or (link and tonumber(string.match(link, "item:(%d+)")))
   if not id then H.Print("usage: /hound crate <crate link or id>") return end
   H.Crate.Describe(id)
+end
+
+-- A Craftsman's Writ's item, priced, as its tooltip shows it, or the
+-- ID of an item the data does not know as a writ.
+commands.writ = function(rest)
+  local link, id = linkFromArgs(rest)
+  id = id or (link and tonumber(string.match(link, "item:(%d+)")))
+  if not id then H.Print("usage: /hound writ <writ link or id>") return end
+  H.Writ.Describe(id)
 end
 
 commands.labor = function(rest)

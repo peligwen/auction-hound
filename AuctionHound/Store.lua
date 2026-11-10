@@ -112,12 +112,29 @@ function Store.Get(key)
   return rec
 end
 
+-- Keys by item ID, built the first time a key is asked for by ID alone
+-- and kept up as records are made. It belongs to one market's items.
+local byItem, byItemOf
+
+local function indexKey(key)
+  local id = H.ItemIDFromKey(key)
+  if not id then return end
+  local list = byItem[id]
+  if not list then
+    list = {}
+    byItem[id] = list
+  end
+  list[#list + 1] = key
+end
+
 function Store.GetOrCreate(key)
   local rec = Store.Get(key)
   if rec then return rec end
   rec = { days = {}, pts = {}, moved = {}, fills = {} }
   cache[key] = rec
   dirty[key] = true
+  local m = market()
+  if byItem and m and byItemOf == m.items then indexKey(key) end
   return rec
 end
 
@@ -147,6 +164,39 @@ function Store.Keys()
     if not seen[k] then table.insert(out, k) end
   end
   return out
+end
+
+-- Every key an item is stored under: one for a good, one for each
+-- level and suffix of a piece of gear.
+function Store.KeysOf(itemID)
+  local m = market()
+  if not m then return {} end
+  if not byItem or byItemOf ~= m.items then
+    byItem, byItemOf = {}, m.items
+    for _, key in ipairs(Store.Keys()) do indexKey(key) end
+  end
+  return byItem[itemID] or {}
+end
+
+-- The record of an item in its plain form, the one a recipe makes: no
+-- suffix. A good has one record, under its ID. Gear is keyed by the
+-- level its link gave the scan, which an ID alone does not tell, and by
+-- the bare ID when the client had no level to give; so its records are
+-- found by ID, and of those without a suffix the one seen last is it.
+function Store.Plain(itemID)
+  local key = H.KeyForItemID(itemID)
+  if key then return Store.Get(key), key end
+  local best, bestKey, bestAt
+  for _, k in ipairs(Store.KeysOf(itemID)) do
+    local _, _, suffix, species = H.KeyParts(k)
+    if suffix == 0 and species == 0 then
+      local rec = Store.Get(k)
+      local last = rec and rec.pts[#rec.pts]
+      local at = last and last.t or 0
+      if rec and (not best or at > bestAt) then best, bestKey, bestAt = rec, k, at end
+    end
+  end
+  return best, bestKey
 end
 
 function Store.Touch(key)
@@ -303,6 +353,7 @@ function Store.Wipe()
   end
   cache = {}
   dirty = {}
+  byItem, byItemOf = nil, nil
 end
 
 function Store.Ledger(entry)
@@ -411,4 +462,5 @@ end
 function Store._ResetCache()
   cache = {}
   dirty = {}
+  byItem, byItemOf = nil, nil
 end

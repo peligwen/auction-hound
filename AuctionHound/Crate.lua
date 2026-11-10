@@ -14,9 +14,10 @@ H.Crate = Crate
 -- tooltip shows, or history older than the two weeks that value spans
 -- (the 30-day mean, else the last scan it was seen in). With neither,
 -- and estimates on, what it costs to make. Returns the price, where it
--- came from ("market" or "crafted") and the stats, or nil.
+-- came from ("market" or "crafted") and the stats, or nil. The item a
+-- writ asks for is priced here too (Writ.lua), gear included.
 function Crate.UnitPrice(itemID)
-  local rec = H.Store.Get(tostring(itemID))
+  local rec = H.Store.Plain(itemID)
   local st = rec and H.Market.Stats(rec) or nil
   local price = st and (st.market or st.hist or st.recent)
   if price and price > 0 then return price, "market", st end
@@ -37,6 +38,8 @@ function Crate.Listed(st)
   return st.qty or 0
 end
 
+-- A good's name: the client's, or the data's English one while the
+-- client has yet to load the item, which is then asked for.
 local function goodName(itemID, fallback)
   local name = H.ItemName(itemID)
   if fallback and string.sub(name, 1, 5) == "item:" then
@@ -45,6 +48,7 @@ local function goodName(itemID, fallback)
   end
   return name
 end
+Crate.GoodName = goodName
 
 ------------------------------------------------------------------------
 -- A crate, read. Returns nil for an item that is no crate.
@@ -127,11 +131,11 @@ function Crate.Lines(r)
   return lines
 end
 
-function Crate.AddTooltipLines(tooltip, itemID)
-  local r = Crate.Read(itemID)
-  if not r then return false end
+-- Lines onto a tooltip, set apart by a blank one: the header in a
+-- tooltip's own gold, the rest grey, each right side in its color.
+function Crate.Paint(tooltip, lines)
   tooltip:AddLine(" ")
-  for i, line in ipairs(Crate.Lines(r)) do
+  for i, line in ipairs(lines) do
     local c = line[3]
     if i == 1 then
       tooltip:AddDoubleLine(line[1], line[2], 1, 0.82, 0, c[1], c[2], c[3])
@@ -139,6 +143,12 @@ function Crate.AddTooltipLines(tooltip, itemID)
       tooltip:AddDoubleLine(line[1], line[2], 0.8, 0.8, 0.8, c[1], c[2], c[3])
     end
   end
+end
+
+function Crate.AddTooltipLines(tooltip, itemID)
+  local r = Crate.Read(itemID)
+  if not r then return false end
+  Crate.Paint(tooltip, Crate.Lines(r))
   return true
 end
 

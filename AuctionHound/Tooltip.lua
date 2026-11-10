@@ -1,5 +1,6 @@
--- Tooltip.lua: a few Hound lines on item tooltips, and on a Waylaid
--- Crate the price of each bundle that fills it (Crate.lua).
+-- Tooltip.lua: a few Hound lines on item tooltips, on a Waylaid Crate
+-- the price of each bundle that fills it (Crate.lua), and on a
+-- Craftsman's Writ the price of the item it asks for (Writ.lua).
 local ADDON, H = ...
 
 local function addLines(tooltip, itemID, link)
@@ -42,6 +43,13 @@ local function addCrate(tooltip, itemID)
   H.Crate.AddTooltipLines(tooltip, itemID)
 end
 
+-- A writ is sold at the house and may have a history; what it asks for
+-- goes under that.
+local function addWrit(tooltip, itemID)
+  if not H.db or not H.Settings().tooltip then return end
+  H.Writ.AddTooltipLines(tooltip, itemID)
+end
+
 local function onTooltip(tooltip, data)
   if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
   local itemID = data and data.id
@@ -57,6 +65,7 @@ local function onTooltip(tooltip, data)
   if not itemID then return end
   addLines(tooltip, itemID, link)
   addCrate(tooltip, itemID)
+  addWrit(tooltip, itemID)
 end
 
 H.Events:On("LOGIN", function()
@@ -70,10 +79,11 @@ H.Events:On("LOGIN", function()
         if itemID then
           addLines(tt, itemID, link)
           addCrate(tt, itemID)
+          addWrit(tt, itemID)
         end
       end
     end)
   end
 end)
 
-H.Tooltip = { AddLines = addLines, AddCrate = addCrate, OnTooltip = onTooltip }
+H.Tooltip = { AddLines = addLines, AddCrate = addCrate, AddWrit = addWrit, OnTooltip = onTooltip }

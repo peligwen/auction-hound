@@ -2767,6 +2767,227 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Craftsman's Writs: the item one asks for, priced in its tooltip
+------------------------------------------------------------------------
+do
+  local Writ, Crate = H.Writ, H.Crate
+  local S = H.Settings()
+
+  -- the data: 150 writs in one run of IDs, each asking for one thing
+  -- no other writ asks for, in three ranks
+  local writs, perRank, asked, many = 0, { 0, 0, 0 }, {}, 0
+  for id, w in pairs(H.Writs) do
+    writs = writs + 1
+    local label = "writ " .. tostring(id) .. " / " .. tostring(w[3])
+    check(type(id) == "number" and id >= 264011 and id <= 264160, label .. ": in the writs' range")
+    check(type(w[1]) == "number" and w[1] > 0 and not H.Writs[w[1]] and not H.Crates[w[1]], label .. ": an item, not a writ or a crate")
+    check(type(w[2]) == "number" and w[2] >= 1 and w[2] == math.floor(w[2]), label .. ": whole units")
+    check(type(w[3]) == "string" and w[3] ~= "", label .. ": a name to fall back on")
+    check(H.WritRanks[w[4]] ~= nil, label .. ": a rank")
+    check(asked[w[1]] == nil, label .. ": asked for by one writ only, not also " .. tostring(asked[w[1]]))
+    asked[w[1]] = id
+    if H.WritRanks[w[4]] then perRank[w[4]] = perRank[w[4]] + 1 end
+    if w[2] > 1 then many = many + 1 end
+    -- the ranks run in blocks: journeyman, expert, artisan
+    eq(w[4], id <= 264055 and 1 or id <= 264115 and 2 or 3, label .. ": ranked by its place in the run")
+  end
+  eq(writs, 150, "150 writs")
+  eq(perRank[1], 45, "45 journeyman")
+  eq(perRank[2], 60, "60 expert")
+  eq(perRank[3], 45, "45 artisan")
+  eq(many, 1, "one writ alone asks for more than one of its item")
+  eq(H.WritRanks[1].rep, 75, "a journeyman writ pays 75")
+  eq(H.WritRanks[2].rep, 125, "an expert one 125")
+  eq(H.WritRanks[3].rep, 200, "an artisan one 200")
+  -- as the writs' own quests give them
+  eq(H.Writs[264047][1], 5766, "the robe writ asks for the lesser wizard's robe")
+  eq(H.Writs[264047][2], 1, "one of it")
+  eq(H.Writs[264037][1], 8069, "the shot writ asks for crafted solid shot")
+  eq(H.Writs[264037][2], 200, "two hundred of it")
+  eq(H.Writs[264011][1], 3391, "the first writ in the run is the ogre strength elixir's")
+  eq(H.Writs[264124][1], 246948, "distilled firewater by its Forever id")
+  eq(H.Writs[264124][4], 3, "an artisan writ")
+  eq(H.Writs[264160][1], 21340, "the last is the soul pouch's")
+  eq(H.Writs[262888], nil, "a sealed writ names no item")
+  eq(Writ.Read(5766), nil, "a robe is no writ")
+  eq(Writ.Read(262888), nil, "nor is a sealed one")
+  eq(Writ.Read(248687), nil, "nor a crate")
+  eq(Crate.Read(264047), nil, "and a writ is no crate")
+
+  -- Lesser Wizard's Robe: gear, which the scan keys by the level its
+  -- link reports. The writ knows only the item's ID and must find it
+  Stub.DefineItem(264047, "Craftsman's Writ: Lesser Wizard's Robe", { stack = 1, commodity = false, quality = 3 })
+  Stub.DefineItem(5766, "Lesser Wizard's Robe", { stack = 1, commodity = false, quality = 2, equip = "INVTYPE_ROBE", ilvl = 27, sell = 1338 })
+  local robeLink = "|cff1eff00|Hitem:5766:0:0:0:0:0:0:0:60:0:0:0:0|h[Lesser Wizard's Robe]|h|r"
+  local writLink = "|cff0070dd|Hitem:264047:0:0:0:0:0:0:0:60:0:0:0:0|h[Craftsman's Writ: Lesser Wizard's Robe]|h|r"
+  local robeKey = H.KeyFromLink(robeLink, 5766)
+  eq(robeKey, "5766:27:0", "the scan files the robe under its level")
+  eq(H.KeyForItemID(5766), nil, "which the ID alone does not give")
+  local function scan(t, samples)
+    for key, listing in pairs(samples) do
+      Store.AddScanSample(key, t, { { p = listing[1], q = listing[2] } })
+    end
+    Store.LogScan({ t = t, kind = "full", rows = 0, keys = 0, secs = 0, skipped = 0 })
+  end
+  Stub.now = Stub.now + 900
+  eq(Writ.Read(264047).unit, nil, "before the robe is ever scanned the writ has no price")
+  scan(Stub.now, { [robeKey] = { 12000, 3 } })
+  eq(select(2, Store.Plain(5766)), robeKey, "the robe's record is found by its ID")
+  eq(#Store.KeysOf(5766), 1, "a key made after the first lookup is known by its item")
+
+  local r = Writ.Read(264047)
+  eq(r.item, 5766, "the writ is read: its item")
+  eq(r.qty, 1, "one of it")
+  eq(r.name, "Lesser Wizard's Robe", "by the client's name")
+  eq(r.rank, "Journeyman", "its rank")
+  eq(r.rep, 75, "and what it pays")
+  eq(r.unit, 12000, "the robe at its market value")
+  eq(r.total, 12000, "which is the whole cost")
+  eq(r.src, "market", "from history")
+  eq(r.listed, nil, "three listed covers one")
+  eq(r.scanAge, 0, "the scan is fresh")
+
+  local lines = Writ.Lines(r)
+  eq(#lines, 2, "a header and the item")
+  eq(lines[1][1], "|cffe6b800Hound|r Journeyman writ, 75 reputation", "the header gives rank and reputation")
+  eq(lines[1][2], "scanned 0s ago", "and how old the price is")
+  eq(lines[2][1], "  Lesser Wizard's Robe", "one item is only named")
+  eq(lines[2][2], H.Money(12000), "with its price on the right")
+  eq(lines[2][3], Crate.COLORS.price, "in white")
+
+  -- the writ's tooltip carries them
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 264047, hyperlink = writLink })
+  eq(#GameTooltip.lines, 3, "a blank line, the header and the item: " .. table.concat(GameTooltip.lines, " / "))
+  eq(GameTooltip.lines[1], " ", "set apart from the writ's own lines")
+  eq(GameTooltip.lines[2], "|cffe6b800Hound|r Journeyman writ, 75 reputation | scanned 0s ago", "the header in the tooltip")
+  eq(GameTooltip.lines[3], "  Lesser Wizard's Robe | " .. H.Money(12000), "the robe and its price")
+  -- a writ is sold at the house itself: its own history comes first,
+  -- what it asks for after
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["264047"] = { 3000, 2 }, [robeKey] = { 12000, 3 } })
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 264047, hyperlink = writLink })
+  local tip = table.concat(GameTooltip.lines, " / ")
+  check(string.find(tip, "|cffe6b800Hound|r market | " .. H.Money(3000), 1, true), "the writ's own market value: " .. tip)
+  eq(GameTooltip.lines[#GameTooltip.lines], "  Lesser Wizard's Robe | " .. H.Money(12000), "and the robe's under it")
+  eq(GameTooltip.lines[#GameTooltip.lines - 1], "|cffe6b800Hound|r Journeyman writ, 75 reputation | scanned 0s ago", "below the writ's header")
+  -- the robe's own tooltip has no writ lines, a comparison tooltip is
+  -- left alone, and tooltips off means off
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 5766, hyperlink = robeLink })
+  check(not string.find(table.concat(GameTooltip.lines, " / "), "writ", 1, true), "nothing about writs on the robe itself")
+  local other = { lines = {}, AddLine = function(self, t) table.insert(self.lines, t) end, AddDoubleLine = function(self, a) table.insert(self.lines, a) end }
+  Stub.tooltipHandler(other, { id = 264047 })
+  eq(#other.lines, 0, "only the main tooltips are written on")
+  S.tooltip = false
+  GameTooltip:ClearLines()
+  Stub.tooltipHandler(GameTooltip, { id = 264047, hyperlink = writLink })
+  eq(#GameTooltip.lines, 0, "and none at all with tooltips off")
+  S.tooltip = true
+
+  -- a scan with no robe in it: the price stands from history, and the
+  -- line says there is none to buy
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["264047"] = { 3000, 2 } })
+  r = Writ.Read(264047)
+  eq(r.unit, 12000, "the robe keeps its price")
+  eq(r.listed, 0, "with none in the last scan")
+  lines = Writ.Lines(r)
+  eq(lines[2][1], "  Lesser Wizard's Robe, |cffd9cc73none listed|r", "none listed")
+  eq(lines[2][2], H.Money(12000), "the price still shown")
+
+  -- the robe under its bare ID as well, from a scan the client had no
+  -- level for: whichever record was seen last is the robe's, and one
+  -- with a suffix is some other robe
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["5766"] = { 9000, 1 }, ["5766:27:1203"] = { 50, 4 } })
+  eq(#Store.KeysOf(5766), 3, "three records share the robe's ID")
+  eq(select(2, Store.Plain(5766)), "5766", "the bare record is the newer")
+  r = Writ.Read(264047)
+  eq(r.unit, 9000, "and prices the robe")
+  eq(r.listed, nil, "which is listed again")
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { [robeKey] = { 11000, 2 }, ["5766:27:1203"] = { 50, 4 } })
+  eq(select(2, Store.Plain(5766)), robeKey, "then the levelled one again")
+  check(Writ.Read(264047).unit > 9000, "never the robe of the suffix: " .. tostring(Writ.Read(264047).unit))
+
+  -- Crafted Solid Shot: the one writ that asks for a stack's worth
+  Stub.DefineItem(8069, "Crafted Solid Shot", { stack = 200, commodity = true })
+  scan(Stub.now, { ["8069"] = { 4, 500 }, [robeKey] = { 11000, 2 } })
+  r = Writ.Read(264037)
+  eq(r.qty, 200, "two hundred shot")
+  eq(r.unit, 4, "at four copper")
+  eq(r.total, 800, "eight silver the lot")
+  lines = Writ.Lines(r)
+  eq(lines[2][1], "  200 Crafted Solid Shot, " .. H.Money(4) .. " each", "more than one carries its count and the price of each")
+  eq(lines[2][2], H.Money(800), "and the total on the right")
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["8069"] = { 4, 120 } })
+  r = Writ.Read(264037)
+  eq(r.listed, 120, "a hundred and twenty listed where two hundred are asked for")
+  check(string.find(Writ.Lines(r)[2][1], "only 120 listed", 1, true), "the line says so: " .. Writ.Lines(r)[2][1])
+
+  -- an estimate carries its mark, as a crate's does
+  lines = Writ.Lines({ name = "Unstable Trigger", qty = 1, rank = "Expert", rep = 125, unit = 500, total = 500, src = "crafted", scanAge = 60 })
+  eq(lines[1][1], "|cffe6b800Hound|r Expert writ, 125 reputation", "an expert writ's header")
+  eq(lines[2][2], "~" .. H.Money(500), "an estimated price is marked")
+  lines = Writ.Lines({ name = "Crafted Solid Shot", qty = 200, rank = "Journeyman", rep = 75, unit = 5, total = 1000, src = "crafted", listed = 0, scanAge = 60 })
+  eq(lines[2][1], "  200 Crafted Solid Shot, ~" .. H.Money(5) .. " each, |cffd9cc73none listed|r", "on the price of each as well")
+
+  -- an item the client has not loaded goes by the data's name and is
+  -- asked for; never scanned, it has no price
+  Stub.loadRequests = 0
+  r = Writ.Read(264029)
+  eq(r.name, "Ornate Spyglass", "the data's name stands in")
+  check(Stub.loadRequests >= 1, "and the item is requested")
+  eq(r.unit, nil, "nothing scanned, nothing priced")
+  eq(r.rank, "Journeyman", "the rank is known all the same")
+  lines = Writ.Lines(r)
+  eq(lines[2][1], "  Ornate Spyglass", "the item is still named")
+  eq(lines[2][2], "no price", "and says it has no price")
+  eq(lines[2][3], Crate.COLORS.none, "in grey")
+  Stub.DefineItem(5507, "Verziertes Fernrohr", { stack = 1, commodity = false })
+  eq(Writ.Read(264029).name, "Verziertes Fernrohr", "the client's name wins once it is there")
+  eq(Writ.Read(264152).rank, "Artisan", "an artisan writ by its rank")
+  eq(Writ.Read(264152).rep, 200, "and its 200")
+
+  -- before any scan in this market there is no age to give and no
+  -- listed count to hold a price to
+  local m = AuctionHoundDB.markets[H.marketKey]
+  local scans = m.scans
+  m.scans = {}
+  r = Writ.Read(264029)
+  eq(r.scanAge, nil, "no scan, no age")
+  eq(Writ.Lines(r)[1][2], "no scan yet", "the header says so")
+  r = Writ.Read(264037)
+  eq(r.listed, nil, "and a price is not held to a scan that never ran")
+  eq(Writ.Lines(r)[1][2], "", "nor given an age")
+  m.scans = scans
+
+  -- /hound writ prints the same, and names the id of anything else
+  Stub.printed = {}
+  SlashCmdList.HOUND("writ 264047")
+  local out = table.concat(Stub.printed, "\n")
+  check(string.find(out, "Craftsman's Writ: Lesser Wizard's Robe (item 264047)", 1, true), "the command names the writ: " .. out)
+  check(string.find(out, "Journeyman writ, 75 reputation, scanned", 1, true), "its header")
+  check(string.find(out, "Lesser Wizard's Robe, |cffd9cc73none listed|r: " .. H.Money(Writ.Read(264047).total), 1, true), "and the robe with its price: " .. out)
+  eq(#Stub.printed, 3, "a title, the header and the item")
+  Stub.printed = {}
+  SlashCmdList.HOUND("writ " .. writLink)
+  check(string.find(table.concat(Stub.printed, "\n"), "Lesser Wizard's Robe (item 264047)", 1, true), "a link works as well")
+  Stub.printed = {}
+  SlashCmdList.HOUND("writ 5766")
+  check(string.find(Stub.printed[1] or "", "Lesser Wizard's Robe (item 5766) is not a writ Hound knows", 1, true), "anything else is named with its id: " .. tostring(Stub.printed[1]))
+  Stub.printed = {}
+  SlashCmdList.HOUND("writ")
+  check(string.find(Stub.printed[1] or "", "usage: /hound writ", 1, true), "and a bare command gives its usage")
+  Stub.printed = {}
+  SlashCmdList.HOUND("help")
+  check(string.find(table.concat(Stub.printed, "\n"), "/hound writ <link or id>", 1, true), "the help lists the command")
+end
+
+------------------------------------------------------------------------
 -- Launch: the live client closes the house twice on a walk-away, a
 -- beta market may have come along in the saved file, and the TOC
 -- names the build the game shipped

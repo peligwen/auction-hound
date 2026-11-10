@@ -146,6 +146,17 @@ launch is listed at its head.
   line reads "no price". The header says how old the scan is.
   `/hound crate <link>` prints the same lines in chat. All thirty
   crates are covered, their bundles kept as data by crate ID.
+- **Craftsman's Writs.** A writ asks for one crafted item, a Lesser
+  Wizard's Robe say, and the item may be bought as well as made. Hound
+  adds two lines to the writ's tooltip: its rank and the reputation it
+  pays, and the item with its market price, priced as a crate's goods
+  are. Gear is found in the history by its item ID, whatever level the
+  scan filed it under. An item the last scan did not see says "none
+  listed" beside the price history gives it; one never seen reads "no
+  price". The one writ that asks for more than one of its item, two
+  hundred Crafted Solid Shot, shows the price of each and the total.
+  `/hound writ <link>` prints the same lines in chat. All 150 writs
+  are covered, kept as data by writ ID.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
   a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
@@ -429,6 +440,21 @@ below are still the real test. What did change around the addon:
     prints the item's ID, which is the thing to report along with the
     crate's list. Report what a partly filled crate's tooltip says as
     well: the lines price the whole bundle whatever is already in it.
+27. **Craftsman's Writs.** Open, and new. After a full scan, hover a
+    writ ("Craftsman's Writ: Lesser Wizard's Robe"), in the bags or on
+    the house: under its own text there should be a Hound header with
+    the writ's rank and reputation, then the item it asks for with a
+    price on the right. Hover the item itself and compare: the price
+    should be its "Hound market" line. The writs are data from the
+    launch build's item and quest records and have not been read off
+    a writ in game; the reputation by rank (75, 125, 200) is the
+    guides' figure. Try a writ for a piece of gear and one for a
+    potion: gear is the case to watch, since the scan files it under
+    its item level. Report a writ whose item is on the house and in
+    the Markets view but shows "no price" or "none listed", with what
+    `/hound key` says for the item's link. If no Hound lines show,
+    type `/hound writ ` and shift-click the writ: for an item the data
+    does not know it prints the item's ID.
 
 ## Taint
 
@@ -469,6 +495,7 @@ none is known.
 /hound stats <link>    stored stats for an item, and what you sold it for
 /hound key <link>      the history key for a link
 /hound crate <link>    price the bundles that fill a Waylaid Crate, as its tooltip does
+/hound writ <link>     price the item a Craftsman's Writ asks for, as its tooltip does
 /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center] [12h|24h|48h]
                        plan a fan for an item in your bags; alone, show the plan
 /hound post            post the next batch of the fan (bind it to a key)
@@ -512,13 +539,15 @@ Depth.lua    the ladder behind each Buy tab row on screen, one search each, on d
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Buy.lua      purchases noted from the house's calls, for the History view
 Crate.lua    a Waylaid Crate's bundles, each priced; the cheapest the house can fill
+Writ.lua     the item a Craftsman's Writ asks for, priced the same way
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
              block and colors, the Auctions tab total column (Cells.xml
              holds the cells)
 Data/        conversion recipes with classic item ids; the Waylaid
-             Crates and the bundles that fill them
+             Crates and the bundles that fill them; the Craftsman's
+             Writs and the item each asks for
 ```
 
 History is scoped by region, realm and faction: `US-ClassicBetaPvP2-Horde`
@@ -568,8 +597,8 @@ template declares, so a cell template and its mixin must agree.
 slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
-Waylaid Crate lines, a full scan the house does not answer, the house
-closing twice, and UI construction paths. Where the beta has
+Waylaid Crate and Craftsman's Writ lines, a full scan the house does
+not answer, the house closing twice, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.
@@ -583,3 +612,6 @@ the gold cap overflows, is enforced the same way.
 - Time-of-day view for the Oceanic overlap
 - Waylaid Crates: read a partly filled crate's tooltip and price only
   what is still missing; Merchant's Favor per gold for each fill
+- Craftsman's Writs: the recipes behind the 150 items, so a writ whose
+  item is not on the house shows what it costs to make; reputation
+  per gold for each writ
