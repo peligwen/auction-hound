@@ -30,4 +30,5 @@ UI\Frame.lua
 UI\Browse.lua
 UI\Ladder.lua
 UI\Auctions.lua
+UI\Bags.lua
 UI\Cells.xml

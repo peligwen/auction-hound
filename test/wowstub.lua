@@ -89,7 +89,7 @@ function Stub.SetBag(bag, slot, itemID, count, opts)
   if not itemID or (count or 0) <= 0 then
     Stub.bags[bag][slot] = nil
   else
-    Stub.bags[bag][slot] = { itemID = itemID, count = count, suffix = opts and opts.suffix or 0 }
+    Stub.bags[bag][slot] = { itemID = itemID, count = count, suffix = opts and opts.suffix or 0, bound = opts and opts.bound or false }
   end
 end
 
@@ -136,7 +136,7 @@ C_Container = {
   GetContainerItemInfo = function(bag, slot)
     local s = Stub.bags[bag] and Stub.bags[bag][slot]
     if not s then return nil end
-    return { itemID = s.itemID, stackCount = s.count, hyperlink = stackLink(s), isLocked = false, iconFileID = 134400 }
+    return { itemID = s.itemID, stackCount = s.count, hyperlink = stackLink(s), isLocked = false, iconFileID = 134400, isBound = s.bound }
   end,
 }
 
@@ -315,7 +315,8 @@ function Frame:GetHeight() return self.height end
 function Frame:SetParent(p) self.parent = p end
 function Frame:GetParent() return self.parent end
 function Frame:SetPoint(...) table.insert(self.points, { ... }) end
-function Frame:ClearAllPoints() self.points = {} end
+function Frame:ClearAllPoints() self.points = {} self.allPoints = nil end
+function Frame:SetAllPoints(rel) self.allPoints = rel or self.parent end
 function Frame:GetNumPoints() return #self.points end
 function Frame:GetPoint(i) local p = self.points[i or 1] if p then return unpack(p, 1, 5) end end
 function Frame:EnableMouse(v) self.mouse = v end
@@ -332,6 +333,7 @@ function Frame:GetEffectiveScale()
   local p = self.parent
   return (self.scale or 1) * (type(p) == "table" and p.GetEffectiveScale and p:GetEffectiveScale() or 1)
 end
+function Frame:GetName() return self.name end
 function Frame:SetID(id) self.id = id end
 function Frame:GetID() return self.id end
 function Frame:SetChecked(v) self.checked = v end

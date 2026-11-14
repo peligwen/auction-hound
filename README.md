@@ -130,11 +130,24 @@ launch is listed at its head.
   unsold. The result is a sold / unsold bracket per item, shown in the
   Item view, the tooltip and `/hound stats`, and the next fan centers on
   the best price buyers actually paid.
-- **Tooltips.** Market, floor, 30-day mean, trend and the units
-  cleared a day at what price (or the units moved estimate where no
-  fills have been seen) on every item tooltip, plus your own sold /
-  unsold line. The Buy tab's cell tooltip and the Item view carry the
-  cleared line too.
+- **Tooltips.** One line by default: the floor at the latest scan,
+  with its age when that is more than a day. Hold Shift for the rest:
+  market value, the three-day mean, the vendor price, units listed,
+  trend and the units cleared a day at what price (or the units moved
+  estimate where no fills have been seen), plus your own sold / unsold
+  line. A tooltip the client refreshes while it is up, a bag slot or a
+  house row, follows Shift as it goes down and up; a link clicked in
+  chat always shows the rest. Junk gets no Hound lines: the vendor is
+  where it goes. The Buy tab's cell tooltip and the Item view carry
+  the cleared line too, and the Item view the three-day mean.
+- **Bag overlay.** With the bags open, hold Shift: every slot shows
+  what its stack is worth, in gold at the house's floor from the
+  latest scan, or in gray at the vendor's price when the vendor pays
+  more than the house would after its cut. Junk and anything
+  soulbound show the vendor's price alone; a slot with neither shows
+  nothing. Letting go takes it down, and it stays out of combat.
+  Blizzard's own bags only: a bag addon that replaces them gets no
+  figures. `/hound overlay off` turns it off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
   does. Hound adds a line for each under it: the units, the good, the
@@ -273,9 +286,14 @@ below are still the real test. What did change around the addon:
    suffixes itself since this step was written, so it is also the one
    that says whether its item keys still carry them the way a link
    does.
-4. **Tooltips.** Open. Hover a scanned item in your bags: the Hound
-   market line appears. Hover something never scanned: no lines, no
-   error.
+4. **Tooltips.** Open, and changed. Hover a scanned item in your
+   bags: one Hound line, the floor. Hold Shift with the tooltip up:
+   the rest appears (market, 3 day, vendor, listed and trend, yours),
+   and goes again when Shift is let go. Click the item's link in chat:
+   that tooltip shows the rest without Shift. Hover a gray item: no
+   Hound lines. Hover something never scanned: no lines, no error.
+   Report a tooltip that does not follow Shift while it is up, saying
+   where it was (bags, the house, a quest reward, the Hound window).
 5. **Buy tab.** Open, and new. Pick any category or search: every row
    gets a Hound column, the reference on the left and the discount on
    the right, green for a deal, amber under reference, grey above, and
@@ -456,6 +474,35 @@ below are still the real test. What did change around the addon:
     type `/hound writ ` and shift-click the writ: for an item the data
     does not know it prints the item's ID.
 
+28. **Bag overlay.** Open, and new. Open the bags and hold Shift: a
+    small figure sits over the top of each slot with a price, gold for
+    the house and gray for the vendor, and goes when Shift is let go.
+    Gray items and soulbound ones read gray, at the vendor's price.
+    Click, shift-click and drag items with it up: everything must work
+    as it does without the addon. Open another bag while holding
+    Shift: its slots fill in within a moment. Report figures that sit
+    off their slots, overlap the stack count, or show under the bag
+    art; `/hound overlay off` turns it off meanwhile. Bag addons
+    (Bagnon, AdiBags and the like) are not covered.
+29. **Bags at the house.** Open, and suspected. Reported on live: a
+    right-click on a Cozy Sleeping Bag in the bags brought up
+    "blocked from an action only available to the Blizzard UI" in
+    Hound's name. The likely path, read from Blizzard's code: with the
+    house open, a right-click on an item the house will not take, a
+    soulbound one say, asks the frame whether it is listing
+    (`AuctionHouseFrame:IsListingAuctions()`, which reads its display
+    mode) and then uses the item, which is protected. The Buy tab's
+    rows come through Hound's data provider and layout (see Taint), a
+    row clicked hands its data to the frame, and the frame's display
+    mode is then written in Hound's name, after which every such
+    right-click at the house is blocked until `/reload`. Away from the
+    house the frame is not asked. To confirm: `/console taintLog 1`,
+    `/reload`, open the house, click any Buy tab row, then right-click
+    a soulbound usable item in the bags. If it is blocked, send
+    `Logs/taint.log`: it names the value read. Then try the same with
+    no Buy tab row clicked since the house opened, and away from the
+    house. Meanwhile, use such items away from the auctioneer.
+
 ## Taint
 
 The client blocks a protected call, using an item from the bags say,
@@ -484,8 +531,13 @@ hide nothing of Blizzard's, since its scripts would run in Hound's
 name. The browse list on the Buy tab is the
 one exception, and a knowing one: its data provider and layout are
 Hound's so the column and the ordering can exist at all, and any
-protected call the house makes from a browse row would be blocked;
-none is known.
+protected call the house makes from a browse row would be blocked.
+None is made from the row itself, but a row clicked writes the
+frame's display mode in Hound's name, and Blizzard's bags read that
+mode when an item is right-clicked at the house: step 29 has the
+suspected block and how to confirm it. The bag overlay keeps the
+rules: its figures are Hound's own frames anchored over the bag
+buttons, and nothing is written on a bag frame or button.
 
 ## Commands
 
@@ -505,6 +557,7 @@ none is known.
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
 /hound sat <hours>     a floor on offer this long is no longer a deal, default 1; 0 judges by price alone
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
+/hound overlay on|off  hold Shift with the bags open to see what each slot is worth, default on
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
 /hound markets         list the markets stored: each region, realm and faction played
@@ -544,7 +597,7 @@ Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
              block and colors, the Auctions tab total column (Cells.xml
-             holds the cells)
+             holds the cells); the Shift overlay on the bags (Bags.lua)
 Data/        conversion recipes with classic item ids; the Waylaid
              Crates and the bundles that fill them; the Craftsman's
              Writs and the item each asks for
@@ -593,8 +646,8 @@ lua5.1 test/run.lua        # or: lua5.1 test/run.lua -v
 auction house calls and events. It loads the addon from `AuctionHound/`
 in TOC order; XML files are read for the mixin and font strings each
 template declares, so a cell template and its mixin must agree.
-`test/run.lua` runs the full scan, auto scan, reference, tooltip,
-slash command, Buy tab column and filter, depth on demand through a
+`test/run.lua` runs the full scan, auto scan, reference, tooltip
+with and without Shift, the bag overlay, slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
 Waylaid Crate and Craftsman's Writ lines, a full scan the house does

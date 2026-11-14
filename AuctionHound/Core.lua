@@ -17,6 +17,7 @@ H.DEFAULTS = {
   laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
+  overlay = true,        -- hold Shift with the bags open: each slot's worth, at the house or the vendor
   keepDays = 90,         -- daily history retention
   keepPoints = 120,      -- scan-level points kept per item
   fanPerBatch = 5,       -- units per batch when fanning a listing
@@ -131,6 +132,7 @@ commands.help = function()
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound sat <hours>          a floor on offer this long is no longer a deal; 0 judges by price alone")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
+  H.Print("  /hound overlay on|off       hold Shift with the bags open to see what each slot is worth")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
   H.Print("  /hound markets    list the markets stored: each region, realm and faction played")
@@ -202,8 +204,8 @@ commands.stats = function(rest)
   H.Printf("%s [%s]", H.ItemName(H.ItemIDFromKey(key)), key)
   if rec then
     local st = H.Market.Stats(rec)
-    H.Printf("  market %s  min %s  30d %s  listed %s  trend %s  stability %s",
-      H.Money(st.market or 0), H.Money(st.min or 0), H.Money(st.hist or 0),
+    H.Printf("  market %s  min %s  3d %s  listed %s  trend %s  stability %s",
+      H.Money(st.market or 0), H.Money(st.min or 0), H.Money(st.avg3 or 0),
       tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
     H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
       st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
@@ -329,6 +331,23 @@ commands.estimates = function(rest)
     H.Print("estimates are on: crafted cost and value as an input stand in for the reference while history is thin")
   else
     H.Print("estimates are off: the reference is history or the vendor price, or nothing")
+  end
+end
+
+commands.overlay = function(rest)
+  local S = H.Settings()
+  local v = string.lower(rest or "")
+  if v == "on" or v == "off" then
+    S.overlay = v == "on"
+    H.Events:Fire("SETTINGS_CHANGED", "overlay")
+  elseif v ~= "" then
+    H.Print("usage: /hound overlay on|off")
+    return
+  end
+  if S.overlay then
+    H.Print("the bag overlay is on: hold Shift with the bags open to see what each slot is worth")
+  else
+    H.Print("the bag overlay is off")
   end
 end
 

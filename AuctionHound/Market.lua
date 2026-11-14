@@ -127,7 +127,10 @@ end
 --   market  decay-weighted mean of daily values over the last 14 days
 --   recent  value from the latest scan
 --   min     floor at the latest scan
---   hist    plain mean of daily values over 30 days
+--   hist    plain mean of daily values over 30 days, for history older
+--           than the two weeks the market value spans
+--   avg3    plain mean of daily values over the last three days, today
+--           included: what the tooltip and the Item view show
 --   trend   recent versus the previous week's mean, as a fraction
 --   stab    coefficient of variation of daily values over 14 days
 --   qty     units listed at the latest scan
@@ -148,6 +151,7 @@ function Market.Stats(rec, now)
   local st = { day = today, days = 0, samples = 0 }
   local wsum, sum = 0, 0
   local histSum, histN = 0, 0
+  local avgSum, avgN = 0, 0
   local vals14 = {}
   local weekSum, weekN = 0, 0
   local listedSum = 0
@@ -160,6 +164,10 @@ function Market.Stats(rec, now)
       st.samples = st.samples + b.s
       histSum = histSum + b.mv
       histN = histN + 1
+      if age <= 2 then
+        avgSum = avgSum + b.mv
+        avgN = avgN + 1
+      end
       if age <= 13 then
         local w = 0.5 ^ (age / 3.5)
         sum = sum + b.mv * w
@@ -179,6 +187,7 @@ function Market.Stats(rec, now)
     st.listed = listedSum / wsum
   end
   if histN > 0 then st.hist = H.Round(histSum / histN) end
+  if avgN > 0 then st.avg3 = H.Round(avgSum / avgN) end
 
   local last = rec.pts[#rec.pts]
   if last then

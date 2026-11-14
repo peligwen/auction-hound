@@ -331,12 +331,24 @@ function H.ItemIcon(itemID)
   return nil
 end
 
+-- The item's quality, 0 for junk, or nil while the client has yet to
+-- load the item. GetItemInfoInstant has no quality among its returns.
 function H.ItemQuality(itemID)
-  if C_Item and C_Item.GetItemInfoInstant then
-    local _, _, quality = C_Item.GetItemInfoInstant(itemID)
-    return quality
+  if not C_Item then return nil end
+  if C_Item.GetItemQualityByID then
+    local q = C_Item.GetItemQualityByID(itemID)
+    if type(q) == "number" then return q end
+  end
+  if C_Item.GetItemInfo then
+    local q = select(3, C_Item.GetItemInfo(itemID))
+    if type(q) == "number" then return q end
   end
   return nil
+end
+
+-- Junk: gray items, which the vendor buys and the house is no place for.
+function H.IsJunk(itemID)
+  return H.ItemQuality(itemID) == 0
 end
 
 function H.ColoredName(itemID)

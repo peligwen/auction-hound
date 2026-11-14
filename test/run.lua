@@ -193,6 +193,15 @@ do
   check(st.market and st.market > 100, "stats market: " .. tostring(st.market))
   eq(st.days, 21, "stats days counted")
   check(st.hist and st.hist < st.market, "30 day mean below recent in a rising market")
+  do
+    local today, sum, n = H.DayIndex(Stub.now), 0, 0
+    for d = today - 2, today do
+      if rec2.days[d] then sum, n = sum + rec2.days[d].mv, n + 1 end
+    end
+    check(n > 0, "the last three days hold history")
+    eq(st.avg3, H.Round(sum / n), "3 day mean is the plain mean of the last three days")
+    check(st.avg3 > st.hist, "3 day mean above the 30 day mean in a rising market")
+  end
   check(st.trend and st.trend > 0, "rising trend: " .. tostring(st.trend))
   check(st.stab and st.stab < 0.2, "stability: " .. tostring(st.stab))
   check(st.moved and st.moved > 0, "moved per day: " .. tostring(st.moved))
@@ -430,9 +439,11 @@ do
   eq(st.clearing, 116, "the mean price they went at")
   eq(H.Market.ClearedLine(st), "cleared ~10 a day at ~" .. H.Money(116), "the line for it")
   GameTooltip.lines = {}
+  Stub.shift = true
   Stub.tooltipHandler(GameTooltip, { id = 90040 })
+  Stub.shift = false
   check(string.find(table.concat(GameTooltip.lines, "\n"), "cleared ~10/day at ~1s", 1, true),
-    "the item tooltip shows it: " .. table.concat(GameTooltip.lines, " | "))
+    "the item tooltip shows it with Shift held: " .. table.concat(GameTooltip.lines, " | "))
   Stub.printed = {}
   SlashCmdList.HOUND("stats 90040")
   check(string.find(table.concat(Stub.printed, "\n"), "cleared ~10 a day at", 1, true), "stats shows it")
@@ -872,21 +883,196 @@ end
 -- Tooltip and slash commands
 ------------------------------------------------------------------------
 do
+  local oreLink = "|cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h|r"
+  local oreSt = H.Market.Stats(H.Store.Get("2770"))
+  -- by default one line: the floor at the latest scan
   GameTooltip.lines = {}
-  Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = "|cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h|r" })
-  check(#GameTooltip.lines >= 3, "tooltip lines added: " .. #GameTooltip.lines)
-  check(string.find(GameTooltip.lines[2], "market"), "tooltip has market line")
+  Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
+  eq(#GameTooltip.lines, 1, "the tooltip is one line by default: " .. table.concat(GameTooltip.lines, " | "))
+  eq(GameTooltip.lines[1], "|cffe6b800Hound|r floor | " .. H.Money(oreSt.min), "and that line is the latest floor")
+  -- Shift held: the rest, the three-day mean among it
+  Stub.shift = true
+  GameTooltip.lines = {}
+  Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
+  local full = table.concat(GameTooltip.lines, "\n")
+  check(#GameTooltip.lines >= 5, "Shift adds the rest: " .. table.concat(GameTooltip.lines, " | "))
+  eq(GameTooltip.lines[2], "|cffe6b800Hound|r floor | " .. H.Money(oreSt.min), "the floor still heads it")
+  check(string.find(full, "  market | " .. H.Money(oreSt.market), 1, true), "tooltip has the market line")
+  check(string.find(full, "  3 day | " .. H.Money(oreSt.avg3), 1, true), "tooltip has the 3 day mean")
+  check(not string.find(full, "30 day", 1, true), "and no 30 day line")
+  check(string.find(full, "  vendor | " .. H.Money(5), 1, true), "tooltip has the vendor price")
+  check(string.find(full, "listed", 1, true), "tooltip says how many are listed")
   check(string.find(GameTooltip.lines[#GameTooltip.lines], "yours"), "tooltip has own sales line")
+  Stub.shift = false
+  -- a link clicked in chat stays up to be read: always the rest
+  ItemRefTooltip.lines = {}
+  Stub.tooltipHandler(ItemRefTooltip, { id = 2770, hyperlink = oreLink })
+  check(#ItemRefTooltip.lines >= 5, "a chat link's tooltip shows the rest without Shift")
+  -- a floor last scanned days ago says how old it is
+  do
+    local saved = Stub.now
+    Stub.now = Stub.now + 3 * 86400
+    GameTooltip.lines = {}
+    Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
+    check(string.find(GameTooltip.lines[1] or "", "3d ago", 1, true), "a stale floor says its age: " .. tostring(GameTooltip.lines[1]))
+    Stub.now = saved
+  end
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 424242 })
   eq(#GameTooltip.lines, 0, "no tooltip lines without history")
-  -- sales without scan history still show
+  -- junk gets no Hound lines, history or not: the vendor is where it goes
+  Stub.DefineItem(4865, "Ruined Pelt", { sell = 5, commodity = true, quality = 0 })
+  H.Store.AddScanSample("4865", Stub.now - 600, { { p = 300, q = 20 } })
+  check(H.IsJunk(4865) and not H.IsJunk(2770), "junk is read by quality")
+  GameTooltip.lines = {}
+  Stub.tooltipHandler(GameTooltip, { id = 4865 })
+  eq(#GameTooltip.lines, 0, "no Hound lines on junk")
+  Stub.shift = true
+  GameTooltip.lines = {}
+  Stub.tooltipHandler(GameTooltip, { id = 4865 })
+  eq(#GameTooltip.lines, 0, "nor with Shift held")
+  Stub.shift = false
+  -- sales without scan history show with Shift held
   Stub.DefineItem(31337, "Odd Trinket", { sell = 1, commodity = true })
   H.Store.AddPost({ t = Stub.now - 3600, key = "31337", itemID = 31337, name = "Odd Trinket", qty = 2, unit = 777, status = "sold", sold = 2, soldAt = Stub.now - 60 })
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 31337 })
+  eq(#GameTooltip.lines, 0, "sales without scans: nothing by default, there is no floor")
+  Stub.shift = true
+  GameTooltip.lines = {}
+  Stub.tooltipHandler(GameTooltip, { id = 31337 })
+  Stub.shift = false
   eq(#GameTooltip.lines, 2, "tooltip with sales but no scans")
   check(string.find(GameTooltip.lines[2], "sold 2"), "tooltip sales line: " .. tostring(GameTooltip.lines[2]))
+
+------------------------------------------------------------------------
+-- Bag overlay: Shift held puts each slot's worth over the bags
+------------------------------------------------------------------------
+  do
+    local Bags = H.Bags
+    local oreFloor = H.Market.Stats(H.Store.Get("2770")).min
+    -- what a slot is worth, and where to sell it
+    local v, where = Bags.Value(2770, 20)
+    eq(v, oreFloor * 20, "a stack with history: the floor for every unit")
+    eq(where, "house", "sold at the house")
+    v, where = Bags.Value(4865, 3)
+    eq(v, 15, "junk: the vendor's price for every unit, whatever the house says")
+    eq(where, "vendor", "sold to the vendor")
+    v, where = Bags.Value(2770, 20, nil, true)
+    eq(v, 100, "a soulbound stack: the vendor's price")
+    eq(where, "vendor", "the house will not take it")
+    Stub.DefineItem(4306, "Silk Cloth", { sell = 150, commodity = true })
+    H.Store.AddScanSample("4306", Stub.now - 600, { { p = 155, q = 40 } })
+    v, where = Bags.Value(4306, 2)
+    eq(where, "vendor", "the vendor wins when the house pays less after its cut")
+    eq(v, 300, "at the vendor's price")
+    Stub.DefineItem(4307, "Unscanned Thing", { sell = 7, commodity = true })
+    v, where = Bags.Value(4307, 4)
+    eq(where, "vendor", "no history: the vendor's price")
+    eq(v, 28, "for every unit")
+    Stub.DefineItem(4308, "Worth Nothing", { sell = 0, commodity = true })
+    eq(Bags.Value(4308, 1), nil, "no history and no vendor price: nothing to show")
+    eq(Bags.Value(nil, 1), nil, "an empty slot shows nothing")
+
+    -- a classic bag frame: buttons numbered within a frame whose ID is the bag
+    local bag0 = CreateFrame("Frame", "ContainerFrame1")
+    bag0:SetID(0)
+    bag0.size = 4
+    for i = 1, 4 do
+      local b = CreateFrame("Button", "ContainerFrame1Item" .. i, bag0)
+      b:SetID(i)
+    end
+    local savedBags = Stub.bags
+    Stub.bags = {}
+    Stub.SetBag(0, 1, 2770, 20)
+    Stub.SetBag(0, 2, 4865, 3)
+    Stub.SetBag(0, 3, 4308, 1)
+    -- a modern frame: buttons in a list, each knowing its bag
+    local combined = CreateFrame("Frame", "ContainerFrameCombinedBags")
+    combined.Items = {}
+    local b = CreateFrame("Button", nil, combined)
+    b:SetID(5)
+    function b:GetBagID() return 1 end
+    table.insert(combined.Items, b)
+    local hidden = CreateFrame("Button", nil, combined)
+    hidden:SetID(6)
+    function hidden:GetBagID() return 1 end
+    hidden:Hide()
+    table.insert(combined.Items, hidden)
+    Stub.SetBag(1, 5, 4306, 2)
+    Stub.SetBag(1, 6, 2770, 1)
+
+    local function fields(f)
+      local keys = {}
+      for k in pairs(f) do table.insert(keys, tostring(k)) end
+      table.sort(keys)
+      return table.concat(keys, ",")
+    end
+    local buttonsBefore = {}
+    for i = 1, 4 do buttonsBefore[i] = fields(_G["ContainerFrame1Item" .. i]) end
+    local frameBefore, modernBefore = fields(bag0), fields(b)
+
+    Stub.shift = true
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
+    eq(Bags.shown, 3, "Shift down: a figure on each slot with a price, none on the rest or a hidden button")
+    local byslot = {}
+    for _, o in ipairs(Bags.overlays) do
+      if o:IsShown() then byslot[o.bag .. ":" .. o.slot] = o end
+    end
+    local ore = byslot["0:1"]
+    check(ore and ore.text:GetText() == H.MoneyShort(oreFloor * 20) and ore.where == "house", "the ore's figure is its stack at the floor")
+    check(ore and ore.text.color and ore.text.color[1] == Bags.HOUSE_COLOR[1] and ore.text.color[3] == Bags.HOUSE_COLOR[3], "in the house's color")
+    check(ore and not ore:IsMouseEnabled(), "and the figure takes no clicks")
+    check(ore and ore.allPoints == _G.ContainerFrame1Item1, "laid over its own button")
+    check(byslot["1:5"] and byslot["1:5"].allPoints == b, "a modern button too")
+    local same = fields(bag0) == frameBefore and fields(b) == modernBefore
+    for i = 1, 4 do same = same and fields(_G["ContainerFrame1Item" .. i]) == buttonsBefore[i] end
+    check(same, "nothing written on a bag frame or button")
+    local junk = byslot["0:2"]
+    check(junk and junk.where == "vendor" and junk.text:GetText() == H.MoneyShort(15), "the junk's figure is the vendor's")
+    check(junk and junk.text.color and junk.text.color[1] == Bags.VENDOR_COLOR[1], "in the vendor's color")
+    check(byslot["0:3"] == nil, "nothing on a slot with no price")
+    check(byslot["1:5"] and byslot["1:5"].where == "vendor", "the modern frame's buttons are read by their bag")
+    check(byslot["1:6"] == nil, "a hidden button gets no figure")
+
+    -- a stack moved while Shift is held is followed on the next repaint
+    check(Bags.ticker and not Bags.ticker:IsCancelled(), "a repaint ticks while Shift is held")
+    eq(Bags.ticker and Bags.ticker.interval, Bags.REFRESH, "a few times a second")
+    Stub.SetBag(0, 3, 2770, 5)
+    Bags.ticker.fn(Bags.ticker)
+    eq(Bags.shown, 4, "the repaint while Shift is held follows the bags")
+
+    Stub.shift = false
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LSHIFT", 0)
+    eq(Bags.shown, 0, "Shift up takes them down")
+    check(Bags.ticker == nil, "and stops the repaint")
+    local up = 0
+    for _, o in ipairs(Bags.overlays) do if o:IsShown() then up = up + 1 end end
+    eq(up, 0, "every figure hidden")
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LCTRL", 1)
+    eq(Bags.shown, 0, "another modifier does nothing")
+
+    -- off by command, and never in combat
+    SlashCmdList.HOUND("overlay off")
+    Stub.shift = true
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 1)
+    eq(Bags.shown, 0, "off: nothing with Shift held")
+    SlashCmdList.HOUND("overlay on")
+    eq(Bags.shown, 4, "on again while Shift is held: the figures come up")
+    check(string.find(Stub.printed[#Stub.printed] or "", "overlay is on", 1, true), "the command says so")
+    Stub.FireEvent("PLAYER_REGEN_DISABLED")
+    eq(Bags.shown, 0, "entering combat takes them down")
+    Stub.combat = true
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 1)
+    eq(Bags.shown, 0, "and Shift in combat leaves the bags alone")
+    Stub.combat = false
+    Stub.shift = false
+    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 0)
+
+    _G.ContainerFrame1, _G.ContainerFrameCombinedBags = nil, nil
+    for i = 1, 4 do _G["ContainerFrame1Item" .. i] = nil end
+    Stub.bags = savedBags
+  end
 
   Stub.printed = {}
   SlashCmdList.HOUND("fan")
@@ -1693,7 +1879,7 @@ do
   check(soldOne and soldOne.status == "sold" and soldOne.sold == 3, "sold auction adopted as a sale")
   eq(soldOne.unit, 167, "a sold auction's buyout is the whole sum: the unit is its share")
   eq(soldOne.dur, 12 * 3600, "remaining time from the band")
-  eq(#Stub.printed, printed, "adopted sale is quiet")
+  eq(#Stub.printed, printed, "adopted sale is quiet: " .. tostring(Stub.printed[#Stub.printed]))
   eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "adopted sale in the ledger")
   eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile adopts nothing")
   -- a batch that sold before its id came back: the owned list shows the
@@ -2869,7 +3055,7 @@ do
   GameTooltip:ClearLines()
   Stub.tooltipHandler(GameTooltip, { id = 264047, hyperlink = writLink })
   local tip = table.concat(GameTooltip.lines, " / ")
-  check(string.find(tip, "|cffe6b800Hound|r market | " .. H.Money(3000), 1, true), "the writ's own market value: " .. tip)
+  check(string.find(tip, "|cffe6b800Hound|r floor | " .. H.Money(3000), 1, true), "the writ's own floor: " .. tip)
   eq(GameTooltip.lines[#GameTooltip.lines], "  Lesser Wizard's Robe | " .. H.Money(12000), "and the robe's under it")
   eq(GameTooltip.lines[#GameTooltip.lines - 1], "|cffe6b800Hound|r Journeyman writ, 75 reputation | scanned 0s ago", "below the writ's header")
   -- the robe's own tooltip has no writ lines, a comparison tooltip is

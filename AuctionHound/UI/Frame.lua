@@ -259,7 +259,7 @@ local function buildItemView(parent)
     keyText:SetText(self.err or "one item's history, anchors and connections  |  " .. H.marketKey)
     self.err = nil
     statsLeft:SetText("Pick an item: double-click a row in Markets, pick one in the Fan tab's bag list, or type part of a name, an item id or a link in the find box and press Enter.")
-    statsRight:SetText("Shows market value, floor, 30 day mean, trend, units moved, the daily graph, vendor and crafting anchors, what it is made from and what it makes, and what you sold it for.")
+    statsRight:SetText("Shows market value, floor, 3 day mean, trend, units moved, the daily graph, vendor and crafting anchors, what it is made from and what it makes, and what you sold it for.")
     graph:SetSeries({})
     conn:SetData({})
   end
@@ -275,8 +275,8 @@ local function buildItemView(parent)
     local st = rec and H.Market.Stats(rec) or nil
     if st and st.market then
       local demand = H.Market.ClearedLine(st) or string.format("moved ~%s a day", st.moved and tostring(H.Round(st.moved)) or "?")
-      statsLeft:SetText(string.format("market %s   floor %s   30 day %s\nlisted %d   %s   trend %s\nswing %s   %d scans over %d days   last %s",
-        H.Money(st.market), H.Money(st.min or 0), H.Money(st.hist or 0),
+      statsLeft:SetText(string.format("market %s   floor %s   3 day %s\nlisted %d   %s   trend %s\nswing %s   %d scans over %d days   last %s",
+        H.Money(st.market), H.Money(st.min or 0), H.Money(st.avg3 or 0),
         st.qty or 0, demand, H.Pct(st.trend, true),
         H.Pct(st.stab), st.samples, st.days, H.Ago(st.age)))
       graph:SetSeries(UI.SeriesFor(rec))
