@@ -3,13 +3,14 @@
 -- Craftsman's Writ the price of the item it asks for (Writ.lua).
 --
 -- An item's own lines are one by default, the floor at the latest
--- scan. Shift held shows the rest: the market value, the three-day
--- mean, the trend, what has cleared and your own sales. The vendor
--- price is left to the game's own line. A tooltip the client
--- refreshes while it is up, a bag slot or a house row, follows Shift
--- as it goes down and up; a link clicked in chat stays up to be read,
--- so it always shows the rest. Junk gets no Hound lines at all: the
--- vendor is where it goes.
+-- scan; on a stack it goes on to the count and the stack's price, to
+-- read against the game's sell price, which is the stack's. Shift held
+-- shows the rest: the market value, the three-day mean, the trend,
+-- what has cleared and your own sales. The vendor price is left to the
+-- game's own line. A tooltip the client refreshes while it is up, a
+-- bag slot or a house row, follows Shift as it goes down and up; a
+-- link clicked in chat stays up to be read, so it always shows the
+-- rest. Junk gets no Hound lines at all: the vendor is where it goes.
 local ADDON, H = ...
 
 -- A floor older than this says how old it is.
@@ -20,12 +21,35 @@ local function detailed(tooltip)
   return type(IsShiftKeyDown) == "function" and IsShiftKeyDown() and true or false
 end
 
+-- How many the hovered item is: the stack in the bag slot the tooltip
+-- was set from, the count the game's sell price is for, else the count
+-- on the item button under the cursor. 1 when neither says.
+local function stackCount(tooltip)
+  local info = tooltip.GetPrimaryTooltipInfo and tooltip:GetPrimaryTooltipInfo()
+  if type(info) == "table" and info.getterName == "GetBagItem" and type(info.getterArgs) == "table"
+    and C_Container and C_Container.GetContainerItemInfo then
+    local ci = C_Container.GetContainerItemInfo(info.getterArgs[1], info.getterArgs[2])
+    if ci and ci.stackCount then return ci.stackCount end
+  end
+  local owner = tooltip.GetOwner and tooltip:GetOwner()
+  if type(owner) == "table" and type(owner.count) == "number" and owner.count > 0 then return owner.count end
+  return 1
+end
+
+-- The price of one, and for a stack the count and the stack's price
+-- after it: "5s 1c  x4  20s 4c". The stack is the one shown times the
+-- count, so the two agree to the copper.
+local function unitAndStack(unit, n)
+  if n <= 1 then return H.Money(unit) end
+  return string.format("%s  x%d  %s", H.Money(unit), n, H.Money(H.Round(unit) * n))
+end
+
 local function floorLine(tooltip, st)
   local label = "|cffe6b800Hound|r floor"
   if st.age and st.age > H.TOOLTIP_STALE then
     label = label .. " |cff999999" .. H.Ago(st.age) .. "|r"
   end
-  tooltip:AddDoubleLine(label, H.Money(st.min or st.market), 1, 0.82, 0, 1, 1, 1)
+  tooltip:AddDoubleLine(label, unitAndStack(st.min or st.market, stackCount(tooltip)), 1, 0.82, 0, 1, 1, 1)
 end
 
 local function addLines(tooltip, itemID, link)

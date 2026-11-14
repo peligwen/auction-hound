@@ -917,6 +917,39 @@ do
     check(string.find(GameTooltip.lines[1] or "", "3d ago", 1, true), "a stale floor says its age: " .. tostring(GameTooltip.lines[1]))
     Stub.now = saved
   end
+  -- a stack in the bags: the floor line goes on to the count and the
+  -- stack's price, to read against the game's sell price, which is the
+  -- whole stack's; Shift or not
+  do
+    local f = H.Round(oreSt.min)
+    local plain = "|cffe6b800Hound|r floor | " .. H.Money(f)
+    local function hover() GameTooltip.lines = {} Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink }) end
+    Stub.SetBag(4, 9, 2770, 4)
+    GameTooltip.GetPrimaryTooltipInfo = function() return { getterName = "GetBagItem", getterArgs = { 4, 9 } } end
+    hover()
+    eq(GameTooltip.lines[1], plain .. "  x4  " .. H.Money(f * 4), "a bag stack's floor line ends in the count and the stack's price")
+    Stub.shift = true
+    hover()
+    eq(GameTooltip.lines[2], plain .. "  x4  " .. H.Money(f * 4), "and with Shift held")
+    check(string.find(table.concat(GameTooltip.lines, "\n"), "  market | " .. H.Money(oreSt.market) .. "\n", 1, true),
+      "the market line under it stays a unit's")
+    Stub.shift = false
+    Stub.SetBag(4, 9, 2770, 1)
+    hover()
+    eq(GameTooltip.lines[1], plain, "a single in the bags prices one")
+    Stub.SetBag(4, 9, nil)
+    hover()
+    eq(GameTooltip.lines[1], plain, "an empty slot prices one")
+    -- set from anything but a bag slot, the item button's count stands in
+    GameTooltip.GetPrimaryTooltipInfo = function() return { getterName = "GetMerchantItem", getterArgs = { 3 } } end
+    GameTooltip.GetOwner = function() return { count = 12 } end
+    hover()
+    eq(GameTooltip.lines[1], plain .. "  x12  " .. H.Money(f * 12), "the owner button's count, where no bag slot is named")
+    GameTooltip.GetOwner = function() return { count = "x" } end
+    hover()
+    eq(GameTooltip.lines[1], plain, "an owner without a count prices one")
+    GameTooltip.GetPrimaryTooltipInfo, GameTooltip.GetOwner = nil, nil
+  end
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 424242 })
   eq(#GameTooltip.lines, 0, "no tooltip lines without history")
