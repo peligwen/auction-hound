@@ -132,10 +132,10 @@ launch is listed at its head.
   the best price buyers actually paid.
 - **Tooltips.** One line by default: the floor at the latest scan,
   with its age when that is more than a day. Hold Shift for the rest:
-  market value, the three-day mean, the vendor price, units listed,
-  trend and the units cleared a day at what price (or the units moved
-  estimate where no fills have been seen), plus your own sold / unsold
-  line. A tooltip the client refreshes while it is up, a bag slot or a
+  market value, the three-day mean, units listed, trend and the units
+  cleared a day at what price (or the units moved estimate where no
+  fills have been seen), plus your own sold / unsold line. The vendor
+  price is left to the game's own line. A tooltip the client refreshes while it is up, a bag slot or a
   house row, follows Shift as it goes down and up; a link clicked in
   chat always shows the rest. Junk gets no Hound lines: the vendor is
   where it goes. The Buy tab's cell tooltip and the Item view carry
@@ -147,7 +147,8 @@ launch is listed at its head.
   soulbound show the vendor's price alone; a slot with neither shows
   nothing. Letting go takes it down, and it stays out of combat.
   Blizzard's own bags only: a bag addon that replaces them gets no
-  figures. `/hound overlay off` turns it off.
+  figures. `/hound overlay` says what it can see right now, and
+  `/hound overlay off` turns it off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
   does. Hound adds a line for each under it: the units, the good, the
@@ -288,8 +289,9 @@ below are still the real test. What did change around the addon:
    does.
 4. **Tooltips.** Open, and changed. Hover a scanned item in your
    bags: one Hound line, the floor. Hold Shift with the tooltip up:
-   the rest appears (market, 3 day, vendor, listed and trend, yours),
-   and goes again when Shift is let go. Click the item's link in chat:
+   the rest appears (market, 3 day, listed and trend, yours; the
+   vendor price is the game's own line, not Hound's), and goes again
+   when Shift is let go. Click the item's link in chat:
    that tooltip shows the rest without Shift. Hover a gray item: no
    Hound lines. Hover something never scanned: no lines, no error.
    Report a tooltip that does not follow Shift while it is up, saying
@@ -474,16 +476,24 @@ below are still the real test. What did change around the addon:
     type `/hound writ ` and shift-click the writ: for an item the data
     does not know it prints the item's ID.
 
-28. **Bag overlay.** Open, and new. Open the bags and hold Shift: a
-    small figure sits over the top of each slot with a price, gold for
-    the house and gray for the vendor, and goes when Shift is let go.
-    Gray items and soulbound ones read gray, at the vendor's price.
-    Click, shift-click and drag items with it up: everything must work
-    as it does without the addon. Open another bag while holding
-    Shift: its slots fill in within a moment. Report figures that sit
-    off their slots, overlap the stack count, or show under the bag
-    art; `/hound overlay off` turns it off meanwhile. Bag addons
-    (Bagnon, AdiBags and the like) are not covered.
+28. **Bag overlay.** Open, and reported not working on live: nothing
+    came up over the bags with Shift held. It now reads Shift every
+    frame, as the tooltip does, rather than waiting on the game's
+    Shift event, and says in chat if it stops on an error. Open the
+    bags and hold Shift: a small figure sits over the top of each slot
+    with a price, gold for the house and gray for the vendor, and goes
+    when Shift is let go. Gray items and soulbound ones read gray, at
+    the vendor's price. Click, shift-click and drag items with it up:
+    everything must work as it does without the addon. Open another
+    bag while holding Shift: its slots fill in within a moment. If
+    nothing comes up, open the bags and type `/hound overlay`: it says
+    how many bag frames it found open, how many slots it read from
+    them and how many have a price, names any bag addon that is
+    loaded, and repeats the error it stopped on, if any. Report those
+    lines, and figures that sit off their slots, overlap the stack
+    count, or show under the bag art; `/hound overlay off` turns it
+    off meanwhile. Bag addons (Bagnon, AdiBags and the like) are not
+    covered.
 29. **Bags at the house.** Open, and suspected. Reported on live: a
     right-click on a Cozy Sleeping Bag in the bags brought up
     "blocked from an action only available to the Blizzard UI" in
@@ -557,7 +567,8 @@ buttons, and nothing is written on a bag frame or button.
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
 /hound sat <hours>     a floor on offer this long is no longer a deal, default 1; 0 judges by price alone
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
-/hound overlay on|off  hold Shift with the bags open to see what each slot is worth, default on
+/hound overlay [on|off]  hold Shift with the bags open to see what each slot is worth, default on;
+                       alone, what it sees in the bags right now
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
 /hound markets         list the markets stored: each region, realm and faction played

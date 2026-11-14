@@ -13,6 +13,7 @@
 -- script of theirs is run, and none of ours takes the mouse, so a
 -- click goes to the button under it as always. Only Blizzard's own
 -- bags are read; a bag addon that replaces them gets no figures.
+-- /hound overlay says what it can see.
 local ADDON, H = ...
 
 local Bags = { overlays = {}, shown = 0 }
@@ -165,9 +166,12 @@ function Bags.Clear()
 end
 
 ------------------------------------------------------------------------
--- Shift down puts the figures up, Shift up takes them down. While it
--- is held they are painted again a few times a second, so a bag opened
--- or a stack moved meanwhile is followed.
+-- Shift held puts the figures up, Shift let go takes them down. The
+-- key is read every frame, as the tooltip reads it, rather than waited
+-- on as an event. While it is held the figures are painted again a few
+-- times a second, so a bag opened or a stack moved meanwhile is
+-- followed. An error while painting is said once in chat and the
+-- figures stay down until /hound overlay on.
 ------------------------------------------------------------------------
 local function wanted()
   if not H.db or not H.Settings().overlay then return false end
@@ -175,27 +179,84 @@ local function wanted()
   return type(IsShiftKeyDown) == "function" and IsShiftKeyDown() and true or false
 end
 
-local function stopTicker()
-  if Bags.ticker then
-    Bags.ticker:Cancel()
-    Bags.ticker = nil
+local since = 0
+
+function Bags.Tick(elapsed)
+  if Bags.broken then return end
+  if not wanted() then
+    if Bags.up then
+      Bags.up = false
+      Bags.Clear()
+    end
+    return
+  end
+  since = since + (elapsed or 0)
+  if Bags.up and since < Bags.REFRESH then return end
+  since = 0
+  Bags.up = true
+  local ok, err = pcall(Bags.Paint)
+  if not ok then
+    Bags.broken = tostring(err)
+    Bags.up = false
+    pcall(Bags.Clear)
+    H.Print("the bag overlay stopped on an error, /hound overlay on tries again: " .. Bags.broken)
   end
 end
 
-function Bags.Update()
-  if wanted() then
-    Bags.Paint()
-    if not Bags.ticker then Bags.ticker = C_Timer.NewTicker(Bags.REFRESH, Bags.Update) end
-  else
-    stopTicker()
-    Bags.Clear()
-  end
-end
+Bags.driver = CreateFrame("Frame")
+Bags.driver:SetScript("OnUpdate", function(_, elapsed) Bags.Tick(elapsed) end)
 
-H.RegisterEvent("MODIFIER_STATE_CHANGED", function(key)
-  if key == "LSHIFT" or key == "RSHIFT" then Bags.Update() end
-end)
-H.RegisterEvent("PLAYER_REGEN_DISABLED", function() stopTicker() Bags.Clear() end)
 H.Events:On("SETTINGS_CHANGED", function(what)
-  if what == "overlay" then Bags.Update() end
+  if what ~= "overlay" then return end
+  Bags.broken = nil
+  Bags.up = false
+  Bags.Clear()
+  Bags.Tick(0)
 end)
+
+------------------------------------------------------------------------
+-- What the overlay sees right now, for /hound overlay: the bags open,
+-- the slots read from them, the slots with a price, and any bag addon
+-- loaded, since one that draws its own bags leaves Blizzard's shut.
+------------------------------------------------------------------------
+Bags.BAG_ADDONS = { "Baganator", "Bagnon", "AdiBags", "ArkInventory", "BetterBags",
+  "Combuctor", "LiteBag", "Inventorian", "Sorted", "ElvUI" }
+
+local function loaded(name)
+  if C_AddOns and C_AddOns.IsAddOnLoaded then return C_AddOns.IsAddOnLoaded(name) and true or false end
+  if type(IsAddOnLoaded) == "function" then return IsAddOnLoaded(name) and true or false end
+  return false
+end
+
+function Bags.Survey()
+  local s = { open = 0, slots = 0, priced = 0, addons = {} }
+  for _, frame in ipairs(bagFrames()) do
+    if frame:IsShown() then s.open = s.open + 1 end
+  end
+  Bags.EachButton(function(_, bag, slot)
+    s.slots = s.slots + 1
+    if Bags.SlotValue(bag, slot) then s.priced = s.priced + 1 end
+  end)
+  for _, name in ipairs(Bags.BAG_ADDONS) do
+    if loaded(name) then table.insert(s.addons, name) end
+  end
+  return s
+end
+
+function Bags.Report()
+  if Bags.broken then H.Print("  it stopped on an error: " .. Bags.broken) end
+  local ok, s = pcall(Bags.Survey)
+  if not ok then
+    H.Print("  reading the bags failed: " .. tostring(s))
+    return
+  end
+  if s.open == 0 then
+    H.Print("  no Blizzard bag is open right now; open them and ask again")
+  else
+    H.Print(string.format("  now: %d bag frame%s open, %d slot%s read, %d with a price",
+      s.open, s.open == 1 and "" or "s", s.slots, s.slots == 1 and "" or "s", s.priced))
+  end
+  if #s.addons > 0 then
+    H.Print("  loaded: " .. table.concat(s.addons, ", ") .. "; a bag addon that draws its own bags gets no figures")
+  end
+end

@@ -900,7 +900,7 @@ do
   check(string.find(full, "  market | " .. H.Money(oreSt.market), 1, true), "tooltip has the market line")
   check(string.find(full, "  3 day | " .. H.Money(oreSt.avg3), 1, true), "tooltip has the 3 day mean")
   check(not string.find(full, "30 day", 1, true), "and no 30 day line")
-  check(string.find(full, "  vendor | " .. H.Money(5), 1, true), "tooltip has the vendor price")
+  check(not string.find(full, "vendor", 1, true), "no vendor line: the game's tooltip has its own")
   check(string.find(full, "listed", 1, true), "tooltip says how many are listed")
   check(string.find(GameTooltip.lines[#GameTooltip.lines], "yours"), "tooltip has own sales line")
   Stub.shift = false
@@ -1012,9 +1012,14 @@ do
     for i = 1, 4 do buttonsBefore[i] = fields(_G["ContainerFrame1Item" .. i]) end
     local frameBefore, modernBefore = fields(bag0), fields(b)
 
+    -- Shift is read every frame by Hound's own driver, no event needed
+    local function frame(dt) Bags.driver.scripts.OnUpdate(Bags.driver, dt or 0.016) end
+    check(Bags.driver and Bags.driver:IsShown() and Bags.driver.scripts.OnUpdate, "a driver frame reads Shift every frame")
+    frame()
+    eq(Bags.shown, 0, "nothing without Shift")
     Stub.shift = true
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LSHIFT", 1)
-    eq(Bags.shown, 3, "Shift down: a figure on each slot with a price, none on the rest or a hidden button")
+    frame()
+    eq(Bags.shown, 3, "Shift held: a figure on each slot with a price on the next frame, none on the rest or a hidden button")
     local byslot = {}
     for _, o in ipairs(Bags.overlays) do
       if o:IsShown() then byslot[o.bag .. ":" .. o.slot] = o end
@@ -1036,38 +1041,74 @@ do
     check(byslot["1:6"] == nil, "a hidden button gets no figure")
 
     -- a stack moved while Shift is held is followed on the next repaint
-    check(Bags.ticker and not Bags.ticker:IsCancelled(), "a repaint ticks while Shift is held")
-    eq(Bags.ticker and Bags.ticker.interval, Bags.REFRESH, "a few times a second")
     Stub.SetBag(0, 3, 2770, 5)
-    Bags.ticker.fn(Bags.ticker)
-    eq(Bags.shown, 4, "the repaint while Shift is held follows the bags")
+    frame()
+    eq(Bags.shown, 3, "not repainted every frame")
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 4, "the repaint a moment later follows the bags")
 
     Stub.shift = false
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LSHIFT", 0)
-    eq(Bags.shown, 0, "Shift up takes them down")
-    check(Bags.ticker == nil, "and stops the repaint")
+    frame()
+    eq(Bags.shown, 0, "Shift let go takes them down on the next frame")
     local up = 0
     for _, o in ipairs(Bags.overlays) do if o:IsShown() then up = up + 1 end end
     eq(up, 0, "every figure hidden")
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "LCTRL", 1)
-    eq(Bags.shown, 0, "another modifier does nothing")
+
+    -- what it sees, for /hound overlay
+    Stub.printed = {}
+    SlashCmdList.HOUND("overlay")
+    local said = table.concat(Stub.printed, "\n")
+    check(string.find(said, "overlay is on", 1, true), "/hound overlay says it is on")
+    check(string.find(said, "2 bag frames open, 5 slots read, 4 with a price", 1, true), "and what it sees: " .. said)
 
     -- off by command, and never in combat
     SlashCmdList.HOUND("overlay off")
     Stub.shift = true
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 1)
+    frame()
     eq(Bags.shown, 0, "off: nothing with Shift held")
     SlashCmdList.HOUND("overlay on")
     eq(Bags.shown, 4, "on again while Shift is held: the figures come up")
     check(string.find(Stub.printed[#Stub.printed] or "", "overlay is on", 1, true), "the command says so")
-    Stub.FireEvent("PLAYER_REGEN_DISABLED")
-    eq(Bags.shown, 0, "entering combat takes them down")
     Stub.combat = true
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 1)
-    eq(Bags.shown, 0, "and Shift in combat leaves the bags alone")
+    frame()
+    eq(Bags.shown, 0, "in combat they come down")
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 0, "and stay down while Shift is held")
     Stub.combat = false
+    frame()
+    eq(Bags.shown, 4, "out of combat with Shift still held: back up")
+
+    -- an error while painting is said once, and the figures stay down
+    local realSlotValue = Bags.SlotValue
+    Bags.SlotValue = function() error("boom") end
+    Stub.printed = {}
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 0, "an error takes the figures down")
+    eq(#Stub.printed, 1, "and is said once")
+    check(string.find(Stub.printed[1] or "", "boom", 1, true) and string.find(Stub.printed[1] or "", "overlay on", 1, true), "with the error and how to try again: " .. tostring(Stub.printed[1]))
+    frame(Bags.REFRESH)
+    eq(#Stub.printed, 1, "not again every frame")
+    Stub.printed = {}
+    SlashCmdList.HOUND("overlay")
+    check(string.find(table.concat(Stub.printed, "\n"), "stopped on an error: ", 1, true), "/hound overlay repeats the error")
+    Bags.SlotValue = realSlotValue
+    SlashCmdList.HOUND("overlay on")
+    eq(Bags.shown, 4, "/hound overlay on tries again")
     Stub.shift = false
-    Stub.FireEvent("MODIFIER_STATE_CHANGED", "RSHIFT", 0)
+    frame()
+    eq(Bags.shown, 0, "and Shift let go takes them down")
+
+    -- bags shut and a bag addon loaded: the report says so
+    bag0:Hide()
+    combined:Hide()
+    local savedAddOns = C_AddOns
+    C_AddOns = { IsAddOnLoaded = function(name) return name == "Baganator" end }
+    Stub.printed = {}
+    SlashCmdList.HOUND("overlay")
+    said = table.concat(Stub.printed, "\n")
+    check(string.find(said, "no Blizzard bag is open", 1, true), "/hound overlay with the bags shut says so")
+    check(string.find(said, "Baganator", 1, true), "and names a bag addon that is loaded: " .. said)
+    C_AddOns = savedAddOns
 
     _G.ContainerFrame1, _G.ContainerFrameCombinedBags = nil, nil
     for i = 1, 4 do _G["ContainerFrame1Item" .. i] = nil end
