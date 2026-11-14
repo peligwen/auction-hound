@@ -130,19 +130,19 @@ launch is listed at its head.
   unsold. The result is a sold / unsold bracket per item, shown in the
   Item view, the tooltip and `/hound stats`, and the next fan centers on
   the best price buyers actually paid.
-- **Tooltips.** One line by default: the floor at the latest scan,
-  with its age when that is more than a day. On a stack the line goes
-  on to the count and the stack's price ("5s 1c  x4  20s 4c"), to read
-  against the game's sell price, which is the whole stack's. Hold
-  Shift for the rest:
-  market value, the three-day mean, units listed, trend and the units
-  cleared a day at what price (or the units moved estimate where no
-  fills have been seen), plus your own sold / unsold line. The vendor
-  price is left to the game's own line. A tooltip the client refreshes while it is up, a bag slot or a
-  house row, follows Shift as it goes down and up; a link clicked in
-  chat always shows the rest. Junk gets no Hound lines: the vendor is
-  where it goes. The Buy tab's cell tooltip and the Item view carry
-  the cleared line too, and the Item view the three-day mean.
+- **Tooltips.** One line by default: the floor at the latest scan, with
+  its age when that is more than a day: "AH floor 5s 89c". On a stack
+  the stack's price follows in brackets ("AH floor 5s 89c (17s 67c)"),
+  to read against the game's sell price, which is the whole stack's.
+  Hold Shift for the rest: market value, the three-day mean, units
+  listed, trend and the units cleared a day at what price (or the units
+  moved estimate where no fills have been seen), plus your own sold /
+  unsold line. The vendor price is left to the game's own line. A
+  tooltip the client refreshes while it is up, a bag slot or a house
+  row, follows Shift as it goes down and up; a link clicked in chat
+  always shows the rest. Junk gets no Hound lines: the vendor is where
+  it goes. The Buy tab's cell tooltip and the Item view carry the
+  cleared line too, and the Item view the three-day mean.
 - **Bag overlay.** With the bags open, hold Shift: every slot shows
   what its stack is worth, at the house's floor from the latest scan
   on a dark strip, or at the vendor's price on a blue strip when the
@@ -293,7 +293,7 @@ below are still the real test. What did change around the addon:
    that says whether its item keys still carry them the way a link
    does.
 4. **Tooltips.** Open, and changed. Hover a scanned item in your
-   bags: one Hound line, the floor. Hold Shift with the tooltip up:
+   bags: one Hound line, "AH floor". Hold Shift with the tooltip up:
    the rest appears (market, 3 day, listed and trend, yours; the
    vendor price is the game's own line, not Hound's), and goes again
    when Shift is let go. Click the item's link in chat:
@@ -302,10 +302,11 @@ below are still the real test. What did change around the addon:
    Report a tooltip that does not follow Shift while it is up, saying
    where it was (bags, the house, a quest reward, the Hound window).
    New: hover a stack of a scanned item in your bags. The floor line
-   ends in the count and the stack's price, which should be the floor
-   times the count; a single shows the floor alone. Do the same in the
-   bank, and with a bag addon if you use one. Report a stack whose line
-   shows no count, saying where it was.
+   reads "AH floor" and ends in the stack's price in brackets, which
+   should be the floor times the count; a single shows the floor
+   alone. Do the same in the bank, and with a bag addon if you use
+   one. Report a stack whose line shows no stack price, saying where
+   it was.
 5. **Buy tab.** Open, and new. Pick any category or search: every row
    gets a Hound column, the reference on the left and the discount on
    the right, green for a deal, amber under reference, grey above, and

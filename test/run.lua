@@ -889,14 +889,14 @@ do
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
   eq(#GameTooltip.lines, 1, "the tooltip is one line by default: " .. table.concat(GameTooltip.lines, " | "))
-  eq(GameTooltip.lines[1], "|cffe6b800Hound|r floor | " .. H.Money(oreSt.min), "and that line is the latest floor")
+  eq(GameTooltip.lines[1], "|cffe6b800AH|r floor | " .. H.Money(oreSt.min), "and that line is the latest floor")
   -- Shift held: the rest, the three-day mean among it
   Stub.shift = true
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
   local full = table.concat(GameTooltip.lines, "\n")
   check(#GameTooltip.lines >= 5, "Shift adds the rest: " .. table.concat(GameTooltip.lines, " | "))
-  eq(GameTooltip.lines[2], "|cffe6b800Hound|r floor | " .. H.Money(oreSt.min), "the floor still heads it")
+  eq(GameTooltip.lines[2], "|cffe6b800AH|r floor | " .. H.Money(oreSt.min), "the floor still heads it")
   check(string.find(full, "  market | " .. H.Money(oreSt.market), 1, true), "tooltip has the market line")
   check(string.find(full, "  3 day | " .. H.Money(oreSt.avg3), 1, true), "tooltip has the 3 day mean")
   check(not string.find(full, "30 day", 1, true), "and no 30 day line")
@@ -917,20 +917,20 @@ do
     check(string.find(GameTooltip.lines[1] or "", "3d ago", 1, true), "a stale floor says its age: " .. tostring(GameTooltip.lines[1]))
     Stub.now = saved
   end
-  -- a stack in the bags: the floor line goes on to the count and the
-  -- stack's price, to read against the game's sell price, which is the
+  -- a stack in the bags: the stack's price follows the floor in
+  -- brackets, to read against the game's sell price, which is the
   -- whole stack's; Shift or not
   do
     local f = H.Round(oreSt.min)
-    local plain = "|cffe6b800Hound|r floor | " .. H.Money(f)
+    local plain = "|cffe6b800AH|r floor | " .. H.Money(f)
     local function hover() GameTooltip.lines = {} Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink }) end
     Stub.SetBag(4, 9, 2770, 4)
     GameTooltip.GetPrimaryTooltipInfo = function() return { getterName = "GetBagItem", getterArgs = { 4, 9 } } end
     hover()
-    eq(GameTooltip.lines[1], plain .. "  x4  " .. H.Money(f * 4), "a bag stack's floor line ends in the count and the stack's price")
+    eq(GameTooltip.lines[1], plain .. " (" .. H.Money(f * 4) .. ")", "a bag stack's floor line ends in the stack's price in brackets")
     Stub.shift = true
     hover()
-    eq(GameTooltip.lines[2], plain .. "  x4  " .. H.Money(f * 4), "and with Shift held")
+    eq(GameTooltip.lines[2], plain .. " (" .. H.Money(f * 4) .. ")", "and with Shift held")
     check(string.find(table.concat(GameTooltip.lines, "\n"), "  market | " .. H.Money(oreSt.market) .. "\n", 1, true),
       "the market line under it stays a unit's")
     Stub.shift = false
@@ -944,7 +944,7 @@ do
     GameTooltip.GetPrimaryTooltipInfo = function() return { getterName = "GetMerchantItem", getterArgs = { 3 } } end
     GameTooltip.GetOwner = function() return { count = 12 } end
     hover()
-    eq(GameTooltip.lines[1], plain .. "  x12  " .. H.Money(f * 12), "the owner button's count, where no bag slot is named")
+    eq(GameTooltip.lines[1], plain .. " (" .. H.Money(f * 12) .. ")", "the owner button's count, where no bag slot is named")
     GameTooltip.GetOwner = function() return { count = "x" } end
     hover()
     eq(GameTooltip.lines[1], plain, "an owner without a count prices one")
@@ -3170,7 +3170,7 @@ do
   GameTooltip:ClearLines()
   Stub.tooltipHandler(GameTooltip, { id = 264047, hyperlink = writLink })
   local tip = table.concat(GameTooltip.lines, " / ")
-  check(string.find(tip, "|cffe6b800Hound|r floor | " .. H.Money(3000), 1, true), "the writ's own floor: " .. tip)
+  check(string.find(tip, "|cffe6b800AH|r floor | " .. H.Money(3000), 1, true), "the writ's own floor: " .. tip)
   eq(GameTooltip.lines[#GameTooltip.lines], "  Lesser Wizard's Robe | " .. H.Money(12000), "and the robe's under it")
   eq(GameTooltip.lines[#GameTooltip.lines - 1], "|cffe6b800Hound|r Journeyman writ, 75 reputation | scanned 0s ago", "below the writ's header")
   -- the robe's own tooltip has no writ lines, a comparison tooltip is

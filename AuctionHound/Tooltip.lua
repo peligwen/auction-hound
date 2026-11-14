@@ -3,8 +3,8 @@
 -- Craftsman's Writ the price of the item it asks for (Writ.lua).
 --
 -- An item's own lines are one by default, the floor at the latest
--- scan; on a stack it goes on to the count and the stack's price, to
--- read against the game's sell price, which is the stack's. Shift held
+-- scan; on a stack the stack's price follows in brackets, to read
+-- against the game's sell price, which is the stack's. Shift held
 -- shows the rest: the market value, the three-day mean, the trend,
 -- what has cleared and your own sales. The vendor price is left to the
 -- game's own line. A tooltip the client refreshes while it is up, a
@@ -36,16 +36,16 @@ local function stackCount(tooltip)
   return 1
 end
 
--- The price of one, and for a stack the count and the stack's price
--- after it: "5s 1c  x4  20s 4c". The stack is the one shown times the
+-- The price of one, and for a stack the stack's price after it in
+-- brackets: "5s 89c (17s 67c)". The stack is the one shown times the
 -- count, so the two agree to the copper.
 local function unitAndStack(unit, n)
   if n <= 1 then return H.Money(unit) end
-  return string.format("%s  x%d  %s", H.Money(unit), n, H.Money(H.Round(unit) * n))
+  return string.format("%s (%s)", H.Money(unit), H.Money(H.Round(unit) * n))
 end
 
 local function floorLine(tooltip, st)
-  local label = "|cffe6b800Hound|r floor"
+  local label = "|cffe6b800AH|r floor"
   if st.age and st.age > H.TOOLTIP_STALE then
     label = label .. " |cff999999" .. H.Ago(st.age) .. "|r"
   end
