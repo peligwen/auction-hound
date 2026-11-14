@@ -974,6 +974,20 @@ do
     eq(Bags.Value(4308, 1), nil, "no history and no vendor price: nothing to show")
     eq(Bags.Value(nil, 1), nil, "an empty slot shows nothing")
 
+    -- one coin, in its color and with its icon
+    local gold, silver, copper = "|cffffd700", "|cffc7c7cf", "|cffeda55f"
+    local gi, si, ci = "|TInterface\\MoneyFrame\\UI-GoldIcon:0:0:1:0|t", "|TInterface\\MoneyFrame\\UI-SilverIcon:0:0:1:0|t", "|TInterface\\MoneyFrame\\UI-CopperIcon:0:0:1:0|t"
+    eq(H.MoneyCoin(12000), gold .. "1.2|r" .. gi, "under 10 gold: a tenth of gold, in gold")
+    eq(H.MoneyCoin(123456), gold .. "12|r" .. gi, "10 gold and up: whole gold")
+    eq(H.MoneyCoin(99500), gold .. "10|r" .. gi, "9.95 gold rounds to 10, not 10.0")
+    eq(H.MoneyCoin(4599), silver .. "45|r" .. si, "silver, in silver")
+    eq(H.MoneyCoin(75), copper .. "75|r" .. ci, "copper, in copper")
+    eq(H.MoneyCoin(0), copper .. "0|r" .. ci, "nothing is no copper")
+    H.Settings().plainMoney = true
+    eq(H.MoneyCoin(12000), gold .. "1.2g|r", "plain money: the coin's letter in its color")
+    eq(H.MoneyCoin(4599), silver .. "45s|r", "silver's letter")
+    H.Settings().plainMoney = false
+
     -- a classic bag frame: buttons numbered within a frame whose ID is the bag
     local bag0 = CreateFrame("Frame", "ContainerFrame1")
     bag0:SetID(0)
@@ -1025,8 +1039,8 @@ do
       if o:IsShown() then byslot[o.bag .. ":" .. o.slot] = o end
     end
     local ore = byslot["0:1"]
-    check(ore and ore.text:GetText() == H.MoneyShort(oreFloor * 20) and ore.where == "house", "the ore's figure is its stack at the floor")
-    check(ore and ore.text.color and ore.text.color[1] == Bags.HOUSE_COLOR[1] and ore.text.color[3] == Bags.HOUSE_COLOR[3], "in the house's color")
+    check(ore and ore.text:GetText() == H.MoneyCoin(oreFloor * 20) and ore.where == "house", "the ore's figure is its stack at the floor, in coin colors")
+    check(ore and ore.bg.colorTexture and ore.bg.colorTexture[3] == Bags.HOUSE_STRIP[3], "on the house's strip")
     check(ore and not ore:IsMouseEnabled(), "and the figure takes no clicks")
     check(ore and ore.allPoints == _G.ContainerFrame1Item1, "laid over its own button")
     check(ore and ore:GetParent() == _G.ContainerFrame1Item1, "and set on it, so it draws on the button's layer")
@@ -1036,8 +1050,9 @@ do
     for i = 1, 4 do same = same and fields(_G["ContainerFrame1Item" .. i]) == buttonsBefore[i] end
     check(same, "nothing written on a bag frame or button")
     local junk = byslot["0:2"]
-    check(junk and junk.where == "vendor" and junk.text:GetText() == H.MoneyShort(15), "the junk's figure is the vendor's")
-    check(junk and junk.text.color and junk.text.color[1] == Bags.VENDOR_COLOR[1], "in the vendor's color")
+    check(junk and junk.where == "vendor" and junk.text:GetText() == H.MoneyCoin(15), "the junk's figure is the vendor's")
+    check(junk and junk.bg.colorTexture and junk.bg.colorTexture[3] == Bags.VENDOR_STRIP[3], "on the vendor's strip")
+    check(Bags.HOUSE_STRIP[3] ~= Bags.VENDOR_STRIP[3], "and the two strips differ")
     check(byslot["0:3"] == nil, "nothing on a slot with no price")
     check(byslot["1:5"] and byslot["1:5"].where == "vendor", "the modern frame's buttons are read by their bag")
     check(byslot["1:6"] == nil, "a hidden button gets no figure")

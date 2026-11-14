@@ -5,8 +5,9 @@
 -- vendor's price when the vendor pays more than the house would after
 -- its cut. Junk and anything soulbound go to the vendor, so they show
 -- the vendor's price alone; a slot with neither price shows nothing.
--- The house figure is gold, the vendor's gray. Letting go of Shift
--- takes it all down. /hound overlay off turns it off.
+-- Figures are in the game's coin colors with the coin's icon; the
+-- house's sit on a dark strip, the vendor's on a blue one. Letting go
+-- of Shift takes it all down. /hound overlay off turns it off.
 --
 -- The figures are Hound's own frames, each set on a bag button as a
 -- child so it draws on the button's layer and hides with its bag. No
@@ -21,8 +22,8 @@ local Bags = { overlays = {}, shown = 0 }
 H.Bags = Bags
 
 Bags.REFRESH = 0.25            -- seconds between repaints while Shift is held
-Bags.HOUSE_COLOR = { 1, 0.82, 0 }
-Bags.VENDOR_COLOR = { 0.72, 0.72, 0.72 }
+Bags.HOUSE_STRIP = { 0, 0, 0, 0.7 }        -- behind a figure at the house's floor
+Bags.VENDOR_STRIP = { 0.05, 0.14, 0.38, 0.85 } -- behind one at the vendor's price
 
 ------------------------------------------------------------------------
 -- What one slot is worth, and where to sell it.
@@ -154,9 +155,10 @@ function Bags.Paint()
       Bags.overlays[n] = o
     end
     place(o, button)
-    local color = where == "house" and Bags.HOUSE_COLOR or Bags.VENDOR_COLOR
-    o.text:SetText(H.MoneyShort(value))
-    o.text:SetTextColor(color[1], color[2], color[3])
+    local strip = where == "house" and Bags.HOUSE_STRIP or Bags.VENDOR_STRIP
+    o.bg:SetColorTexture(strip[1], strip[2], strip[3], strip[4])
+    o.text:SetText(H.MoneyCoin(value))
+    o.text:SetTextColor(1, 1, 1)
     o.where, o.value, o.bag, o.slot, o.button = where, value, bag, slot, button
     o:Show()
   end)

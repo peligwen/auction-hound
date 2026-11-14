@@ -123,6 +123,35 @@ function H.MoneyShort(copper)
   return out
 end
 
+-- Shortest form in the game's coin colors, for a bag slot: one coin
+-- only, 1.2 gold, 12 gold, 45 silver, 8 copper, each with its coin icon,
+-- or its letter when plain money is set.
+H.COIN = {
+  gold = { color = "ffffd700", icon = "Interface\\MoneyFrame\\UI-GoldIcon", letter = "g" },
+  silver = { color = "ffc7c7cf", icon = "Interface\\MoneyFrame\\UI-SilverIcon", letter = "s" },
+  copper = { color = "ffeda55f", icon = "Interface\\MoneyFrame\\UI-CopperIcon", letter = "c" },
+}
+
+function H.MoneyCoin(copper)
+  copper = math.max(0, H.Round(copper or 0))
+  local amount, coin
+  if copper >= 10000 then
+    local tenths = math.floor(copper / 1000 + 0.5)
+    if tenths >= 100 then amount = string.format("%d", math.floor(copper / 10000 + 0.5))
+    else amount = string.format("%.1f", tenths / 10) end
+    coin = H.COIN.gold
+  elseif copper >= 100 then
+    amount, coin = string.format("%d", math.floor(copper / 100)), H.COIN.silver
+  else
+    amount, coin = string.format("%d", copper), H.COIN.copper
+  end
+  local settings = H.Settings and H.Settings()
+  if settings and settings.plainMoney then
+    return "|c" .. coin.color .. amount .. coin.letter .. "|r"
+  end
+  return "|c" .. coin.color .. amount .. "|r|T" .. coin.icon .. ":0:0:1:0|t"
+end
+
 -- Exact form for tables, no padding and no empty parts: 12g 34s 56c,
 -- 12g 56c, 45s 99c, 8c. Nothing is rounded away.
 function H.MoneyExact(copper)

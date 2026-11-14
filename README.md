@@ -141,14 +141,16 @@ launch is listed at its head.
   where it goes. The Buy tab's cell tooltip and the Item view carry
   the cleared line too, and the Item view the three-day mean.
 - **Bag overlay.** With the bags open, hold Shift: every slot shows
-  what its stack is worth, in gold at the house's floor from the
-  latest scan, or in gray at the vendor's price when the vendor pays
-  more than the house would after its cut. Junk and anything
-  soulbound show the vendor's price alone; a slot with neither shows
-  nothing. Letting go takes it down, and it stays out of combat.
-  Blizzard's own bags only: a bag addon that replaces them gets no
-  figures. `/hound overlay` says what it can see right now, and
-  `/hound overlay off` turns it off.
+  what its stack is worth, at the house's floor from the latest scan
+  on a dark strip, or at the vendor's price on a blue strip when the
+  vendor pays more than the house would after its cut. The figure is
+  one coin, in the game's gold, silver or copper with its coin icon
+  (1.2 gold, 12 gold, 45 silver; the coin's letter with plain money
+  set). Junk and anything soulbound show the vendor's price alone; a
+  slot with neither shows nothing. Letting go takes it down, and it
+  stays out of combat. Blizzard's own bags only: a bag addon that
+  replaces them gets no figures. `/hound overlay` says what it can see
+  right now, and `/hound overlay off` turns it off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
   does. Hound adds a line for each under it: the units, the good, the
@@ -476,30 +478,26 @@ below are still the real test. What did change around the addon:
     type `/hound writ ` and shift-click the writ: for an item the data
     does not know it prints the item's ID.
 
-28. **Bag overlay.** Open, and reported not working on live: nothing
-    came up over the bags with Shift held, though `/hound overlay`
-    found 2 bag frames open, 72 slots and 26 with a price, so the bags
-    are read. The figures are now set on the bag buttons themselves,
-    rather than laid over them from the UI's root, in case they drew
-    under the bags; Shift is read every frame, as the tooltip does,
-    and an error is said in chat. First type `/hound overlay test`
-    with the bags open: the figures come up for 10 seconds without
-    Shift, and chat says how the first one and its button are drawn
-    (layer, level, size, visible or not). Hold Shift a moment during
-    the 10 seconds; at the end chat says whether Hound saw it. Report
-    those lines and whether the figures showed. Then hold Shift: a
-    small figure sits over the top of each slot with a price, gold for
-    the house and gray for the vendor, and goes when Shift is let go.
-    Gray items and soulbound ones read gray, at the vendor's price.
-    Click, shift-click and drag items with it up: everything must work
-    as it does without the addon. Open another bag while holding
-    Shift: its slots fill in within a moment. `/hound overlay` alone
-    says how many bag frames it found open, how many slots it read and
-    how many have a price, names any bag addon that is loaded, and
-    repeats the error it stopped on, if any. Report figures that sit
-    off their slots, overlap the stack count, or show under the bag
-    art; `/hound overlay off` turns it off meanwhile. Bag addons
-    (Bagnon, AdiBags and the like) are not covered.
+28. **Bag overlay.** Open, and in part verified. On live the figures
+    first drew under the bags; set on the bag buttons themselves they
+    show. They are now in the game's coin colors with the coin's icon,
+    the house's on a dark strip and the vendor's on a blue one. Open
+    the bags and hold Shift: a small figure sits over the top of each
+    slot with a price, and goes when Shift is let go. Gray items and
+    soulbound ones sit on the blue strip, at the vendor's price. Check
+    the icons fit the slot beside the figure and the colors read on
+    both strips. Click, shift-click and drag items with it up:
+    everything must work as it does without the addon. Open another
+    bag while holding Shift: its slots fill in within a moment.
+    `/hound overlay` alone says how many bag frames it found open, how
+    many slots it read and how many have a price, names any bag addon
+    that is loaded, and repeats the error it stopped on, if any;
+    `/hound overlay test` puts the figures up for 10 seconds without
+    Shift, says how the first one is drawn, and at the end whether
+    Hound saw Shift held. Report figures that sit off their slots,
+    overlap the stack count, or show under the bag art;
+    `/hound overlay off` turns it off meanwhile. Bag addons (Bagnon,
+    AdiBags and the like) are not covered.
 29. **Bags at the house.** Open, and suspected. Reported on live: a
     right-click on a Cozy Sleeping Bag in the bags brought up
     "blocked from an action only available to the Blizzard UI" in
