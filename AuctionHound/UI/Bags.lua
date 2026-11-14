@@ -8,12 +8,13 @@
 -- The house figure is gold, the vendor's gray. Letting go of Shift
 -- takes it all down. /hound overlay off turns it off.
 --
--- The figures are Hound's own frames, laid over Blizzard's bag buttons
--- by anchor alone: nothing is written on a bag frame or a button, no
--- script of theirs is run, and none of ours takes the mouse, so a
--- click goes to the button under it as always. Only Blizzard's own
--- bags are read; a bag addon that replaces them gets no figures.
--- /hound overlay says what it can see.
+-- The figures are Hound's own frames, each set on a bag button as a
+-- child so it draws on the button's layer and hides with its bag. No
+-- field is written on a bag frame or a button, no script of theirs is
+-- run, and none of ours takes the mouse, so a click goes to the button
+-- under it as always. Only Blizzard's own bags are read; a bag addon
+-- that replaces them gets no figures. /hound overlay says what it can
+-- see, and /hound overlay test puts the figures up without Shift.
 local ADDON, H = ...
 
 local Bags = { overlays = {}, shown = 0 }
@@ -129,11 +130,15 @@ local function newOverlay()
   return o
 end
 
+-- A figure laid over a button from UIParent drew under the bags on
+-- live, so it now goes on the button itself, a few levels up.
 local function place(o, button)
+  if o:GetParent() ~= button then o:SetParent(button) end
   o:ClearAllPoints()
   o:SetAllPoints(button)
-  if button.GetFrameStrata then o:SetFrameStrata(button:GetFrameStrata() or "MEDIUM") end
-  if button.GetFrameLevel then o:SetFrameLevel((button:GetFrameLevel() or 0) + 5) end
+  local strata = button.GetFrameStrata and button:GetFrameStrata()
+  if strata then o:SetFrameStrata(strata) end
+  o:SetFrameLevel((button.GetFrameLevel and button:GetFrameLevel() or 0) + 3)
 end
 
 -- Paints every slot on screen; returns how many figures are up.
@@ -152,7 +157,7 @@ function Bags.Paint()
     local color = where == "house" and Bags.HOUSE_COLOR or Bags.VENDOR_COLOR
     o.text:SetText(H.MoneyShort(value))
     o.text:SetTextColor(color[1], color[2], color[3])
-    o.where, o.value, o.bag, o.slot = where, value, bag, slot
+    o.where, o.value, o.bag, o.slot, o.button = where, value, bag, slot, button
     o:Show()
   end)
   for i = n + 1, #Bags.overlays do Bags.overlays[i]:Hide() end
@@ -182,8 +187,13 @@ end
 local since = 0
 
 function Bags.Tick(elapsed)
+  local test = Bags.test
+  if test then
+    test.frames = test.frames + 1
+    if type(IsShiftKeyDown) == "function" and IsShiftKeyDown() then test.shift = true end
+  end
   if Bags.broken then return end
-  if not wanted() then
+  if not (test or wanted()) then
     if Bags.up then
       Bags.up = false
       Bags.Clear()
@@ -205,6 +215,51 @@ end
 
 Bags.driver = CreateFrame("Frame")
 Bags.driver:SetScript("OnUpdate", function(_, elapsed) Bags.Tick(elapsed) end)
+
+------------------------------------------------------------------------
+-- /hound overlay test: the figures up for a few seconds without Shift,
+-- what the first of them is drawn as, and at the end whether Hound's
+-- frame ran and saw Shift held. It tells a figure drawn out of sight
+-- from a Shift that never reads as held.
+------------------------------------------------------------------------
+Bags.TEST_SECONDS = 10
+
+local function describe(f)
+  if not f then return "none" end
+  local w, h = f:GetWidth(), f:GetHeight()
+  return string.format("%s level %s, %sx%s, %s",
+    tostring(f.GetFrameStrata and f:GetFrameStrata() or "?"), tostring(f:GetFrameLevel()),
+    tostring(w and H.Round(w)), tostring(h and H.Round(h)),
+    f:IsVisible() and "visible" or "not visible")
+end
+
+function Bags.EndTest()
+  local test = Bags.test
+  if not test then return end
+  Bags.test = nil
+  H.Print(string.format("overlay test over: Hound's frame ran %d times, and Shift %s",
+    test.frames, test.shift and "was seen held" or "was never seen held"))
+  Bags.up = false
+  Bags.Clear()
+  Bags.Tick(0)
+end
+
+function Bags.StartTest()
+  if Bags.test and Bags.test.timer then Bags.test.timer:Cancel() end
+  Bags.test = { frames = 0, shift = false }
+  Bags.test.timer = C_Timer.NewTimer(Bags.TEST_SECONDS, Bags.EndTest)
+  Bags.broken = nil
+  Bags.up = false
+  Bags.Tick(0)
+  if Bags.broken then return end
+  H.Print(string.format("overlay test: %d figure%s up for %d seconds without Shift; hold Shift a moment meanwhile",
+    Bags.shown, Bags.shown == 1 and "" or "s", Bags.TEST_SECONDS))
+  local o = Bags.overlays[1]
+  if Bags.shown > 0 and o then
+    H.Print(string.format("  first figure, bag %s slot %s: %s", tostring(o.bag), tostring(o.slot), describe(o)))
+    H.Print("  its button: " .. describe(o.button))
+  end
+end
 
 H.Events:On("SETTINGS_CHANGED", function(what)
   if what ~= "overlay" then return end

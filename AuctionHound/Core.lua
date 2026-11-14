@@ -132,7 +132,7 @@ commands.help = function()
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound sat <hours>          a floor on offer this long is no longer a deal; 0 judges by price alone")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
-  H.Print("  /hound overlay [on|off]     hold Shift with the bags open to see what each slot is worth")
+  H.Print("  /hound overlay [on|off|test]  hold Shift with the bags open to see what each slot is worth")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
   H.Print("  /hound markets    list the markets stored: each region, realm and faction played")
@@ -337,11 +337,14 @@ end
 commands.overlay = function(rest)
   local S = H.Settings()
   local v = string.lower(rest or "")
-  if v == "on" or v == "off" then
+  if v == "test" then
+    H.Bags.StartTest()
+    return
+  elseif v == "on" or v == "off" then
     S.overlay = v == "on"
     H.Events:Fire("SETTINGS_CHANGED", "overlay")
   elseif v ~= "" then
-    H.Print("usage: /hound overlay on|off")
+    H.Print("usage: /hound overlay [on|off|test]")
     return
   end
   if S.overlay then

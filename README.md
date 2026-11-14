@@ -477,23 +477,29 @@ below are still the real test. What did change around the addon:
     does not know it prints the item's ID.
 
 28. **Bag overlay.** Open, and reported not working on live: nothing
-    came up over the bags with Shift held. It now reads Shift every
-    frame, as the tooltip does, rather than waiting on the game's
-    Shift event, and says in chat if it stops on an error. Open the
-    bags and hold Shift: a small figure sits over the top of each slot
-    with a price, gold for the house and gray for the vendor, and goes
-    when Shift is let go. Gray items and soulbound ones read gray, at
-    the vendor's price. Click, shift-click and drag items with it up:
-    everything must work as it does without the addon. Open another
-    bag while holding Shift: its slots fill in within a moment. If
-    nothing comes up, open the bags and type `/hound overlay`: it says
-    how many bag frames it found open, how many slots it read from
-    them and how many have a price, names any bag addon that is
-    loaded, and repeats the error it stopped on, if any. Report those
-    lines, and figures that sit off their slots, overlap the stack
-    count, or show under the bag art; `/hound overlay off` turns it
-    off meanwhile. Bag addons (Bagnon, AdiBags and the like) are not
-    covered.
+    came up over the bags with Shift held, though `/hound overlay`
+    found 2 bag frames open, 72 slots and 26 with a price, so the bags
+    are read. The figures are now set on the bag buttons themselves,
+    rather than laid over them from the UI's root, in case they drew
+    under the bags; Shift is read every frame, as the tooltip does,
+    and an error is said in chat. First type `/hound overlay test`
+    with the bags open: the figures come up for 10 seconds without
+    Shift, and chat says how the first one and its button are drawn
+    (layer, level, size, visible or not). Hold Shift a moment during
+    the 10 seconds; at the end chat says whether Hound saw it. Report
+    those lines and whether the figures showed. Then hold Shift: a
+    small figure sits over the top of each slot with a price, gold for
+    the house and gray for the vendor, and goes when Shift is let go.
+    Gray items and soulbound ones read gray, at the vendor's price.
+    Click, shift-click and drag items with it up: everything must work
+    as it does without the addon. Open another bag while holding
+    Shift: its slots fill in within a moment. `/hound overlay` alone
+    says how many bag frames it found open, how many slots it read and
+    how many have a price, names any bag addon that is loaded, and
+    repeats the error it stopped on, if any. Report figures that sit
+    off their slots, overlap the stack count, or show under the bag
+    art; `/hound overlay off` turns it off meanwhile. Bag addons
+    (Bagnon, AdiBags and the like) are not covered.
 29. **Bags at the house.** Open, and suspected. Reported on live: a
     right-click on a Cozy Sleeping Bag in the bags brought up
     "blocked from an action only available to the Blizzard UI" in
@@ -546,8 +552,9 @@ None is made from the row itself, but a row clicked writes the
 frame's display mode in Hound's name, and Blizzard's bags read that
 mode when an item is right-clicked at the house: step 29 has the
 suspected block and how to confirm it. The bag overlay keeps the
-rules: its figures are Hound's own frames anchored over the bag
-buttons, and nothing is written on a bag frame or button.
+rules: its figures are Hound's own frames, set on the bag buttons as
+children that take no mouse, and no field is written on a bag frame
+or button.
 
 ## Commands
 
@@ -569,6 +576,7 @@ buttons, and nothing is written on a bag frame or button.
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound overlay [on|off]  hold Shift with the bags open to see what each slot is worth, default on;
                        alone, what it sees in the bags right now
+/hound overlay test    the figures up for 10 seconds without Shift, and how they are drawn
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
 /hound markets         list the markets stored: each region, realm and faction played

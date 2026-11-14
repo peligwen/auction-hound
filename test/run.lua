@@ -1029,6 +1029,8 @@ do
     check(ore and ore.text.color and ore.text.color[1] == Bags.HOUSE_COLOR[1] and ore.text.color[3] == Bags.HOUSE_COLOR[3], "in the house's color")
     check(ore and not ore:IsMouseEnabled(), "and the figure takes no clicks")
     check(ore and ore.allPoints == _G.ContainerFrame1Item1, "laid over its own button")
+    check(ore and ore:GetParent() == _G.ContainerFrame1Item1, "and set on it, so it draws on the button's layer")
+    check(ore and ore:GetFrameLevel() == _G.ContainerFrame1Item1:GetFrameLevel() + 3, "a few levels above the button")
     check(byslot["1:5"] and byslot["1:5"].allPoints == b, "a modern button too")
     local same = fields(bag0) == frameBefore and fields(b) == modernBefore
     for i = 1, 4 do same = same and fields(_G["ContainerFrame1Item" .. i]) == buttonsBefore[i] end
@@ -1054,10 +1056,34 @@ do
     for _, o in ipairs(Bags.overlays) do if o:IsShown() then up = up + 1 end end
     eq(up, 0, "every figure hidden")
 
+    -- /hound overlay test: the figures up without Shift, and what they are drawn as
+    Stub.printed = {}
+    SlashCmdList.HOUND("overlay test")
+    eq(Bags.shown, 4, "the test puts the figures up without Shift")
+    local said = table.concat(Stub.printed, "\n")
+    check(string.find(said, "4 figures up for 10 seconds", 1, true), "and says so: " .. said)
+    check(string.find(said, "first figure, bag ", 1, true) and string.find(said, "its button: ", 1, true), "with how the first figure and its button are drawn")
+    check(Bags.test and Bags.test.timer and Bags.test.timer.delay == Bags.TEST_SECONDS, "for a few seconds")
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 4, "they stay up through the test without Shift")
+    Stub.shift = true
+    frame()
+    Stub.shift = false
+    frame()
+    Stub.printed = {}
+    Bags.test.timer.fn(Bags.test.timer)
+    check(Bags.test == nil, "the test ends")
+    eq(Bags.shown, 0, "and takes the figures down")
+    check(string.find(Stub.printed[1] or "", "ran 4 times, and Shift was seen held", 1, true), "saying whether Hound's frame ran and saw Shift: " .. tostring(Stub.printed[1]))
+    SlashCmdList.HOUND("overlay test")
+    Stub.printed = {}
+    Bags.EndTest()
+    check(string.find(Stub.printed[1] or "", "was never seen held", 1, true), "or that it never saw Shift")
+
     -- what it sees, for /hound overlay
     Stub.printed = {}
     SlashCmdList.HOUND("overlay")
-    local said = table.concat(Stub.printed, "\n")
+    said = table.concat(Stub.printed, "\n")
     check(string.find(said, "overlay is on", 1, true), "/hound overlay says it is on")
     check(string.find(said, "2 bag frames open, 5 slots read, 4 with a price", 1, true), "and what it sees: " .. said)
 
