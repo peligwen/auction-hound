@@ -4,14 +4,16 @@
 -- frame, with a narrow list of unit price and units, or the item buy
 -- frame, with a wide list of auctions. Both get an info block with the
 -- reference, the deal depth, the next price step and the ladder's own
--- value. The commodity list is too narrow for a column, so its units
--- figure takes the verdict's color instead; the item list gets a
--- discount column. On both lists a double-click buys the listing under
--- the cursor, and the house's confirm dialog for a commodity opens
--- under it too.
+-- value. On the commodity list each units figure takes the verdict's
+-- color; on the item list each auction's discount sits at the right
+-- end of its row. A double-click buys the listing under the cursor: an
+-- auction at its buyout, or a commodity's units up to that row through
+-- Hound's own confirm under the cursor. Nothing of Blizzard's is
+-- written or pressed (UI/House.lua has why).
 local ADDON, H = ...
 
 local UI = H.UI
+local House = UI.House
 local AH = C_AuctionHouse
 local LU = { current = {}, block = {} }
 UI.Ladder = LU
@@ -61,6 +63,18 @@ local function commodityListings(itemID)
   return listings
 end
 
+-- The units figure in the verdict's color; Blizzard's white where
+-- there is none, since a cell is reused for another row as the list
+-- scrolls and keeps whatever color it was given last.
+local WHITE = { 1, 1, 1 }
+
+local function colorUnits(cell, rowData)
+  if type(cell.Text) ~= "table" then return end
+  local verdict, low = H.Ladder.Verdict(LU.current.commodity, rowData and rowData.unitPrice)
+  local color = H.Ladder.Color(verdict, low) or WHITE
+  cell.Text:SetTextColor(color[1], color[2], color[3])
+end
+
 function LU.RebuildCommodity()
   local itemID = LU.commodityItemID
   local block = LU.block.commodity
@@ -72,8 +86,7 @@ function LU.RebuildCommodity()
   local key = H.KeyForItemID(itemID) or tostring(itemID)
   LU.current.commodity = H.Ladder.Build(commodityListings(itemID), key, itemID)
   if block then block:SetLines(H.Ladder.Lines(LU.current.commodity)) end
-  local list = LU.commodityFrame and LU.commodityFrame.ItemList
-  if list and list.DirtyScrollFrame then list:DirtyScrollFrame() end
+  House.Each("commodity", colorUnits)
 end
 
 local function onCommodityResults(itemID)
@@ -84,28 +97,18 @@ H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", onCommodityResults)
 H.RegisterEvent("COMMODITY_SEARCH_RESULTS_ADDED", onCommodityResults)
 H.RegisterEvent("COMMODITY_SEARCH_RESULTS_RECEIVED", onCommodityResults)
 
--- The units cell of Blizzard's commodity lists. Cells are made from
--- the mixin after this hook is in place, so every cell carries it; the
--- owner check keeps the sell list's cells untouched.
-local function hookQuantityCells()
-  local mixin = AuctionHouseTableCellCommoditiesQuantityMixin
-  if LU.quantityHooked or type(mixin) ~= "table" or type(mixin.Populate) ~= "function" then return end
-  LU.quantityHooked = true
-  hooksecurefunc(mixin, "Populate", function(cell, rowData)
-    local frame = LU.commodityFrame
-    if not frame or cell.owner ~= frame.ItemList or not cell.Text then return end
-    LU.WatchRow(cell, "commodity", rowData)
-    local verdict, low = H.Ladder.Verdict(LU.current.commodity, rowData and rowData.unitPrice)
-    local color = H.Ladder.Color(verdict, low)
-    if color then cell.Text:SetTextColor(color[1], color[2], color[3]) end
-  end)
+local function onUnits(cell, rowData, index)
+  local frame = LU.commodityFrame
+  if not frame or not House.Under(cell, frame.ItemList) or type(rowData) ~= "table" then return end
+  House.Track(cell, "commodity", rowData, index)
+  colorUnits(cell, rowData)
 end
 
 local function installCommodity(ah)
   local frame = ah.CommoditiesBuyFrame
   if type(frame) ~= "table" or type(frame.ItemList) ~= "table" or type(frame.BuyDisplay) ~= "table" then return false end
   LU.commodityFrame = frame
-  hookQuantityCells()
+  House.HookCells("AuctionHouseTableCellCommoditiesQuantityMixin", "Populate", "commodity list colors", onUnits)
   hooksecurefunc(frame, "SetItemIDAndPrice", function(_, itemID)
     LU.commodityItemID = itemID
     LU.current.commodity = nil
@@ -116,62 +119,13 @@ local function installCommodity(ah)
   block:SetPoint("BOTTOMLEFT", frame.BuyDisplay, "BOTTOMLEFT", 15, 14)
   block:SetPoint("BOTTOMRIGHT", frame.BuyDisplay, "BOTTOMRIGHT", -16, 14)
   LU.block.commodity = block
-  LU.WatchDialog(ah)
-  return true
-end
-
--- The house's confirm dialog for a commodity is met at the cursor
--- when the double-click opened it: the one click left is then under
--- the hand already. Opened by the house's own Buy button, it goes
--- back where the house keeps it. The dialog is a frame of Blizzard's:
--- its show is hooked, never replaced, and only its anchors are
--- touched, and only once its own are known so they can be put back.
-function LU.WatchDialog(ah)
-  local dialog = type(ah) == "table" and ah.BuyDialog
-  if LU.dialog or type(dialog) ~= "table" or type(dialog.HookScript) ~= "function" then return false end
-  local home = UI.Points(dialog)
-  if #home == 0 then return false end
-  LU.dialog, LU.dialogHome = dialog, home
-  dialog:HookScript("OnShow", function(d)
-    if LU.dialogToCursor then
-      LU.dialogToCursor = nil
-      if UI.CenterOnCursor(d) then
-        LU.dialogMoved = true
-        return
-      end
-    end
-    if LU.dialogMoved then
-      LU.dialogMoved = nil
-      UI.SetPoints(d, LU.dialogHome)
-    end
-  end)
   return true
 end
 
 ------------------------------------------------------------------------
--- Items: a discount column on the auction list and the block above
--- its headers.
+-- Items: each auction's discount at the right end of its row, in the
+-- wide units column, and the block above the headers.
 ------------------------------------------------------------------------
-AuctionHoundLadderCellMixin = UI.CellMixin()
-
-function AuctionHoundLadderCellMixin:Init(owner)
-  self.owner = owner
-end
-
-function AuctionHoundLadderCellMixin:Populate(rowData)
-  LU.WatchRow(self, "item", rowData)
-  local L = LU.current.item
-  local p = type(rowData) == "table" and rowData.buyoutAmount or nil
-  if not p or p <= 0 then
-    self.Text:SetText("")
-    return
-  end
-  self.Text:SetText(H.Ladder.Off(L, p))
-  local verdict, low = H.Ladder.Verdict(L, p)
-  local color = H.Ladder.Color(verdict, low) or H.Browse.COLORS.over
-  self.Text:SetTextColor(color[1], color[2], color[3])
-end
-
 local function itemListings(itemKey)
   local n = AH.GetNumItemSearchResults and AH.GetNumItemSearchResults(itemKey) or 0
   local listings = {}
@@ -184,6 +138,40 @@ local function itemListings(itemKey)
   return listings
 end
 
+local function buildOff(cell)
+  local o = CreateFrame("Frame", nil, cell)
+  o:EnableMouse(false)
+  o:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
+  o:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+  o:SetWidth(LU.COLUMN_WIDTH)
+  o:SetFrameLevel((cell.GetFrameLevel and cell:GetFrameLevel() or 0) + 2)
+  o.Text = UI.Text(o, "Number14FontWhite", "", "RIGHT")
+  o.Text:SetPoint("RIGHT", o, "RIGHT", 0, 0)
+  return o
+end
+
+function LU.PaintOff(o, rowData)
+  local L = LU.current.item
+  local p = type(rowData) == "table" and rowData.buyoutAmount or nil
+  if not p or p <= 0 then
+    o.Text:SetText("")
+    return
+  end
+  o.Text:SetText(H.Ladder.Off(L, p))
+  local verdict, low = H.Ladder.Verdict(L, p)
+  local color = H.Ladder.Color(verdict, low) or H.Browse.COLORS.over
+  o.Text:SetTextColor(color[1], color[2], color[3])
+end
+
+function LU.OffFor(cell)
+  return House.overlays[cell]
+end
+
+local function paintItemRow(cell, rowData)
+  local o = House.overlays[cell]
+  if o then LU.PaintOff(o, rowData) end
+end
+
 function LU.RebuildItem()
   local itemKey = LU.itemKey
   local block = LU.block.item
@@ -194,8 +182,7 @@ function LU.RebuildItem()
   end
   LU.current.item = H.Ladder.Build(itemListings(itemKey), H.KeyFromItemKey(itemKey), itemKey.itemID)
   if block then block:SetLines(H.Ladder.Lines(LU.current.item)) end
-  local list = LU.itemFrame and LU.itemFrame.ItemList
-  if list and list.DirtyScrollFrame then list:DirtyScrollFrame() end
+  House.Each("item", paintItemRow)
 end
 
 local function onItemResults(itemKey)
@@ -206,8 +193,11 @@ end
 H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", onItemResults)
 H.RegisterEvent("ITEM_SEARCH_RESULTS_ADDED", onItemResults)
 
-local function addItemColumn(tb, owner)
-  return tb:AddUnsortableFixedWidthColumn(owner, 0, LU.COLUMN_WIDTH, 10, 0, "Hound", "AuctionHoundLadderCellTemplate")
+local function onItemUnits(cell, rowData, index)
+  local frame = LU.itemFrame
+  if not frame or not House.Under(cell, frame.ItemList) or type(rowData) ~= "table" then return end
+  House.Track(cell, "item", rowData, index)
+  LU.PaintOff(House.Overlay(cell, buildOff), rowData)
 end
 
 local function installItem(ah)
@@ -215,7 +205,7 @@ local function installItem(ah)
   if type(frame) ~= "table" or type(frame.ItemList) ~= "table" then return false end
   LU.itemFrame = frame
   local list = frame.ItemList
-  UI.HookListLayout(list, frame, addItemColumn)
+  House.HookCells("AuctionHouseTableCellItemQuantityMixin", "Populate", "item list discounts", onItemUnits)
   hooksecurefunc(frame, "SetItemKey", function(_, itemKey)
     LU.itemKey = itemKey
     LU.current.item = nil
@@ -241,14 +231,12 @@ end
 ------------------------------------------------------------------------
 -- A double-click on a listing buys it. An item goes straight to its
 -- buyout: the double-click is the hardware event the house wants for
--- a bid. A commodity row is already selected by the first click, with
--- every unit up to it in the buy display, so the house's own Buy
--- button is pressed for it and its dialog quotes the total, under the
--- cursor: the house wants a second hardware event for the confirm,
--- and that is the one click left. Every purchase is noted by Buy.lua
--- either way.
+-- a bid. A commodity row asks the house for a price on every unit up
+-- to it, the way Blizzard's own click selects them, and Hound's confirm
+-- opens under the cursor with the total: the house wants a second
+-- hardware event for the confirm, and that is the one click left.
+-- Every purchase is noted by Buy.lua either way.
 ------------------------------------------------------------------------
-local watched = setmetatable({}, { __mode = "k" })
 
 -- Buys one auction of the item list outright. Returns true, or false
 -- and why not.
@@ -265,53 +253,140 @@ function LU.BuyItem(rowData)
   return true
 end
 
--- Presses the house's Buy button for the units selected in the
--- commodity buy display. Returns true, or false and why not.
-function LU.BuyCommodity()
-  local frame = LU.commodityFrame
-  local display = type(frame) == "table" and frame.BuyDisplay
-  local button = type(display) == "table" and display.BuyButton
-  if type(button) ~= "table" or type(button.Click) ~= "function" then
-    return false, "the house's Buy button was not found; use it by hand"
+-- The units a click on a commodity row selects: everything listed up
+-- to and including that row, less your own, which the house will not
+-- sell you.
+function LU.UnitsUpTo(itemID, rowData)
+  if not itemID or type(rowData) ~= "table" then return 0 end
+  local n = AH.GetNumCommoditySearchResults and AH.GetNumCommoditySearchResults(itemID) or 0
+  local units = 0
+  for i = 1, n do
+    local r = AH.GetCommoditySearchResultInfo(itemID, i)
+    if r then
+      units = units + math.max(0, (r.quantity or 0) - (r.numOwnerItems or 0))
+      if (rowData.auctionID and r.auctionID == rowData.auctionID)
+        or (not rowData.auctionID and r.unitPrice and rowData.unitPrice and r.unitPrice >= rowData.unitPrice) then
+        return units
+      end
+    end
   end
-  local qty = type(display.GetQuantity) == "function" and display:GetQuantity() or nil
-  if qty == 0 or (button.IsEnabled and not button:IsEnabled()) then
-    return false, "select the units first"
+  return units
+end
+
+-- Hound's confirm: the units, the item, the house's quote, and two
+-- buttons. Its own frame entirely; Escape closes it out of combat.
+LU.pending = nil
+
+local function confirmText()
+  local p = LU.pending
+  local f = LU.confirm
+  if not p or not f then return end
+  f.title:SetText(string.format("Buy %d x %s", p.qty, H.ItemName(p.itemID)))
+  if p.total then
+    f.total:SetText(string.format("%s, %s each", H.Money(p.total), H.Money(p.unit or H.Round(p.total / p.qty))))
+    local short = type(GetMoney) == "function" and (GetMoney() or 0) < p.total
+    if short then f.note:SetText("not enough gold") else f.note:SetText("") end
+    if short then f.buy:Disable() else f.buy:Enable() end
+  else
+    f.total:SetText("asking the house for a price")
+    f.note:SetText("")
+    f.buy:Disable()
   end
-  H.Printf("%s: the house's dialog quotes the total, confirm it there", qty and (qty .. " units") or "buying")
-  -- the dialog opens inside the click; a click that opened none, the
-  -- house's own popup in its place say, leaves nothing armed
-  LU.dialogToCursor = true
-  button:Click()
-  LU.dialogToCursor = nil
+end
+
+-- Hides the confirm; a purchase still waiting on it is called off.
+function LU.CloseConfirm()
+  local p = LU.pending
+  LU.pending = nil
+  if p and not p.confirmed and AH.CancelCommoditiesPurchase then AH.CancelCommoditiesPurchase() end
+  if LU.confirm and LU.confirm:IsShown() then LU.confirm:Hide() end
+end
+
+function LU.ConfirmBuy()
+  local p = LU.pending
+  if not p or not p.total then return false end
+  p.confirmed = true
+  H.Printf("buying %d x %s for %s", p.qty, H.ItemName(p.itemID), H.Money(p.total))
+  AH.ConfirmCommoditiesPurchase(p.itemID, p.qty)
+  LU.pending = nil
+  LU.confirm:Hide()
   return true
 end
 
-local function onDoubleClick(row)
-  local ok, why
-  if row.houndKind == "item" then
-    ok, why = LU.BuyItem(row.houndRow)
-  else
-    ok, why = LU.BuyCommodity()
+local function buildConfirm()
+  local f = UI.Create("Frame", "AuctionHoundBuyConfirm", UIParent, "BackdropTemplate")
+  f:SetSize(300, 104)
+  f:SetFrameStrata("DIALOG")
+  f:SetClampedToScreen(true)
+  f:EnableMouse(true)
+  if f.SetBackdrop then
+    f:SetBackdrop({
+      bgFile = "Interface\DialogFrame\UI-DialogBox-Background",
+      edgeFile = "Interface\DialogFrame\UI-DialogBox-Border",
+      tile = true, tileSize = 32, edgeSize = 32,
+      insets = { left = 11, right = 12, top = 12, bottom = 11 },
+    })
   end
-  if not ok and why then H.Print(why) end
+  f.title = UI.Text(f, "GameFontNormal", "", "CENTER")
+  f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -16)
+  f.title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -16)
+  f.total = UI.Text(f, "GameFontHighlight", "", "CENTER")
+  f.total:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -6)
+  f.total:SetPoint("TOPRIGHT", f.title, "BOTTOMRIGHT", 0, -6)
+  f.note = UI.Text(f, "GameFontRedSmall", "", "CENTER")
+  f.note:SetPoint("TOPLEFT", f.total, "BOTTOMLEFT", 0, -2)
+  f.note:SetPoint("TOPRIGHT", f.total, "BOTTOMRIGHT", 0, -2)
+  f.buy = UI.Button(f, "Buy", 100, 22, function() LU.ConfirmBuy() end)
+  f.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 14)
+  f.cancel = UI.Button(f, "Cancel", 100, 22, function() LU.CloseConfirm() end)
+  f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 14)
+  f:Hide()
+  UI.WatchEscape(f)
+  f:HookScript("OnHide", function() if LU.pending then LU.CloseConfirm() end end)
+  return f
 end
 
--- Called as a cell is populated: the row behind it learns its listing
--- and, once, answers a double-click. Rows are reused as the list
--- scrolls, so the listing is refreshed every time.
-function LU.WatchRow(cell, kind, rowData)
-  local row = type(cell) == "table" and cell.GetParent and cell:GetParent()
-  if type(row) ~= "table" then return end
-  row.houndKind, row.houndRow = kind, rowData
-  if watched[row] then return end
-  watched[row] = true
-  if row.GetScript and row:GetScript("OnDoubleClick") then
-    row:HookScript("OnDoubleClick", onDoubleClick)
-  elseif row.SetScript then
-    row:SetScript("OnDoubleClick", onDoubleClick)
-  end
+-- Asks the house for a price on the units up to a commodity row and
+-- opens the confirm under the cursor. Returns true, or false and why.
+function LU.BuyCommodity(rowData)
+  local itemID = LU.commodityItemID
+  if not itemID then return false, "no commodity on the buy frame" end
+  local qty = LU.UnitsUpTo(itemID, rowData)
+  if qty <= 0 then return false, "nothing there to buy: those are your own" end
+  if LU.pending then LU.CloseConfirm() end
+  LU.confirm = LU.confirm or buildConfirm()
+  LU.pending = { itemID = itemID, qty = qty, t = H.Now() }
+  AH.StartCommoditiesPurchase(itemID, qty)
+  confirmText()
+  LU.confirm:Show()
+  UI.CenterOnCursor(LU.confirm)
+  return true
 end
+
+H.RegisterEvent("COMMODITY_PRICE_UPDATED", function(unit, total)
+  local p = LU.pending
+  if not p or p.confirmed then return end
+  p.unit, p.total = unit, total
+  confirmText()
+end)
+
+H.RegisterEvent("COMMODITY_PRICE_UNAVAILABLE", function()
+  local p = LU.pending
+  if not p then return end
+  H.Printf("the house has no price for %d x %s now", p.qty, H.ItemName(p.itemID))
+  LU.pending = nil
+  if LU.confirm then LU.confirm:Hide() end
+end)
+
+House.OnDoubleClick("item", function(rowData)
+  local ok, why = LU.BuyItem(rowData)
+  if not ok and why then H.Print(why) end
+end)
+
+House.OnDoubleClick("commodity", function(rowData)
+  local ok, why = LU.BuyCommodity(rowData)
+  if not ok and why then H.Print(why) end
+end)
 
 ------------------------------------------------------------------------
 -- Install once the Blizzard frame exists.
@@ -339,5 +414,6 @@ end
 
 H.Events:On("AH_UI_LOADED", install)
 H.Events:On("AH_OPENED", install)
+H.Events:On("AH_CLOSED", function() LU.CloseConfirm() end)
 H.Events:On("SCAN_DONE", rebuildCurrent)
 H.Events:On("SETTINGS_CHANGED", rebuildCurrent)

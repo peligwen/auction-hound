@@ -1,31 +1,20 @@
--- UI/Auctions.lua: a Total column on Blizzard's Auctions tab, what
--- each of your auctions brings in. The list shows an open auction's
--- buyout as the unit price, so the product with its units is the
--- total; a sold auction waiting in the mail shows its buyout as the
--- whole sum already, and that is shown as it is.
--- Hovering a total shows the house's cut, the deposit paid and what
--- is left after both. The Bid column goes: it repeats the buyout for
--- anything posted without a separate bid, and the room is better
--- spent on item names.
+-- UI/Auctions.lua: what each of your auctions brings in, on Blizzard's
+-- Auctions tab. The list shows an open auction's buyout as the unit
+-- price, so the product with its units is the total; a sold auction
+-- waiting in the mail shows its buyout as the whole sum already, and
+-- that is shown as it is. The total sits at the right end of the
+-- auction's name, as Hound's own frame (UI/House.lua has why), and
+-- hovering the row adds the house's cut, the deposit paid and what is
+-- left after both to the row's own tooltip.
 local ADDON, H = ...
 
 local UI = H.UI
+local House = UI.House
 local A = {}
 UI.Auctions = A
 
-A.COLUMN_WIDTH = 150
-
-------------------------------------------------------------------------
--- The cell. UI/Cells.xml mixes this into AuctionHoundTotalCellTemplate.
--- It takes the mouse for its tooltip, so hovering is passed on to the
--- row underneath the way Blizzard's own tooltip cells do; clicks fall
--- through to the row by themselves.
-------------------------------------------------------------------------
-AuctionHoundTotalCellMixin = UI.CellMixin()
-
-function AuctionHoundTotalCellMixin:Init(owner)
-  self.owner = owner
-end
+A.COLUMN_WIDTH = 130
+A.ROOM = A.COLUMN_WIDTH + 6
 
 local SOLD = Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold
 
@@ -40,72 +29,76 @@ function A.Figures(rowData)
   return total, cut, total - cut, sold
 end
 
-function AuctionHoundTotalCellMixin:Populate(rowData)
-  self.rowData = rowData
-  local total = A.Figures(rowData)
-  self.Text:SetText(total and H.Money(total) or "")
+------------------------------------------------------------------------
+-- The total on a row.
+------------------------------------------------------------------------
+local function build(cell)
+  local o = CreateFrame("Frame", nil, cell)
+  o:EnableMouse(false)
+  o:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
+  o:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+  o:SetWidth(A.COLUMN_WIDTH)
+  o:SetFrameLevel((cell.GetFrameLevel and cell:GetFrameLevel() or 0) + 2)
+  o.Text = UI.Text(o, "Number14FontWhite", "", "RIGHT")
+  o.Text:SetPoint("RIGHT", o, "RIGHT", 0, 0)
+  return o
 end
 
-function AuctionHoundTotalCellMixin:OnEnter()
-  UI.RowScript(self, "OnEnter")
-  local r = self.rowData
+function A.Paint(o, rowData)
+  local total = A.Figures(rowData)
+  o.Text:SetText(total and H.Money(total) or "")
+end
+
+function A.OverlayFor(cell)
+  return House.overlays[cell]
+end
+
+local function onAuctions(cell)
+  return A.list ~= nil and House.Under(cell, A.list)
+end
+
+local function onPopulate(cell, rowData, index)
+  if not onAuctions(cell) or type(rowData) ~= "table" then return end
+  House.MakeRoom(cell, A.ROOM)
+  House.Track(cell, "auction", rowData, index)
+  A.Paint(House.Overlay(cell, build), rowData)
+end
+
+local function onDisplay(cell)
+  if onAuctions(cell) then House.MakeRoom(cell, A.ROOM) end
+end
+
+function A.Repaint()
+  House.Each("auction", function(cell, rowData)
+    local o = House.overlays[cell]
+    if o then A.Paint(o, rowData) end
+  end)
+end
+
+------------------------------------------------------------------------
+-- The row's tooltip: the cut and the deposit.
+------------------------------------------------------------------------
+function A.TooltipLines(tooltip, r)
   local total, cut, net, sold = A.Figures(r)
-  if not total or not GameTooltip then return end
-  GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-  GameTooltip:AddLine("|cffe6b800Hound|r total", 1, 1, 1)
-  GameTooltip:AddDoubleLine(sold and "sold, the whole auction" or "buyout x units", H.Money(total), 0.8, 0.8, 0.8, 1, 1, 1)
-  GameTooltip:AddDoubleLine(string.format("cut %d%%", H.Round((H.Settings().cut or 0) * 100)), "-" .. H.Money(cut), 0.8, 0.8, 0.8, 1, 1, 1)
+  if not total then return end
+  tooltip:AddLine(" ")
+  tooltip:AddLine("|cffe6b800Hound|r total", 1, 1, 1)
+  tooltip:AddDoubleLine(sold and "sold, the whole auction" or "buyout x units", H.Money(total), 0.8, 0.8, 0.8, 1, 1, 1)
+  tooltip:AddDoubleLine(string.format("cut %d%%", H.Round((H.Settings().cut or 0) * 100)), "-" .. H.Money(cut), 0.8, 0.8, 0.8, 1, 1, 1)
   local post = H.Fan.PostForAuction and H.Fan.PostForAuction(r.auctionID)
   if post and post.deposit then
-    GameTooltip:AddDoubleLine("deposit paid", H.Money(post.deposit), 0.8, 0.8, 0.8, 1, 1, 1)
-    GameTooltip:AddDoubleLine("left after cut and deposit", H.Money(net - post.deposit), 0.8, 0.8, 0.8, 0.4, 0.9, 0.4)
+    tooltip:AddDoubleLine("deposit paid", H.Money(post.deposit), 0.8, 0.8, 0.8, 1, 1, 1)
+    tooltip:AddDoubleLine("left after cut and deposit", H.Money(net - post.deposit), 0.8, 0.8, 0.8, 0.4, 0.9, 0.4)
   else
-    GameTooltip:AddDoubleLine("left after the cut", H.Money(net), 0.8, 0.8, 0.8, 0.4, 0.9, 0.4)
-    GameTooltip:AddLine("deposit not recorded: posted before the addon saw it", 0.6, 0.6, 0.6, true)
+    tooltip:AddDoubleLine("left after the cut", H.Money(net), 0.8, 0.8, 0.8, 0.4, 0.9, 0.4)
+    tooltip:AddLine("deposit not recorded: posted before the addon saw it", 0.6, 0.6, 0.6, true)
   end
-  GameTooltip:Show()
 end
 
-function AuctionHoundTotalCellMixin:OnLeave()
-  UI.RowScript(self, "OnLeave")
-  if GameTooltip then GameTooltip:Hide() end
-end
+House.OnTooltip("auction", A.TooltipLines)
 
 ------------------------------------------------------------------------
--- The columns: Bid out, Total in before Time Left.
-------------------------------------------------------------------------
-
--- Blizzard has already built the Bid column and its header by the time
--- the layout reaches us. Taking the column out of the table before it
--- is arranged means no cells are ever made for it; the header goes
--- back to its pool.
-function A.DropBid(tb)
-  local cols = type(tb) == "table" and tb.GetColumns and tb:GetColumns()
-  local bid = Enum and Enum.AuctionHouseSortOrder and Enum.AuctionHouseSortOrder.Bid
-  if type(cols) ~= "table" or not bid then return nil end
-  for i, col in ipairs(cols) do
-    local header = col.GetHeaderFrame and col:GetHeaderFrame()
-    if type(header) == "table" and header.sortOrder == bid then
-      table.remove(cols, i)
-      local pools = tb.GetHeaderPoolCollection and tb:GetHeaderPoolCollection()
-      if type(pools) == "table" and type(pools.Release) == "function" then
-        pcall(pools.Release, pools, header)
-      end
-      if header.Hide then header:Hide() end
-      return col
-    end
-  end
-  return nil
-end
-
-local function addColumn(tb, owner)
-  A.DropBid(tb)
-  return tb:AddUnsortableFixedWidthColumn(owner, 0, A.COLUMN_WIDTH, 10, 0, "Total", "AuctionHoundTotalCellTemplate")
-end
-
-------------------------------------------------------------------------
--- Install once the Blizzard frame exists. The list's layout is set
--- when the frame loads and never rebuilt, so one wrap is enough.
+-- Install once the Blizzard frame exists, before the list makes cells.
 ------------------------------------------------------------------------
 local function install()
   local ah = AuctionHouseFrame
@@ -114,11 +107,13 @@ local function install()
   if A.installed or type(list) ~= "table" then return end
   A.installed = true
   A.list = list
-  local ok, err = pcall(UI.HookListLayout, list, af, addColumn)
+  local ok = House.HookCells("AuctionHouseTableCellAuctionsItemDisplayMixin", "Populate", "Auctions tab total", onPopulate)
+  House.HookCells("AuctionHouseTableCellAuctionsItemDisplayMixin", "UpdateDisplay", "Auctions tab total", onDisplay)
   if not ok then
-    H.Print("could not add the Total column to the Auctions tab (" .. tostring(err) .. ")")
+    H.Print("could not add the total to the Auctions tab (its name cells were not found)")
   end
 end
 
 H.Events:On("AH_UI_LOADED", install)
 H.Events:On("AH_OPENED", install)
+H.Events:On("SETTINGS_CHANGED", function() if A.list then A.Repaint() end end)

@@ -276,6 +276,72 @@ function Stub.Pump(max)
 end
 
 ------------------------------------------------------------------------
+-- Taint, the way the client keeps it, as far as a test can see it. A
+-- value written while the addon's code is on the way to the write
+-- carries the addon's name, and Blizzard's own code that reads it is
+-- tainted from then on. Two things are recorded as violations:
+--   * Blizzard's own Lua (a stub function standing for it calls
+--     Stub.Blizzard) run with the addon's code on the stack, since
+--     everything it writes then is written in the addon's name;
+--   * a new field written on a Blizzard object with the addon's code
+--     on the stack, unless the writer stands for a widget method, which
+--     is C in the client and keeps no Lua state.
+-- The walk up the stack stops at an event or a timer: the client starts
+-- those clean. A function of the addon's stored in a Blizzard object's
+-- field (a data provider, a layout) taints whatever calls it later;
+-- Stub.TaintReport finds those too.
+------------------------------------------------------------------------
+Stub.taint = {}
+Stub.blizzard = setmetatable({}, { __mode = "k" })   -- objects that stand for the client's own
+Stub.cMethods = {}                                     -- functions that stand for C widget methods
+local fresh = {}                                       -- where the client starts a clean execution
+
+local function isAddon(source)
+  return type(source) == "string" and string.find(source, "^@AuctionHound/") ~= nil
+end
+
+function Stub.AddonOnStack(level)
+  level = (level or 2) + 1
+  while true do
+    local info = debug.getinfo(level, "Sf")
+    if not info then return nil end
+    if fresh[info.func] then return nil end
+    if isAddon(info.source) then return string.sub(info.source, 2) .. ":" .. tostring(info.linedefined) end
+    level = level + 1
+  end
+end
+
+function Stub.Blizzard(what)
+  local who = Stub.AddonOnStack(2)
+  if who then table.insert(Stub.taint, what .. " ran in the addon's name, from " .. who) end
+end
+
+function Stub.MarkBlizzard(o)
+  Stub.blizzard[o] = true
+  return o
+end
+
+-- Every field of every Blizzard object holding a function the addon
+-- wrote, and every violation recorded since the last call.
+function Stub.TaintReport()
+  local out = {}
+  for _, v in ipairs(Stub.taint) do table.insert(out, v) end
+  for o in pairs(Stub.blizzard) do
+    for k, v in pairs(o) do
+      if type(v) == "function" then
+        local info = debug.getinfo(v, "S")
+        if isAddon(info.source) then
+          table.insert(out, string.format("%s.%s holds the addon's function from %s:%d",
+            tostring(o.name or o.kind), tostring(k), string.sub(info.source, 2), info.linedefined))
+        end
+      end
+    end
+  end
+  Stub.taint = {}
+  return out
+end
+
+------------------------------------------------------------------------
 -- Frames: a permissive object that records events and scripts
 ------------------------------------------------------------------------
 Stub.eventFrames = {}
@@ -295,6 +361,17 @@ local function newObject(kind)
   local o = setmetatable({ kind = kind, scripts = {}, events = {}, shown = true, children = {}, width = 400, height = 300, text = "", points = {} }, Frame)
   return o
 end
+Stub.NewObject = newObject
+
+Frame.__newindex = function(t, k, v)
+  if Stub.blizzard[t] and not Stub.cMethods[debug.getinfo(2, "f").func] then
+    local who = Stub.AddonOnStack(2)
+    if who then
+      table.insert(Stub.taint, string.format("%s.%s written in the addon's name, from %s", tostring(rawget(t, "name") or rawget(t, "kind")), tostring(k), who))
+    end
+  end
+  rawset(t, k, v)
+end
 
 function Frame:RegisterEvent(e) self.events[e] = true Stub.eventFrames[self] = true end
 function Frame:UnregisterEvent(e) self.events[e] = nil end
@@ -302,7 +379,7 @@ function Frame:SetScript(name, fn) self.scripts[name] = fn end
 function Frame:GetScript(name) return self.scripts[name] end
 function Frame:HookScript(name, fn) local old = self.scripts[name] self.scripts[name] = function(...) if old then old(...) end fn(...) end end
 function Frame:Show() self.shown = true if self.scripts.OnShow then self.scripts.OnShow(self) end end
-function Frame:Hide() self.shown = false end
+function Frame:Hide() local was = self.shown self.shown = false if was and self.scripts.OnHide then self.scripts.OnHide(self) end end
 function Frame:SetShown(v) if v then self:Show() else self:Hide() end end
 function Frame:IsShown() return self.shown end
 function Frame:IsVisible() return self.shown end
@@ -375,6 +452,11 @@ function CreateFrame(kind, name, parent, template)
     for _, key in ipairs(t.fontStrings) do f[key] = newObject("FontString") end
   end
   if name then _G[name] = f end
+  -- made by anything but the addon, it stands for the client's own
+  if not Stub.AddonOnStack(1) then
+    Stub.blizzard[f] = true
+    if t then for _, key in ipairs(t.fontStrings) do Stub.blizzard[f[key]] = true end end
+  end
   return f
 end
 
@@ -482,8 +564,26 @@ local function newTooltip()
     self.rightColors[#self.lines] = { rr, rg, rb }
   end
   function t:ClearLines() self.lines = {} self.rightColors = {} end
-  function t:SetOwner() end
+  -- an owner set starts a fresh tooltip, as the client's does
+  function t:SetOwner(owner) self.owner = owner self.lines = {} self.rightColors = {} end
+  function t:GetOwner() return self.owner end
+  function t:IsOwned(f) return self.owner == f end
+  function t:Hide() self.shown = false self.owner = nil end
   function t:SetItemByID(id) self.itemID = id end
+  -- an item set on the tooltip runs the item post-call, as the
+  -- client's tooltip data processor does
+  function t:SetItemKey(itemID)
+    self.itemID = itemID
+    if Stub.tooltipHandler then Stub.tooltipHandler(self, { id = itemID }) end
+  end
+  function t:SetHyperlink(link)
+    local id = tonumber(string.match(tostring(link), "item:(%d+)"))
+    self.itemID = id
+    if Stub.tooltipHandler then Stub.tooltipHandler(self, { id = id, hyperlink = link }) end
+  end
+  for _, fn in pairs(t) do
+    if type(fn) == "function" then Stub.cMethods[fn] = true end
+  end
   return t
 end
 GameTooltip = newTooltip()
@@ -645,7 +745,7 @@ C_AuctionHouse = {
   GetNumCommoditySearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
   GetCommoditySearchResultInfo = function(itemID, i)
     local l = Stub.ah.currentSearch.listings[i]
-    return { itemID = itemID, unitPrice = l[1], quantity = l[2], auctionID = l[3] or i, timeLeftSeconds = 3600, containsOwnerItem = l.mine or false }
+    return { itemID = itemID, unitPrice = l[1], quantity = l[2], auctionID = l[3] or i, timeLeftSeconds = 3600, containsOwnerItem = (l.mine or (l.own or 0) > 0) and true or false, numOwnerItems = l.own or 0 }
   end,
   GetNumItemSearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
   GetItemSearchResultInfo = function(itemKey, i)
@@ -711,15 +811,17 @@ function Stub.NewItemList()
   list.textureHeightClassic = 414
 
   function list:SetDataProvider(started, getEntry, getNum, full)
+    Stub.Blizzard("ItemList:SetDataProvider")
     self.searchStartedFunc, self.getEntry, self.getNumEntries, self.hasFullResultsFunc = started, getEntry, getNum, full
   end
-  function list:SetTableBuilderLayout(fn) self.tableBuilderLayoutFunction = fn end
-  function list:DirtyScrollFrame() self.dirty = true end
+  function list:SetTableBuilderLayout(fn) Stub.Blizzard("ItemList:SetTableBuilderLayout") self.tableBuilderLayoutFunction = fn end
+  function list:DirtyScrollFrame() Stub.Blizzard("ItemList:DirtyScrollFrame") self.dirty = true end
   -- Every column the layout adds gets a header frame the way the
   -- client's AddColumnInternal builds one: a sortable column carries
   -- its sort order, an unsortable one its text. Rows are buttons with
   -- the client's row mixin, so a hover reaches every cell.
   function list:Render()
+    Stub.Blizzard("ItemList:Render")
     local tb = { columns = {}, all = {}, released = {} }
     function tb:GetColumns() return self.columns end
     function tb:GetHeaderPoolCollection()
@@ -739,11 +841,36 @@ function Stub.NewItemList()
     function tb:AddUnsortableFixedWidthColumn(owner, padding, width, l, r, header, template, ...) return add(owner, nil, header, template, ...) end
     function tb:AddUnsortableFillColumn(owner, padding, fill, l, r, header, template, ...) return add(owner, nil, header, template, ...) end
     self.tableBuilderLayoutFunction(tb)
+    -- the scroll box reuses its rows: the last render's are put away
+    for _, old in ipairs(self.lastRows or {}) do old:Hide() end
     local rows, rowFrames = {}, {}
+    local list = self
     for i = 1, self.getNumEntries() do
       local rowData = self.getEntry(i)
       local row = Mixin(newObject("Button"), TableBuilderRowMixin)
-      row.rowData, row.cells = rowData, {}
+      row.rowData, row.cells, row.parent = rowData, {}, list
+      Stub.MarkBlizzard(row)
+      -- the client's line: its own hover, then the list's line callback,
+      -- which sets the row's item on the tooltip where the list has one
+      row.scripts.OnEnter = function(r)
+        Stub.Blizzard("a list row's OnEnter")
+        r:OnEnter()
+        local d = r.rowData
+        if list.lineTooltips and type(d) == "table" then
+          GameTooltip:SetOwner(r, "ANCHOR_RIGHT")
+          if d.itemLink then
+            GameTooltip:SetHyperlink(d.itemLink)
+          elseif type(d.itemKey) == "table" then
+            GameTooltip:SetItemKey(d.itemKey.itemID, d.itemKey.itemLevel, d.itemKey.itemSuffix)
+          end
+          GameTooltip:Show()
+        end
+      end
+      row.scripts.OnLeave = function(r)
+        Stub.Blizzard("a list row's OnLeave")
+        r:OnLeave()
+        if list.lineTooltips then GameTooltip:Hide() end
+      end
       for _, col in ipairs(tb.columns) do
         local cell = CreateFrame("Frame", nil, row, col.template)
         -- Blizzard's cells all derive from the cell mixin; the addon's
@@ -757,6 +884,7 @@ function Stub.NewItemList()
       rows[i] = row.cells
       rowFrames[i] = row
     end
+    self.lastRows = rowFrames
     return { columns = tb.columns, all = tb.all, released = tb.released, rows = rows, rowFrames = rowFrames }
   end
   return list
@@ -766,9 +894,11 @@ function Stub.NewBrowseFrame()
   local br = CreateFrame("Frame")
   br.browseResults = {}
   local list = Stub.NewItemList()
+  list.lineTooltips = true
   br.ItemList = list
 
   function br:SetupTableBuilder(extra)
+    Stub.Blizzard("BrowseResultsFrame:SetupTableBuilder")
     self.ItemList:SetTableBuilderLayout(function(tb)
       tb:AddFixedWidthColumn(self, 0, 146, 0, 14, "price", "AuctionHouseTableCellMinPriceTemplate")
       tb:AddFillColumn(self, 0, 1.0, 10, 0, "name", "AuctionHouseTableCellItemDisplayTemplate", true, extra ~= nil)
@@ -778,6 +908,7 @@ function Stub.NewBrowseFrame()
     end)
   end
   function br:UpdateBrowseResults(added)
+    Stub.Blizzard("BrowseResultsFrame:UpdateBrowseResults")
     self.browseResults = C_AuctionHouse.GetBrowseResults()
     self.ItemList:DirtyScrollFrame()
   end
@@ -796,6 +927,7 @@ end
 function Stub.NewAuctionsFrame()
   local af = CreateFrame("Frame")
   local list = Stub.NewItemList()
+  list.lineTooltips = true
   af.AllAuctionsList = list
   list:SetTableBuilderLayout(function(tb)
     local S = Enum.AuctionHouseSortOrder
@@ -821,6 +953,7 @@ function Stub.NewCommoditiesBuyFrame()
   function frame.BuyDisplay:GetQuantity() return self.quantity end
   frame.BuyDisplay.BuyButton = CreateFrame("Button", nil, frame.BuyDisplay)
   frame.BuyDisplay.BuyButton:SetScript("OnClick", function()
+    Stub.Blizzard("the commodity Buy button's OnClick")
     Stub.ah.buyClicks = (Stub.ah.buyClicks or 0) + 1
     C_AuctionHouse.StartCommoditiesPurchase(frame.itemID, frame.BuyDisplay.quantity)
     -- the client's dialog opens inside the click, the quote landing later
@@ -834,6 +967,7 @@ function Stub.NewCommoditiesBuyFrame()
     tb:AddFillColumn(list, 0, 1.0, 0, 10, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
   end)
   function frame:SetItemIDAndPrice(itemID, price)
+    Stub.Blizzard("CommoditiesBuyFrame:SetItemIDAndPrice")
     self.itemID = itemID
     list.itemID = itemID
     list:SetDataProvider(function() return itemID ~= nil end,
@@ -859,6 +993,7 @@ function Stub.NewItemBuyFrame()
   local frame = CreateFrame("Frame")
   frame.ItemDisplay = CreateFrame("Button")
   local list = Stub.NewItemList()
+  list.lineTooltips = true
   frame.ItemList = list
   list:SetTableBuilderLayout(function(tb)
     tb:AddFixedWidthColumn(frame, 0, 145, 10, 0, "bid", "AuctionHouseTableCellBidTemplate")
@@ -868,6 +1003,7 @@ function Stub.NewItemBuyFrame()
     tb:AddFixedWidthColumn(frame, 0, 140, 10, 10, nil, "AuctionHouseTableCellTimeLeftBandTemplate")
   end)
   function frame:SetItemKey(itemKey)
+    Stub.Blizzard("ItemBuyFrame:SetItemKey")
     self.itemKey = itemKey
     list:SetDataProvider(function() return itemKey ~= nil end,
       function(i) return C_AuctionHouse.GetItemSearchResultInfo(itemKey, i) end,
@@ -890,6 +1026,48 @@ AuctionHouseTableCellCommoditiesQuantityMixin = CreateFromMixins(TableBuilderCel
   Populate = function(self, rowData) self.Text:SetText(tostring(rowData.quantity or 0)) end,
 })
 Stub.templates["AuctionHouseTableCellCommoditiesQuantityTemplate"] = { mixin = "AuctionHouseTableCellCommoditiesQuantityMixin", fontStrings = { "Text" } }
+
+-- The name cell: the browse list's, and through its derived mixin the
+-- Auctions tab's. The client's Init hands the owner to the mixin as
+-- self, so a name cell never gets an owner; its Populate draws the
+-- name and anchors it to the cell's right edge again every time.
+local function itemName(itemKey)
+  local it = type(itemKey) == "table" and Stub.items[itemKey.itemID]
+  return it and it.name or "item"
+end
+AuctionHouseTableCellItemDisplayMixin = CreateFromMixins(TableBuilderCellMixin, {
+  Init = function(self, owner, restrict, hideItemLevel) self.hideItemLevel = hideItemLevel end,
+  Populate = function(self, rowData)
+    Stub.Blizzard("a name cell's Populate")
+    self.rowData = rowData
+    self:UpdateDisplay(rowData.itemKey)
+  end,
+  UpdateDisplay = function(self, itemKey)
+    self.Text:SetText(itemName(itemKey))
+    self.Text:SetPoint("RIGHT", self, nil, 1)
+  end,
+})
+Stub.templates["AuctionHouseTableCellItemDisplayTemplate"] = { mixin = "AuctionHouseTableCellItemDisplayMixin", fontStrings = { "Text", "ExtraInfo" } }
+
+AuctionHouseTableCellAuctionsItemDisplayMixin = CreateFromMixins(AuctionHouseTableCellItemDisplayMixin, {
+  UpdateDisplay = function(self, itemKey)
+    AuctionHouseTableCellItemDisplayMixin.UpdateDisplay(self, itemKey)
+    local q = self.rowData and self.rowData.quantity
+    self.Text:SetText(itemName(itemKey) .. (q and q > 1 and (" x" .. q) or ""))
+  end,
+})
+Stub.templates["AuctionHouseTableCellAuctionsItemDisplayTemplate"] = { mixin = "AuctionHouseTableCellAuctionsItemDisplayMixin", fontStrings = { "Text", "ExtraInfo" } }
+
+-- The item buy list's wide units cell: the count, shown above one.
+AuctionHouseTableCellItemQuantityMixin = CreateFromMixins(TableBuilderCellMixin, {
+  Init = function(self, owner) self.owner = owner end,
+  Populate = function(self, rowData)
+    Stub.Blizzard("a units cell's Populate")
+    local q = rowData.quantity or 0
+    self.Text:SetText(q > 1 and tostring(q) or "")
+  end,
+})
+Stub.templates["AuctionHouseTableCellItemQuantityLeftTemplate"] = { mixin = "AuctionHouseTableCellItemQuantityMixin", fontStrings = { "Text" } }
 
 local function loadTemplates(path)
   local f = io.open(path)
@@ -925,5 +1103,15 @@ function Stub.LoadAddon(root)
   end
   return ns
 end
+
+-- What stands for C in the client: widget methods and the secure hook
+-- keep no Lua state of Blizzard's, whoever calls them. Events and
+-- timers start a clean execution.
+for _, fn in pairs(Frame) do
+  if type(fn) == "function" then Stub.cMethods[fn] = true end
+end
+Stub.cMethods[hooksecurefunc] = true
+fresh[Stub.FireEvent] = true
+fresh[Stub.RunTimers] = true
 
 return Stub

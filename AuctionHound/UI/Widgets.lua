@@ -22,29 +22,6 @@ function UI.Create(kind, name, parent, template)
   return CreateFrame(kind, name, parent)
 end
 
--- A frame's anchors, read back so they can be put back: a list of the
--- values GetPoint gives, each with its count, since the relative frame
--- can be nil in the middle.
-function UI.Points(f)
-  local pts = {}
-  local n = type(f.GetNumPoints) == "function" and f:GetNumPoints() or 0
-  for i = 1, n do
-    local p = { f:GetPoint(i) }
-    p.n = select("#", f:GetPoint(i))
-    pts[i] = p
-  end
-  return pts
-end
-
--- Puts anchors from UI.Points back. Nothing is cleared without
--- something to put in its place; returns whether anything was set.
-function UI.SetPoints(f, pts)
-  if type(pts) ~= "table" or #pts == 0 then return false end
-  f:ClearAllPoints()
-  for _, p in ipairs(pts) do f:SetPoint(unpack(p, 1, p.n or #p)) end
-  return true
-end
-
 -- Centers a frame under the cursor, kept on the screen. The cursor is
 -- read in screen pixels, so the sizes are taken there too, and the
 -- anchor goes back into the frame's own units. Returns true, or false
@@ -62,30 +39,6 @@ function UI.CenterOnCursor(f)
   f:ClearAllPoints()
   f:SetPoint("CENTER", UIParent, "BOTTOMLEFT", x / s, y / s)
   return true
-end
-
--- A cell on one of Blizzard's lists. The row's hover calls OnLineEnter
--- and OnLineLeave on every cell it holds, so a cell without them
--- crashes the row; Blizzard's cells inherit both from
--- TableBuilderCellMixin, and so do ours.
-function UI.CellMixin()
-  local m = {}
-  if type(Mixin) == "function" and type(TableBuilderCellMixin) == "table" then
-    Mixin(m, TableBuilderCellMixin)
-  end
-  if not m.OnLineEnter then function m:OnLineEnter() end end
-  if not m.OnLineLeave then function m:OnLineLeave() end end
-  return m
-end
-
--- Blizzard's rows take the mouse for their highlight. A cell with a
--- tooltip takes it instead, so it hands the hover on to its row the
--- way Blizzard's own tooltip cells do.
-function UI.RowScript(cell, name)
-  local row = cell:GetParent()
-  if row and type(ExecuteFrameScript) == "function" then
-    ExecuteFrameScript(row, name)
-  end
 end
 
 function UI.Text(parent, font, text, justify)

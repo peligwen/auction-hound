@@ -25,19 +25,15 @@ local function near(a, b, tol, msg)
   end
 end
 
--- Hover every rendered row the way the client does: the row mixin
--- calls OnLineEnter and OnLineLeave on each cell, and a Hound cell
--- without them is the crash the beta reported. Blizzard's own cells
--- are outside the stub, so only ours are held to it.
+-- Hover every rendered row the way the client does: the row's own
+-- scripts run, every cell answers the row's hover, and the row's
+-- tooltip gets what the item post-call adds. None of it may stop.
 local function hover(r, what)
   for i, row in ipairs(r.rowFrames) do
-    for _, cell in ipairs(row.cells) do
-      if type(cell.template) == "string" and cell.template:find("^AuctionHound") then
-        check(rawget(cell, "OnLineEnter") ~= nil and rawget(cell, "OnLineLeave") ~= nil,
-          what .. ": " .. cell.template .. " answers the row hover")
-      end
-    end
-    local ok, err = pcall(function() row:OnEnter() row:OnLeave() end)
+    local ok, err = pcall(function()
+      ExecuteFrameScript(row, "OnEnter")
+      ExecuteFrameScript(row, "OnLeave")
+    end)
     check(ok, what .. " row " .. i .. " hover: " .. tostring(err))
   end
 end
@@ -61,6 +57,23 @@ Stub.DefineItem(9999, "Slow To Load", { sell = 1, commodity = true, loaded = fal
 Stub.DefineItem(7777, "Junk Gizmo", { sell = 5000, commodity = true })
 
 local H = Stub.LoadAddon("AuctionHound")
+
+-- Hound's figures on a Buy tab row: its own frame on the row's name
+-- cell, the second of Blizzard's columns.
+local function fig(r, i)
+  return H.UI.Browse.OverlayFor(r.rows[i][2])
+end
+
+-- Blizzard's hover on a row of one of its lists, as the client makes
+-- it: the row's own tooltip, with whatever the item post-call adds.
+local function rowTip(r, i)
+  local row = r.rowFrames[i]
+  ExecuteFrameScript(row, "OnEnter")
+  local text = table.concat(GameTooltip.lines, "\n")
+  ExecuteFrameScript(row, "OnLeave")
+  return text
+end
+
 Stub.FireEvent("ADDON_LOADED", "AuctionHound")
 Stub.FireEvent("PLAYER_LOGIN")
 
@@ -941,6 +954,7 @@ do
     hover()
     eq(GameTooltip.lines[1], plain, "an empty slot prices one")
     -- set from anything but a bag slot, the item button's count stands in
+    local realOwner = GameTooltip.GetOwner
     GameTooltip.GetPrimaryTooltipInfo = function() return { getterName = "GetMerchantItem", getterArgs = { 3 } } end
     GameTooltip.GetOwner = function() return { count = 12 } end
     hover()
@@ -948,7 +962,7 @@ do
     GameTooltip.GetOwner = function() return { count = "x" } end
     hover()
     eq(GameTooltip.lines[1], plain, "an owner without a count prices one")
-    GameTooltip.GetPrimaryTooltipInfo, GameTooltip.GetOwner = nil, nil
+    GameTooltip.GetPrimaryTooltipInfo, GameTooltip.GetOwner = nil, realOwner
   end
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 424242 })
@@ -1375,6 +1389,7 @@ do
   local sellMode = { "ItemSellFrame" }
   AuctionHouseFrame.tabsForDisplayMode = { [buyMode] = 1, [sellMode] = 2 }
   function AuctionHouseFrame:SetDisplayMode(mode)
+    Stub.Blizzard("AuctionHouseFrame:SetDisplayMode")
     if self.displayMode == mode then return end
     self.displayMode = mode
     local tab = self.tabsForDisplayMode[mode]
@@ -1573,98 +1588,79 @@ do
   check(e.deal, "a stray under the rest is a deal")
   near(e.disc, 0.4, 0.01, "forty percent under")
 
-  -- the index
   local rows = { half, tenOff, over, none, vendorRow, mineRow, empty }
-  local function getRow(i) return rows[i] end
-  local idx = Browse.BuildIndex(#rows, getRow, {})
-  eq(#idx, 7, "nothing on keeps every row")
-  eq(idx[7], 7, "nothing on keeps the order")
-  idx = Browse.BuildIndex(#rows, getRow, { sort = true })
-  eq(table.concat(idx, ","), "6,1,5,2,3,4,7", "sorted: deals by discount, then under, over, none, empty")
-  idx = Browse.BuildIndex(#rows, getRow, { deals = true })
-  eq(table.concat(idx, ","), "1,5,6", "deals only")
-  idx = Browse.BuildIndex(#rows, getRow, { deals = true, notMine = true })
-  eq(table.concat(idx, ","), "1,5", "deals that are not mine")
-  idx = Browse.BuildIndex(#rows, getRow, { history = true })
-  eq(table.concat(idx, ","), "1,2,3,6,7", "history only drops the vendor and unknown rows")
-  check(not Browse.Active({}), "no toggles: inactive")
-  check(Browse.Active({ browseDeals = true }), "a toggle: active")
 
   -- the frame hook, with a fake Blizzard browse frame
   AuctionHouseFrame.BrowseResultsFrame = Stub.NewBrowseFrame()
   local br = AuctionHouseFrame.BrowseResultsFrame
   local BUI = H.UI.Browse
+  local listFns = { br.ItemList.searchStartedFunc, br.ItemList.getEntry, br.ItemList.getNumEntries, br.ItemList.tableBuilderLayoutFunction }
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "buy tab hook: " .. tostring(err))
-  check(BUI.installed and BUI.strip ~= nil, "filter strip built")
+  check(BUI.installed and BUI.strip ~= nil, "strip built")
   local lp = br.ItemList.points[#br.ItemList.points]
   eq(lp[1], "TOPLEFT", "list re-anchored at its top")
   eq(lp[5], -(BUI.STRIP_HEIGHT + 1), "list starts below the strip")
   eq(br.ItemList.Background.height, 414 - BUI.STRIP_HEIGHT - 1, "background shortened to match")
   eq(BUI.strip.min.text, "25", "minimum box shows the setting")
+  local same = br.ItemList.searchStartedFunc == listFns[1] and br.ItemList.getEntry == listFns[2]
+    and br.ItemList.getNumEntries == listFns[3] and br.ItemList.tableBuilderLayoutFunction == listFns[4]
+  check(same, "the list keeps its own data provider and layout")
 
-  -- a full result set arrives: the column shows on every row, before the star
+  -- a result set arrives: Blizzard's columns stay as they are, and each
+  -- row's name cell carries Hound's figures at its right end
   Stub.ah.browsePageSize = 10
   Stub.ah.browse = rows
   C_AuctionHouse.SendBrowseQuery({})
   Stub.Advance(1) Stub.Pump()
   local r = br.ItemList:Render()
-  eq(#r.columns, 5, "hound column added")
-  eq(r.columns[4].header, "Hound", "hound column sits before the star")
-  eq(r.columns[5].template, "AuctionHouseTableCellFavoriteTemplate", "star keeps the edge")
-  eq(#r.rows, 7, "every row shown with nothing toggled")
+  eq(#r.columns, 4, "no column added to Blizzard's list")
+  eq(r.columns[4].template, "AuctionHouseTableCellFavoriteTemplate", "star keeps the edge")
+  eq(#r.rows, 7, "every row shown, in Blizzard's order")
+  eq(r.rowFrames[6].rowData, mineRow, "the house's order stands")
   hover(r, "buy tab")
-  local cell = r.rows[1][4]
-  eq(cell.Text.text, "-50%", "cell shows the discount")
-  eq(cell.Sub.text, H.MoneyShort(refOre), "cell shows the reference")
-  eq(cell.Text.color and cell.Text.color[2], Browse.COLORS.deal[2], "deal cell green")
-  eq(r.rows[4][4].Sub.text, "no reference", "unknown item cell says so")
-  eq(r.rows[5][4].Sub.text, "vendor 10s", "vendor cell labelled")
-  eq(BUI.strip.status.text, "7 rows", "status counts rows")
+  local cell = fig(r, 1)
+  check(cell ~= nil, "figures on the first row's name cell")
+  eq(cell.Text.text, "-50%", "the figure is the discount")
+  eq(cell.Sub.text, H.MoneyShort(refOre), "the note is the reference")
+  eq(cell.Text.color and cell.Text.color[2], Browse.COLORS.deal[2], "a deal reads green")
+  check(not cell:IsMouseEnabled(), "the figures take no mouse, so the row keeps its hover and its click")
+  eq(cell:GetParent(), r.rows[1][2], "they are Hound's own frame on the name cell")
+  local namePt = r.rows[1][2].Text.points[#r.rows[1][2].Text.points]
+  check(namePt[1] == "RIGHT" and namePt[4] == -BUI.ROOM, "the name is pulled in to give them room")
+  eq(fig(r, 4).Sub.text, "no reference", "unknown item says so")
+  eq(fig(r, 5).Sub.text, "vendor 10s", "vendor reference labelled")
+  eq(BUI.strip.status.text, "7 rows, 3 deals", "status counts rows and deals: " .. BUI.strip.status.text)
+  local tipText = rowTip(r, 1)
+  check(string.find(tipText, "Hound|r on the Buy tab", 1, true) and string.find(tipText, "reference " .. H.Money(refOre), 1, true),
+    "the row's own tooltip carries Hound's reading: " .. tipText)
+  check(GameTooltip:GetOwner() == nil, "and is put away with the row's leave")
+  check(not string.find(rowTip(r, 7), "on the Buy tab", 1, true), "a row with no units gets no Hound reading")
 
-  -- the category layout is rebuilt with an extra column: ours follows it
+  -- the category layout is rebuilt with an extra column: the figures
+  -- follow the name cell wherever it sits
   br:SetupTableBuilder("Level")
   r = br.ItemList:Render()
-  eq(#r.columns, 6, "hound column survives a relayout")
-  eq(r.columns[5].header, "Hound", "still before the star after a relayout")
+  eq(#r.columns, 5, "Blizzard's extra column comes and goes as before")
+  eq(fig(r, 1).Text.text, "-50%", "figures still on the name cell")
   br:SetupTableBuilder(nil)
+  r = br.ItemList:Render()
 
-  -- toggles filter and sort through the data provider
-  BUI.strip.deals:SetChecked(true)
-  BUI.strip.deals.scripts.OnClick(BUI.strip.deals)
-  eq(H.Settings().browseDeals, true, "deals toggle saved")
-  eq(br.ItemList.getNumEntries(), 3, "deals only through the provider")
-  eq(br.ItemList.getEntry(2), vendorRow, "provider maps through the index")
-  check(br.ItemList.dirty, "list marked for refresh")
-  eq(BUI.strip.status.text, "3 of 7", "status counts the filtered rows")
-  H.Settings().browseNotMine = true
-  BUI.Rebuild()
-  eq(br.ItemList.getNumEntries(), 2, "not mine drops the own listing")
-  H.Settings().browseDeals, H.Settings().browseNotMine = false, false
-  H.Settings().browseSort = true
-  BUI.Rebuild()
-  eq(br.ItemList.getEntry(1), mineRow, "sorted: biggest discount first")
-  eq(br.ItemList.getEntry(7), empty, "sorted: empty key last")
-  -- a search starts and Blizzard's rows empty out: the stale index steps aside
-  br.browseResults = {}
-  eq(br.ItemList.getNumEntries(), 0, "stale index ignored while a search is out")
-  br:UpdateBrowseResults()
-  eq(br.ItemList.getNumEntries(), 7, "index rebuilt with the results")
-
-  -- the minimum box re-evaluates
+  -- the minimum box re-evaluates, and the figures on screen follow
+  -- without the list being redrawn
   BUI.strip.min:SetText("60")
   BUI.strip.min.scripts.OnTextChanged(BUI.strip.min)
   eq(H.Settings().minDiscount, 0.6, "minimum box sets the discount")
   check(not Browse.Evaluate(half).deal, "half price is no deal at a 60% minimum")
+  eq(fig(r, 1).Text.color[1], Browse.COLORS.under[1], "the figure on screen turns amber at once")
   SlashCmdList.HOUND("discount 25")
   eq(BUI.strip.min.text, "25", "slash command updates the box")
   check(Browse.Evaluate(half).deal, "half price is a deal again")
+  eq(fig(r, 1).Text.color[2], Browse.COLORS.deal[2], "and green again on screen")
 
   -- the copper minimum: a deal must also sit that far under the
   -- reference in copper a unit, so a one-silver item at half price is
   -- fifty percent off and still no deal
-  H.Settings().browseSort = false
-  BUI.Rebuild()
   eq(BUI.strip.saving.text, "0c", "copper box shows no floor")
   e = Browse.Evaluate(half)
   eq(e.saving, 50, "saving is the copper a unit under the reference")
@@ -1676,14 +1672,11 @@ do
   eq(select(2, Browse.CellText(e)), "-50%", "the figure still reads the percentage")
   eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "and the row is amber")
   check(Browse.Evaluate(vendorRow).deal, "two silver under vendor clears it and stays a deal")
-  eq(table.concat(Browse.BuildIndex(#rows, getRow, { deals = true }), ","), "5", "deals only drops the rows short of the copper minimum")
-  r = br.ItemList:Render()
-  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[2], Browse.COLORS.under[2], "the cell turns amber")
-  GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "50% under, but only 50c a unit; the minimum is 1s", 1, true),
-    "the cell tooltip names the copper minimum: " .. table.concat(GameTooltip.lines, " | "))
-  r.rows[1][4]:OnLeave()
+  eq(BUI.strip.status.text, "7 rows, 1 deal", "the count drops the rows short of the copper minimum: " .. BUI.strip.status.text)
+  eq(fig(r, 1).Text.color and fig(r, 1).Text.color[2], Browse.COLORS.under[2], "the figure turns amber")
+  tipText = rowTip(r, 1)
+  check(string.find(tipText, "50% under, but only 50c a unit; the minimum is 1s", 1, true),
+    "the row's tooltip names the copper minimum: " .. tipText)
   GameTooltip:ClearLines()
   BUI.strip.saving.scripts.OnEnter(BUI.strip.saving)
   check(string.find(table.concat(GameTooltip.lines, "\n"), "Minimum in copper", 1, true), "the box explains itself on hover")
@@ -1705,68 +1698,13 @@ do
   eq(H.Settings().minSaving, 0, "0c clears the copper minimum")
   eq(BUI.strip.saving.text, "0c", "box shows no floor again")
   check(Browse.Evaluate(half).deal, "half price is a deal once more")
-  H.Settings().browseSort = true
-  BUI.Rebuild()
 
-  -- with a toggle on, the remaining pages come in on their own
+  -- the list asks for its own pages: Hound asks for none
   Stub.ah.browsePageSize = 2
   C_AuctionHouse.SendBrowseQuery({})
-  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 7, "all pages fetched with a toggle on")
-  eq(BUI.pages, 3, "three more pages counted")
-  eq(BUI.strip.status.text, "7 of 7", "status settles once full")
-  -- with nothing on, the list waits for a scroll as before
-  H.Settings().browseSort = false
-  C_AuctionHouse.SendBrowseQuery({})
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 2, "no fetching with nothing toggled")
-  eq(BUI.strip.status.text, "2 rows", "status counts the first page")
-  -- throttled: the request waits for the ready event
-  H.Settings().browseSort = true
-  Stub.ah.ready = false
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  eq(Stub.ah.browseServed, 2, "request held while throttled")
-  check(string.find(BUI.strip.status.text, "loading more", 1, true), "status says it is loading")
-  Stub.ah.ready = true
-  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
-  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 7, "held request sent when ready")
-  -- a dropped request is asked for again once the system is ready
-  local realMore = C_AuctionHouse.RequestMoreBrowseResults
-  local drops = 0
-  C_AuctionHouse.RequestMoreBrowseResults = function()
-    drops = drops + 1
-    C_AuctionHouse.RequestMoreBrowseResults = realMore
-    Stub.ah.ready = false
-    C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED") end)
-  end
-  C_AuctionHouse.SendBrowseQuery({})
-  for _ = 1, 3 do Stub.Advance(1) Stub.Pump() end
-  eq(drops, 1, "the first page request was dropped")
-  eq(Stub.ah.browseServed, 2, "dropped request waits for the ready event")
-  Stub.ah.ready = true
-  Stub.FireEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
-  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 7, "dropped request asked for again")
-  eq(H.Scan.state, "idle", "the scanner did not replay an old query")
-  -- the page cap
-  H.Settings().snipePages = 1
-  C_AuctionHouse.SendBrowseQuery({})
-  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 4, "stops at the page cap")
-  check(string.find(BUI.strip.status.text, "stopped at 1 pages", 1, true), "status reports the cap: " .. BUI.strip.status.text)
-  H.Settings().snipePages = 40
-  -- the browse frame hidden (a row was clicked): no fetching until it shows again
-  br:Hide()
-  C_AuctionHouse.SendBrowseQuery({})
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 2, "no fetching while the list is hidden")
-  br:Show()
-  for _ = 1, 8 do Stub.Advance(1) Stub.Pump() end
-  eq(Stub.ah.browseServed, 7, "fetching resumes when the list shows")
-  H.Settings().browseSort = false
-  BUI.Rebuild()
+  for _ = 1, 6 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, 2, "no pages fetched behind the list's back")
+  eq(BUI.strip.status.text, "2 rows, 1 deal", "status counts the page shown")
 end
 
 ------------------------------------------------------------------------
@@ -1811,10 +1749,6 @@ do
   check(e.new and e.deal and not e.sat, "a floor under it since the last scan is new, and a deal")
   check(string.find(Browse.FloorLine(e), "new since the scan", 1, true), "and the floor line says so: " .. Browse.FloorLine(e))
   eq(select(3, Browse.CellText(e)), Browse.COLORS.deal, "green")
-  local pair = { sat, fresh }
-  local function getRow(i) return pair[i] end
-  eq(table.concat(Browse.BuildIndex(2, getRow, { sort = true }), ","), "2,1", "sorted, the fresh deal comes first")
-  eq(#Browse.BuildIndex(2, getRow, { deals = true }), 1, "deals only drops the sitting floor")
 
   -- the cell tooltip on the Buy tab, with what has been seen to sell
   Store.AddFills("90032", Stub.now, 40, 40 * 100)
@@ -1822,13 +1756,13 @@ do
   Stub.ah.browse, Stub.ah.browseServed = { sat }, 1
   br:UpdateBrowseResults()
   local r = br.ItemList:Render()
-  eq(r.rows[1][4].Text.color and r.rows[1][4].Text.color[1], Browse.COLORS.under[1], "the cell is amber")
+  eq(fig(r, 1).Text.color and fig(r, 1).Text.color[1], Browse.COLORS.under[1], "the cell is amber")
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "on offer", 1, true), "the tooltip says the floor has sat")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "cleared ~6 a day at", 1, true),
     "and what has cleared, forty units over the week's seven scan days: " .. table.concat(GameTooltip.lines, " | "))
-  r.rows[1][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
   -- the buy frame's ladder reads the same age
   local listings = { { p = 50, q = 3 }, { p = 100, q = 200 } }
@@ -1890,11 +1824,11 @@ do
   Stub.Advance(1) Stub.Pump()
   local r = br.ItemList:Render()
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   local tip = table.concat(GameTooltip.lines, "\n")
   check(string.find(tip, "estimate: crafted cost", 1, true), "tooltip names the estimate: " .. tip)
   check(string.find(tip, "untick estimates", 1, true), "tooltip points at the toggle")
-  r.rows[1][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
   -- off by command: the row is judged by its own thin history
   SlashCmdList.HOUND("estimates off")
@@ -1910,7 +1844,7 @@ do
   near(e.disc, 0, 1e-9, "the floor sits at reference")
   eq(select(1, Browse.CellText(e)), H.MoneyShort(700), "the note loses the estimate mark")
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Sub.text, H.MoneyShort(700), "the cell followed without a scan")
+  eq(fig(r, 1).Sub.text, H.MoneyShort(700), "the cell followed without a scan")
   eq(H.Reference("2934", 2934), nil, "off: nothing scanned means no reference")
   local leveledLeather = { itemKey = C_AuctionHouse.MakeItemKey(2319, 15), minPrice = 700, totalQuantity = 40 }
   e = Browse.Evaluate(leveledLeather)
@@ -1980,17 +1914,15 @@ do
   check(ok, "auctions tab hook: " .. tostring(err))
   check(H.UI.Auctions.installed, "total column installed")
   local r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
-  eq(#r.columns, 4, "total column added, bid column gone")
-  eq(r.columns[2].template, "AuctionHouseTableCellAllAuctionsBuyoutTemplate", "buyout follows the name")
-  eq(r.columns[3].header, "Total", "total column sits before time left")
-  eq(r.columns[4].template, "AuctionHouseTableCellTimeLeftTemplate", "time left keeps the edge")
-  local bidCol
-  for _, col in ipairs(r.all) do if col.template == "AuctionHouseTableCellAllAuctionsBidTemplate" then bidCol = col end end
-  check(bidCol ~= nil, "blizzard still built the bid column")
-  eq(bidCol.headerFrame.shown, false, "bid header hidden")
-  check(r.released[bidCol.headerFrame], "bid header released to its pool")
-  eq(r.rows[1][3].Text.text, H.Money(150 * 20), "total is buyout times units")
-  eq(r.rows[2][3].Text.text, "", "no buyout, no total")
+  eq(#r.columns, 4, "Blizzard's four columns, none added and none taken")
+  eq(r.columns[2].template, "AuctionHouseTableCellAllAuctionsBidTemplate", "the Bid column stays")
+  local total = H.UI.Auctions.OverlayFor(r.rows[1][1])
+  check(total ~= nil and total:GetParent() == r.rows[1][1], "the total is Hound's own frame on the name cell")
+  eq(total.Text.text, H.Money(150 * 20), "total is buyout times units")
+  check(not total:IsMouseEnabled(), "taking no mouse")
+  local namePt = r.rows[1][1].Text.points[#r.rows[1][1].Text.points]
+  check(namePt[1] == "RIGHT" and namePt[4] == -H.UI.Auctions.ROOM, "the name, units and all, is pulled in to make room")
+  eq(H.UI.Auctions.OverlayFor(r.rows[2][1]).Text.text, "", "no buyout, no total")
   hover(r, "auctions tab")
 
   -- auto scan: off by default, and only when a scan is allowed
@@ -2221,7 +2153,19 @@ do
   local qtyCell = r.rows[1][2]
   eq(qtyCell.Text.text, "30", "units cell still populated by Blizzard")
   eq(qtyCell.Text.color and qtyCell.Text.color[2], H.Browse.COLORS.deal[2], "deal units colored green")
-  eq(r.rows[3][2].Text.color, nil, "units over reference keep their color")
+  eq(r.rows[3][2].Text.color and r.rows[3][2].Text.color[3], 1, "units over reference read in Blizzard's white")
+  -- a cell reused for another row takes that row's color, white included
+  qtyCell:Populate(r.rowFrames[3].rowData)
+  eq(qtyCell.Text.color[2], 1, "a green cell reused for a row over the reference turns white again")
+  qtyCell:Populate(r.rowFrames[1].rowData)
+  -- a setting that moves the verdict recolors what is on screen, with
+  -- no redraw of the list
+  H.Settings().minDiscount = 0.7
+  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+  eq(qtyCell.Text.color[1], H.Browse.COLORS.under[1], "sixty percent off reads amber at a 70% minimum, at once")
+  H.Settings().minDiscount = 0.25
+  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+  eq(qtyCell.Text.color[2], H.Browse.COLORS.deal[2], "and green again at 25%")
   -- a sell list cell with another owner is left alone
   local other = CreateFrame("Frame", nil, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
   other:Init(CreateFrame("Frame"))
@@ -2241,12 +2185,14 @@ do
   check(LU.current.item and LU.current.item.units == 2, "item ladder counts auctions with a buyout")
   check(LU.current.item.lowFloor, "a stray auction far under the next is flagged")
   r = itf.ItemList:Render()
-  eq(#r.columns, 6, "hound column added to the auction list")
-  eq(r.columns[5].header, "Hound", "hound column sits before time left")
-  eq(r.rows[1][5].Text.text, "-60%", "discount off the reference per auction")
-  eq(r.rows[1][5].Text.color[3], Ladder.COLORS.low[3], "flagged auction colored")
-  eq(r.rows[2][5].Text.text, "+10%", "premium shown as a premium")
-  eq(r.rows[3][5].Text.text, "", "bid-only auction shows nothing")
+  eq(#r.columns, 5, "the auction list keeps Blizzard's five columns")
+  local off = LU.OffFor(r.rows[1][3])
+  check(off ~= nil and off:GetParent() == r.rows[1][3], "each auction's discount is Hound's own frame on its units cell")
+  check(not off:IsMouseEnabled(), "taking no mouse")
+  eq(off.Text.text, "-60%", "discount off the reference per auction")
+  eq(off.Text.color[3], Ladder.COLORS.low[3], "flagged auction colored")
+  eq(LU.OffFor(r.rows[2][3]).Text.text, "+10%", "premium shown as a premium")
+  eq(LU.OffFor(r.rows[3][3]).Text.text, "", "bid-only auction shows nothing")
   hover(r, "item buy frame")
   local lp = itf.ItemList.points[#itf.ItemList.points]
   eq(lp[5], -(14 + LU.BLOCK_HEIGHT + 4), "auction list starts below the block")
@@ -2276,42 +2222,38 @@ do
   for _, p in ipairs(H.Store.Posts()) do if p.fan and p.deposit then fanPost = p break end end
   check(fanPost ~= nil, "fan posts carry their deposit")
 
-  -- the Auctions tab cell: the total, with cut and deposit on hover
+  -- the Auctions tab: the total, with cut and deposit on the row's
+  -- own tooltip
   H.Settings().cut = 0.05
-  r = AuctionHouseFrame.AuctionsFrame.AllAuctionsList:Render()
-  local cell = r.rows[1][3]
-  eq(cell.Text.text, H.Money(250 * 4), "total is buyout times units")
-  eq(rawget(cell, "Sub"), nil, "nothing written beside the total")
-  local row, hovered = r.rowFrames[1], {}
-  row:SetScript("OnEnter", function() hovered.entered = true end)
-  row:SetScript("OnLeave", function() hovered.left = true end)
-  GameTooltip:ClearLines()
-  cell:OnEnter()
-  check(hovered.entered, "hovering the total lights the row")
-  local tip = table.concat(GameTooltip.lines, "\n")
-  check(string.find(tip, "cut 5% | -" .. H.Money(50), 1, true), "tooltip names the cut: " .. tip)
-  check(string.find(tip, "deposit paid | " .. H.Money(12), 1, true), "tooltip names the deposit: " .. tip)
-  check(string.find(tip, "left after cut and deposit | " .. H.Money(1000 - 50 - 12), 1, true), "tooltip nets the deposit out")
-  cell:OnLeave()
-  check(hovered.left, "leaving the total clears the row")
-  eq(rawget(cell, "OnMouseUp"), nil, "the cell leaves clicks to the row")
-  cell:Populate({ auctionID = 1, quantity = 1 })
-  eq(cell.Text.text, "", "no buyout, no total")
-  cell:Populate({ auctionID = 424242, quantity = 2, buyoutAmount = 700 })
-  GameTooltip:ClearLines()
-  cell:OnEnter()
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "deposit not recorded", 1, true), "tooltip says when the deposit is unknown")
-  cell:OnLeave()
-
+  local list = AuctionHouseFrame.AuctionsFrame.AllAuctionsList
+  posted.itemKey = posted.itemKey or C_AuctionHouse.MakeItemKey(2770)
+  r = list:Render()
+  local A = H.UI.Auctions
+  eq(A.OverlayFor(r.rows[1][1]).Text.text, H.Money(250 * 4), "total is buyout times units")
+  local tip = rowTip(r, 1)
+  check(string.find(tip, "cut 5% | -" .. H.Money(50), 1, true), "the row's tooltip names the cut: " .. tip)
+  check(string.find(tip, "deposit paid | " .. H.Money(12), 1, true), "and the deposit: " .. tip)
+  check(string.find(tip, "left after cut and deposit | " .. H.Money(1000 - 50 - 12), 1, true), "and nets the deposit out")
+  local oreKey = C_AuctionHouse.MakeItemKey(2770)
+  Stub.ah.owned = {
+    { auctionID = 1, itemKey = oreKey, quantity = 1, status = 0 },
+    { auctionID = 424242, itemKey = oreKey, quantity = 2, buyoutAmount = 700, status = 0 },
+    { auctionID = 424243, itemKey = oreKey, quantity = 20, buyoutAmount = 3000, status = Enum.AuctionStatus.Sold },
+    { auctionID = 424244, itemKey = oreKey, quantity = 20, buyoutAmount = 150, status = Enum.AuctionStatus.Active },
+  }
+  r = list:Render()
+  eq(A.OverlayFor(r.rows[1][1]).Text.text, "", "no buyout, no total")
+  check(not string.find(rowTip(r, 1), "Hound|r total", 1, true), "and no total on its tooltip")
+  check(string.find(rowTip(r, 2), "deposit not recorded", 1, true), "the tooltip says when the deposit is unknown")
   -- a sold auction waiting in the mail shows its buyout as the whole sum
-  cell:Populate({ auctionID = 424243, quantity = 20, buyoutAmount = 3000, status = Enum.AuctionStatus.Sold })
-  eq(cell.Text.text, H.Money(3000), "a sold auction's total is its buyout, not times units again")
-  GameTooltip:ClearLines()
-  cell:OnEnter()
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "sold, the whole auction | " .. H.Money(3000), 1, true), "tooltip says the buyout is the whole auction")
-  cell:OnLeave()
-  cell:Populate({ auctionID = 424244, quantity = 20, buyoutAmount = 150, status = Enum.AuctionStatus.Active })
-  eq(cell.Text.text, H.Money(3000), "an open auction's total is still buyout times units")
+  eq(A.OverlayFor(r.rows[3][1]).Text.text, H.Money(3000), "a sold auction's total is its buyout, not times units again")
+  check(string.find(rowTip(r, 3), "sold, the whole auction | " .. H.Money(3000), 1, true), "the tooltip says the buyout is the whole auction")
+  eq(A.OverlayFor(r.rows[4][1]).Text.text, H.Money(3000), "an open auction's total is still buyout times units")
+  -- the cut changed: the totals stay, the tooltip follows
+  SlashCmdList.HOUND("cut 10")
+  check(string.find(rowTip(r, 4), "cut 10% | -" .. H.Money(300), 1, true), "a new cut reaches the tooltip")
+  SlashCmdList.HOUND("cut 5")
+  Stub.ah.owned = {}
 end
 
 ------------------------------------------------------------------------
@@ -2438,8 +2380,9 @@ do
   Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", key)
   local r = itf.ItemList:Render()
   local row = r.rowFrames[1]
+  local House = H.UI.House
   check(row.scripts.OnDoubleClick ~= nil, "auction rows answer a double-click")
-  eq(row.houndKind, "item", "the row knows its list")
+  eq(House.RowInfo(row).kind, "item", "Hound knows the row's list, in a table of its own")
   local n = #Stub.ah.purchases
   Stub.money = 100
   Stub.shift = false
@@ -2464,88 +2407,94 @@ do
   eq(#Stub.ah.purchases, n + 1, "a bid-only auction is not bought")
   check(string.find(Stub.printed[#Stub.printed], "no buyout", 1, true), "and it says so")
   -- rows are reused as the list scrolls: a repopulated row buys its new listing
-  r.rows[2][5]:Populate(C_AuctionHouse.GetItemSearchResultInfo(key, 1))
-  eq(r.rowFrames[2].houndRow.auctionID, 811, "the row follows its cell's listing")
+  r.rows[2][3]:Populate(C_AuctionHouse.GetItemSearchResultInfo(key, 1))
+  eq(House.RowInfo(r.rowFrames[2]).rowData.auctionID, 811, "the row follows its cell's listing")
 
-  -- on the commodity list the house's own Buy button is pressed for
-  -- the units selected, and its dialog confirms
-  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30 }, { 95, 20 }, { 200, 500 } } }
+  -- on the commodity list a double-click asks the house for a price on
+  -- every unit up to that row, less your own, and Hound's own confirm
+  -- opens under the cursor; the house's Buy button is never pressed
+  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30 }, { 95, 20, own = 5 }, { 200, 500 } } }
   cf:SetItemIDAndPrice(2770, 90)
   Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
   r = cf.ItemList:Render()
   row = r.rowFrames[2]
   check(row.scripts.OnDoubleClick ~= nil, "commodity rows answer a double-click")
-  eq(row.houndKind, "commodity", "the row knows its list")
-  Stub.ah.buyClicks = 0
-  cf.BuyDisplay:SetQuantity(0)
-  row.scripts.OnDoubleClick(row)
-  eq(Stub.ah.buyClicks, 0, "nothing selected, nothing pressed")
-  check(string.find(Stub.printed[#Stub.printed], "select the units first", 1, true), "and it says so")
-  cf.BuyDisplay:SetQuantity(50)          -- the client's first click selected two rows
+  eq(House.RowInfo(row).kind, "commodity", "Hound knows the row's list")
+  eq(LU.UnitsUpTo(2770, row.rowData), 45, "units up to the row, less your own")
   Stub.ah.commodityPrice[2770] = 95
+  Stub.ah.buyClicks = 0
   UIParent:SetSize(1600, 900)
   Stub.cursor = { 500, 300 }
   row.scripts.OnDoubleClick(row)
-  eq(Stub.ah.buyClicks, 1, "the house's Buy button is pressed")
-  eq(Stub.ah.started and Stub.ah.started.qty, 50, "for the units selected")
-  check(string.find(Stub.printed[#Stub.printed], "50 units", 1, true), "chat points at the house's dialog")
-  -- the house's dialog opened inside the press, and meets the cursor
-  local dialog = AuctionHouseFrame.BuyDialog
-  check(LU.dialog == dialog, "the house's dialog is watched")
-  check(dialog.shown, "the house's dialog is up")
-  eq(#dialog.points, 1, "its anchor is replaced, not added to")
-  local dp = dialog.points[1]
-  check(dp[1] == "CENTER" and dp[2] == UIParent and dp[3] == "BOTTOMLEFT", "the dialog is centered on a point of the screen")
+  eq(Stub.ah.buyClicks, 0, "the house's own Buy button is left alone")
+  eq(Stub.ah.started and Stub.ah.started.qty, 45, "the house is asked for a price on those units")
+  local conf = LU.confirm
+  check(conf and conf.shown, "Hound's confirm is up")
+  eq(conf.title.text, "Buy 45 x Copper Ore", "it names the units and the item")
+  eq(conf.total.text, "asking the house for a price", "and waits for the quote")
+  check(not conf.buy:IsEnabled(), "its Buy cannot be pressed before the quote")
+  eq(#conf.points, 1, "it has one anchor")
+  local dp = conf.points[1]
+  check(dp[1] == "CENTER" and dp[2] == UIParent and dp[3] == "BOTTOMLEFT", "centered on a point of the screen")
   eq(dp[4], 500, "under the cursor, across")
   eq(dp[5], 300, "and up")
-  eq(LU.dialogToCursor, nil, "nothing is left armed after the press")
-  Stub.Advance(1) Stub.Pump()                              -- the quote lands in the dialog
-  C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 50)     -- the click in it
+  Stub.Advance(1) Stub.Pump()
+  eq(conf.total.text, H.Money(95 * 45) .. ", " .. H.Money(95) .. " each", "the quote fills in: " .. tostring(conf.total.text))
+  check(conf.buy:IsEnabled(), "and Buy can be pressed")
+  conf.buy:Click()
+  check(not conf.shown, "the confirm goes with the click")
+  eq(Stub.ah.purchases[#Stub.ah.purchases].qty, 45, "the house is told to buy those units")
+  check(string.find(Stub.printed[#Stub.printed], "buying 45 x Copper Ore for " .. H.Money(95 * 45), 1, true), "chat says so")
   Stub.Advance(1) Stub.Pump()
   eq(#H.Store.Buys(), 4, "the purchase is recorded")
-  eq(H.Store.Buys()[4].total, 95 * 50, "at the quoted total")
-  dialog:Hide()
-  -- at the screen's edge the dialog is kept on it, shift or not
+  eq(H.Store.Buys()[4].total, 95 * 45, "at the quoted total")
+  -- Cancel, or Escape, calls the purchase off
+  local cancels = Stub.ah.cancelled or 0
+  row.scripts.OnDoubleClick(row)
+  Stub.Advance(1) Stub.Pump()
+  conf.cancel:Click()
+  check(not conf.shown, "Cancel takes the confirm down")
+  eq(Stub.ah.cancelled, cancels + 1, "and calls the purchase off")
+  row.scripts.OnDoubleClick(row)
+  conf.scripts.OnKeyDown(conf, "ESCAPE")
+  check(not conf.shown, "Escape takes it down")
+  eq(Stub.ah.cancelled, cancels + 2, "and calls the purchase off too")
+  -- leaving the house does the same
+  row.scripts.OnDoubleClick(row)
+  H.Events:Fire("AH_CLOSED")
+  check(not conf.shown and LU.pending == nil, "closing the house takes the confirm down")
+  eq(Stub.ah.cancelled, cancels + 3, "and the purchase with it")
+  -- not enough gold for the quote: Buy stays off
+  Stub.money = 100
+  row.scripts.OnDoubleClick(row)
+  Stub.Advance(1) Stub.Pump()
+  check(not conf.buy:IsEnabled(), "a quote over your gold cannot be confirmed")
+  eq(conf.note.text, "not enough gold", "and the confirm says why")
+  conf.cancel:Click()
+  Stub.money = nil
+  -- at the screen's edge the confirm is kept on it
   Stub.cursor = { 10, 890 }
-  Stub.shift = true
   row.scripts.OnDoubleClick(row)
-  Stub.shift = false
-  eq(Stub.ah.buyClicks, 2, "shift held makes no difference")
-  dp = dialog.points[1]
-  eq(dp[4], 200, "kept on the screen, across")
-  eq(dp[5], 800, "and up")
-  C_AuctionHouse.CancelCommoditiesPurchase()
-  dialog:Hide()
-  -- a scaled house: the anchor is in the dialog's own units
-  AuctionHouseFrame:SetScale(0.5)
+  dp = conf.points[1]
+  eq(dp[4], 150, "kept on the screen, across")
+  eq(dp[5], 848, "and up")
+  conf.cancel:Click()
   Stub.cursor = { 500, 300 }
+  -- no price from the house
+  Stub.ah.commodityPrice[2770] = nil
   row.scripts.OnDoubleClick(row)
-  dp = dialog.points[1]
-  eq(dp[4], 1000, "the anchor is in the dialog's own units, across")
-  eq(dp[5], 600, "and up")
-  AuctionHouseFrame:SetScale(1)
-  C_AuctionHouse.CancelCommoditiesPurchase()
-  dialog:Hide()
-  -- the house's own Buy button puts the dialog back where the house keeps it
-  cf.BuyDisplay.BuyButton:Click()
-  eq(Stub.ah.buyClicks, 4, "the house's own press")
-  eq(#dialog.points, 1, "the dialog's own anchor is back, alone")
-  dp = dialog.points[1]
-  check(dp[1] == "CENTER" and dp[2] == AuctionHouseFrame and dp[3] == "CENTER" and dp[4] == 0 and dp[5] == 0, "where the house keeps it")
-  C_AuctionHouse.CancelCommoditiesPurchase()
-  dialog:Hide()
-  -- and left there by the next press of its own
-  cf.BuyDisplay.BuyButton:Click()
-  eq(#dialog.points, 1, "the dialog's own anchor is left alone")
-  C_AuctionHouse.CancelCommoditiesPurchase()
-  dialog:Hide()
-  -- a client without the button says so
-  local saved = cf.BuyDisplay.BuyButton
-  cf.BuyDisplay.BuyButton = nil
-  row.scripts.OnDoubleClick(row)
-  check(string.find(Stub.printed[#Stub.printed], "Buy button was not found", 1, true), "a missing Buy button is reported")
-  eq(LU.dialogToCursor, nil, "and nothing is armed")
-  cf.BuyDisplay.BuyButton = saved
+  Stub.Advance(1) Stub.Pump()
+  check(not conf.shown and LU.pending == nil, "no price: the confirm goes")
+  check(string.find(Stub.printed[#Stub.printed], "has no price", 1, true), "and chat says so")
+  Stub.ah.commodityPrice[2770] = 95
+  -- a row of nothing but your own units
+  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30, own = 30 }, { 95, 20 } } }
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
+  r = cf.ItemList:Render()
+  local started = Stub.ah.started
+  r.rowFrames[1].scripts.OnDoubleClick(r.rowFrames[1])
+  check(Stub.ah.started == started, "your own units are not asked for")
+  check(string.find(Stub.printed[#Stub.printed], "your own", 1, true), "and chat says so")
   Stub.ah.purchases = {}
 end
 
@@ -2557,7 +2506,7 @@ do
   local br = AuctionHouseFrame.BrowseResultsFrame
   local S = H.Settings()
   H.atAH = true
-  S.browseSort, S.browseDeals, S.browseHistory, S.browseNotMine, S.browseDepth = false, false, false, false, false
+  S.browseDepth = false
   H.Browse.Invalidate()
   Depth.Clear()
   local refOre = H.Reference("2770", 2770)
@@ -2580,11 +2529,11 @@ do
   -- off: the column reads the row alone
   local r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, 0, "depth off: no searches")
-  eq(r.rows[1][4].Sub.text, H.MoneyShort(refOre), "depth off: the note is the reference alone")
+  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre), "depth off: the note is the reference alone")
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "tick Depth", 1, true), "tooltip points at the toggle")
-  r.rows[1][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
   -- on: the rows on screen are searched one at a time
   BUI.strip.depth:SetChecked(true)
@@ -2598,15 +2547,14 @@ do
   r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, 1, "a second render sends nothing more while one is out")
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "reading the listings", 1, true), "tooltip says it is reading")
-  r.rows[1][4]:OnLeave()
-  br.ItemList.dirty = false
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
   Stub.Advance(1) Stub.Pump()
   local L = Depth.Get(oreRow)
   check(L ~= nil, "ore depth cached")
   eq(L and L.floorUnits, 12, "twelve units at the floor")
-  check(br.ItemList.dirty, "list refreshed when the depth lands")
+  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre) .. " x12", "the figures on screen follow when the depth lands, no redraw asked")
   eq(Stub.ah.searchCalls, 2, "the next row searched once the house is ready")
   eq(Stub.ah.lastSearchKey, "2771", "the second row's item searched")
   Stub.Advance(1) Stub.Pump()
@@ -2614,18 +2562,18 @@ do
   check(not Depth.Reading(), "reading done")
   check(not string.find(BUI.strip.status.text, "reading depth", 1, true), "status settles: " .. BUI.strip.status.text)
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Sub.text, H.MoneyShort(refOre) .. " x12", "cell shows the units at the floor")
-  eq(r.rows[2][4].Sub.text, H.MoneyShort(refTin) .. " x10", "second cell too")
-  eq(r.rows[3][4].Sub.text, "", "empty row shows nothing")
+  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre) .. " x12", "cell shows the units at the floor")
+  eq(fig(r, 2).Sub.text, H.MoneyShort(refTin) .. " x10", "second cell too")
+  eq(fig(r, 3).Sub.text, "", "empty row shows nothing")
   hover(r, "buy tab with depth")
 
   -- the tooltip carries the ladder
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   local tip = table.concat(GameTooltip.lines, "\n")
   check(string.find(tip, "20 units at or under", 1, true), "tooltip has the deal line: " .. tip)
   check(string.find(tip, "next step", 1, true), "tooltip has the step line")
-  r.rows[1][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
   -- unchanged rows keep their depth across a new result set
   C_AuctionHouse.SendBrowseQuery({})
@@ -2641,7 +2589,7 @@ do
   Stub.Advance(1) Stub.Pump()
   check(Depth.Get(oreRow) ~= nil, "and cached again")
 
-  -- the gate: nothing goes out while the list is hidden or a page is loading
+  -- the gate: nothing goes out while the list is hidden
   tinRow.totalQuantity = 11
   br:Hide()
   r = br.ItemList:Render()
@@ -2650,12 +2598,8 @@ do
   eq(Stub.ah.searchCalls, 4, "showing the list sends the waiting search")
   Stub.Advance(1) Stub.Pump()
   tinRow.totalQuantity = 12
-  BUI.loading = true
   r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 4, "no search while a page is on its way")
-  BUI.loading = false
-  Depth.Tick()
-  eq(Stub.ah.searchCalls, 5, "the search goes out once the page is in")
+  eq(Stub.ah.searchCalls, 5, "a row that moved is searched again")
   Stub.Advance(1) Stub.Pump()
 
   -- a full scan holds it, and its end lets it go
@@ -2700,9 +2644,9 @@ do
   r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, calls, "not asked again straight away")
   GameTooltip:ClearLines()
-  r.rows[2][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[2], "OnEnter")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "no listings", 1, true), "tooltip says the house had nothing")
-  r.rows[2][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[2], "OnLeave")
   Stub.ah.searchResults["2771"] = { commodity = true, listings = { { tinRow.minPrice, 10 } } }
 
   -- a search the house never answers times out and frees the slot
@@ -2731,15 +2675,13 @@ do
   eq(LL and LL.refSrc, "prior:crafted cost", "its ladder is read against the crafted cost")
   eq(LL and LL.dealUnits, 40, "and the floor counts as a deal")
   calls = Stub.ah.searchCalls
-  br.ItemList.dirty = false
+  eq(fig(r, 3).Sub.text, "~" .. H.MoneyShort(1200) .. " x40", "the figures read the estimate")
   SlashCmdList.HOUND("estimates off")
   LL = Depth.Get(leatherRow)
   eq(LL and LL.refSrc, "market", "estimates off: the ladder is read against history")
   eq(LL and LL.dealUnits, 0, "and nothing is a deal at its own price")
   eq(Stub.ah.searchCalls, calls, "without another search")
-  check(br.ItemList.dirty, "list refreshed for the re-read")
-  r = br.ItemList:Render()
-  eq(r.rows[3][4].Sub.text, H.MoneyShort(700) .. " x40", "the cell shows history with the units at the floor")
+  eq(fig(r, 3).Sub.text, H.MoneyShort(700) .. " x40", "the figures on screen follow the re-read at once: history, with the units at the floor")
   SlashCmdList.HOUND("estimates on")
   eq(Depth.Get(leatherRow).refSrc, "prior:crafted cost", "and back on")
   eq(Stub.ah.searchCalls, calls, "still no search")
@@ -2756,7 +2698,7 @@ do
   eq(Depth.Get(leatherRow).dealUnits, 40, "and back again")
   eq(Stub.ah.searchCalls, calls, "still none of it searched")
 
-  -- the column reads the floor against the market alone: an unscanned
+  -- the figures read the floor against the market alone: an unscanned
   -- row stays without a reference once its depth is read, and a row
   -- with an item level still meets its history
   Stub.DefineItem(90020, "Unscanned Widget", { sell = 0, commodity = true })
@@ -2775,19 +2717,18 @@ do
   local se = H.Browse.Evaluate(strayRow)
   check(se.ref == nil and not se.deal, "and it still has no reference")
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Sub.text, "no reference", "its cell says so")
-  eq(r.rows[1][4].Text.text, "", "with no figure")
+  eq(fig(r, 1).Sub.text, "no reference", "its cell says so")
+  eq(fig(r, 1).Text.text, "", "with no figure")
   local LO = Depth.Get(leveledOre)
   eq(LO and LO.refSrc, "market", "the leveled ore's ladder is read against its history")
-  eq(r.rows[2][4].Sub.text, H.MoneyShort(refOre) .. " x30", "its cell shows the market price")
-  eq(r.rows[2][4].Text.text, "-50%", "and the floor's percentage under it")
-  eq(H.Browse.BuildIndex(2, function(i) return ({ strayRow, leveledOre })[i] end, { deals = true })[1], 2,
-    "deals only keeps the row under market")
+  eq(fig(r, 2).Sub.text, H.MoneyShort(refOre) .. " x30", "its cell shows the market price")
+  eq(fig(r, 2).Text.text, "-50%", "and the floor's percentage under it")
+  eq(BUI.strip.status.text, "2 rows, 1 deal", "the count keeps the row under market as its one deal: " .. BUI.strip.status.text)
   SlashCmdList.HOUND("estimates on")
 
   -- a wall behind a row: with its depth read, the listings' value sits
   -- under history and is the reference, so the row is no deal before
-  -- the next scan, drops out of "Deals only", and its tooltip says so
+  -- the next scan, the count drops it, and its tooltip says so
   local wallRow = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 120 }
   Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 100 }, { 300, 20 } } }
   Stub.ah.browse = { wallRow }
@@ -2795,8 +2736,6 @@ do
   Stub.Advance(1) Stub.Pump()
   local we = H.Browse.Evaluate(wallRow)
   check(we.deal and not we.capped, "half price reads as a deal before the depth is read")
-  local function wallOnly() return wallRow end
-  eq(#H.Browse.BuildIndex(1, wallOnly, { deals = true }), 1, "and passes deals only")
   r = br.ItemList:Render()
   for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
   local LW = Depth.Get(wallRow)
@@ -2804,14 +2743,14 @@ do
   we = H.Browse.Evaluate(wallRow)
   check(we.capped and not we.deal, "with the depth read, the row is no deal")
   eq(we.ref, 150, "its reference is the listings' value")
-  eq(#H.Browse.BuildIndex(1, wallOnly, { deals = true }), 0, "and deals only drops it")
+  eq(BUI.strip.status.text, "1 row, 0 deals", "and the count drops it: " .. BUI.strip.status.text)
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Sub.text, H.MoneyShort(150) .. " x100", "the cell notes the listings' value and the units at the floor")
-  eq(r.rows[1][4].Text.text, "0%", "no discount off it")
+  eq(fig(r, 1).Sub.text, H.MoneyShort(150) .. " x100", "the cell notes the listings' value and the units at the floor")
+  eq(fig(r, 1).Text.text, "0%", "no discount off it")
   GameTooltip:ClearLines()
-  r.rows[1][4]:OnEnter()
+  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   check(string.find(table.concat(GameTooltip.lines, "\n"), "these listings, under history", 1, true), "the tooltip says the listings set the reference")
-  r.rows[1][4]:OnLeave()
+  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
   -- a stray under the rest leaves history as the reference
   local strayUnder = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 121 }
   Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 1 }, { 300, 120 } } }
@@ -2824,7 +2763,7 @@ do
   we = H.Browse.Evaluate(strayUnder)
   check(we.deal and not we.capped and we.ref == 300, "and the row is a deal")
   r = br.ItemList:Render()
-  eq(r.rows[1][4].Text.text, "-50%", "its cell shows the discount off history")
+  eq(fig(r, 1).Text.text, "-50%", "its cell shows the discount off history")
 
   -- leaving the house forgets it all
   H.Events:Fire("AH_CLOSED")
@@ -3479,42 +3418,25 @@ do
   eq(e.perGold, nil, "no units, no rate")
   eq(select(2, Browse.CellText(e)), "", "and no figure")
 
-  -- the sort: crates and writs first, best rate first, then the deals,
-  -- then the rest as before
+  -- through the frame, in Blizzard's order: each crate or writ's
+  -- figures are what it pays and its rate, and the row's own tooltip
+  -- leads Hound's part with the rate
   local rows = { oreHalf, jParts, aParts, writ, artOre, eParts, gone }
-  local function getRow(i) return rows[i] end
-  eq(table.concat(Browse.BuildIndex(#rows, getRow, {}), ","), "1,2,3,4,5,6,7", "unsorted, Blizzard's order")
-  eq(table.concat(Browse.BuildIndex(#rows, getRow, { sort = true }), ","), "3,4,2,1,5,6,7",
-    "sorted: favor or reputation a gold, then deals, then the rest")
-  eq(table.concat(Browse.BuildIndex(#rows, getRow, { sort = true, deals = true }), ","), "1",
-    "deals only still means under the reference")
-
-  -- through the frame: the cell and its tooltip, and the toggle's own
-  S.browseSort = true
   Stub.ah.browsePageSize = 10
   Stub.ah.browse = rows
   C_AuctionHouse.SendBrowseQuery({})
   for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
   local r = br.ItemList:Render()
   eq(#r.rows, 7, "every row shown")
-  eq(r.columns[4].header, "Hound", "the column in its place")
-  local cell = r.rows[1][4]
-  eq(cell.Sub.text, "10 favor", "the best rate on top")
+  local cell = fig(r, 3)
+  eq(cell.Sub.text, "10 favor", "a crate's note is the favor it pays")
   eq(cell.Text.text, "50/g", "with its rate")
-  eq(r.rows[3][4].Text.text, "10/g", "the worst of the three below the writ")
+  eq(fig(r, 2).Text.text, "10/g", "another crate's rate beside it")
   hover(r, "buy tab with crates")
-  GameTooltip:ClearLines()
-  cell:OnEnter()
-  local tip = table.concat(GameTooltip.lines, " / ")
-  eq(GameTooltip.lines[2], "10 Merchant's Favor, 50 a gold", "the cell tooltip leads with the rate: " .. tip)
+  local tip = rowTip(r, 3)
+  check(string.find(tip, "Hound|r on the Buy tab\n10 Merchant's Favor, 50 a gold", 1, true), "the row's tooltip leads with the rate: " .. tip)
   check(string.find(tip, "crate " .. H.Money(1200) .. " + 16 Handful of Copper Bolts", 1, true), "then the sum")
   check(string.find(tip, "floor " .. H.Money(1200) .. ", 3 units listed", 1, true), "and the floor as before")
-  cell:OnLeave()
-  GameTooltip:ClearLines()
-  BUI.strip.sort.scripts.OnEnter(BUI.strip.sort)
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "Waylaid Crates and Craftsman's Writs go ahead", 1, true),
-    "the sort toggle says what it does with crates and writs")
-  BUI.strip.sort.scripts.OnLeave(BUI.strip.sort)
 
   -- the fill the house cannot sell whole: five bronze tubes where
   -- eight are wanted, and nothing else priced. The rate stands, marked
@@ -3543,9 +3465,7 @@ do
   eq(Browse.Rate(0.997), "1.0", "rounding up into that")
   eq(Browse.Rate(0.5), "0.50", "two under one")
 
-  S.browseSort = false
   Stub.ah.browse = {}
-  BUI.Rebuild()
 end
 
 ------------------------------------------------------------------------
@@ -3635,6 +3555,19 @@ do
   local total = 0
   for _ in pairs(m.items) do total = total + 1 end
   check(total >= 5, "several items saved: " .. total)
+end
+
+------------------------------------------------------------------------
+-- Taint: nothing of Blizzard's was written, and none of Blizzard's own
+-- code was run, in the addon's name over the whole run (see wowstub)
+------------------------------------------------------------------------
+do
+  local report = Stub.TaintReport()
+  local seen, lines = {}, {}
+  for _, v in ipairs(report) do
+    if not seen[v] then seen[v] = true table.insert(lines, v) end
+  end
+  eq(#lines, 0, "no taint of Blizzard's state:\n  " .. table.concat(lines, "\n  "))
 end
 
 print(string.format("%d passed, %d failed", passed, failed))

@@ -829,7 +829,7 @@ local function armEscape(w)
   w:EnableKeyboard(true)
 end
 
-local function watchEscape(w)
+function UI.WatchEscape(w)
   w:SetScript("OnKeyDown", function(self, key)
     if inCombat() then return end
     if key == "ESCAPE" then
@@ -842,7 +842,7 @@ local function watchEscape(w)
       self:SetPropagateKeyboardInput(true)
     end
   end)
-  w:SetScript("OnShow", armEscape)
+  w:HookScript("OnShow", armEscape)
   H.RegisterEvent("PLAYER_REGEN_ENABLED", function()
     if w:IsShown() then armEscape(w) end
   end)
@@ -879,7 +879,7 @@ local function ensureWindow()
     fs:SetPoint("CENTER")
   end
   window:Hide()
-  watchEscape(window)
+  UI.WatchEscape(window)
   return window
 end
 

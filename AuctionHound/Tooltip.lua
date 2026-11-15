@@ -1,6 +1,7 @@
 -- Tooltip.lua: a few Hound lines on item tooltips, on a Waylaid Crate
--- the price of each bundle that fills it (Crate.lua), and on a
--- Craftsman's Writ the price of the item it asks for (Writ.lua).
+-- the price of each bundle that fills it (Crate.lua), on a Craftsman's
+-- Writ the price of the item it asks for (Writ.lua), and on the tooltip
+-- of a row on the house's lists what Hound read for it.
 --
 -- An item's own lines are one by default, the floor at the latest
 -- scan; on a stack the stack's price follows in brackets, to read
@@ -104,6 +105,15 @@ local function addWrit(tooltip, itemID)
   H.Writ.AddTooltipLines(tooltip, itemID)
 end
 
+-- A tooltip Blizzard shows for a row of one of the house's lists, a
+-- Buy tab row or one of your auctions, also gets what Hound read for
+-- that row (UI/House.lua). The lines are added here, in the item
+-- tooltip's post-call, so nothing of the row's is touched.
+local function addHouseRow(tooltip)
+  local House = H.UI and H.UI.House
+  if tooltip == GameTooltip and House then House.AddTooltipLines(tooltip) end
+end
+
 local function onTooltip(tooltip, data)
   if tooltip ~= GameTooltip and tooltip ~= ItemRefTooltip then return end
   local itemID = data and data.id
@@ -120,6 +130,7 @@ local function onTooltip(tooltip, data)
   addLines(tooltip, itemID, link)
   addCrate(tooltip, itemID)
   addWrit(tooltip, itemID)
+  addHouseRow(tooltip)
 end
 
 H.Events:On("LOGIN", function()
@@ -134,6 +145,7 @@ H.Events:On("LOGIN", function()
           addLines(tt, itemID, link)
           addCrate(tt, itemID)
           addWrit(tt, itemID)
+          addHouseRow(tt)
         end
       end
     end)

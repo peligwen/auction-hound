@@ -2,8 +2,8 @@
 --
 -- Blizzard's browse gives one row per item key: the floor price and the
 -- units listed. This module turns a row into a reference, a discount and
--- a verdict, and decides which rows the Buy tab shows and in what
--- order. The frame work lives in UI/Browse.lua.
+-- a verdict, and the figures and lines Hound shows for it. The frame
+-- work lives in UI/Browse.lua.
 local ADDON, H = ...
 
 local Browse = {}
@@ -201,7 +201,7 @@ function Browse.FloorLine(e)
 end
 
 ------------------------------------------------------------------------
--- What the Hound column shows for a row: a note on the left, a figure
+-- What Hound's figures show for a row: a note on the left, a figure
 -- on the right, and the figure's color. With the row's ladder known,
 -- the note ends in the units at the floor.
 ------------------------------------------------------------------------
@@ -249,51 +249,6 @@ function Browse.CellText(e, L)
 end
 
 ------------------------------------------------------------------------
--- Which rows to show, in what order. getRow(i) returns Blizzard's row i
--- of n. opts: sort, deals, history, notMine. Returns an array of row
--- indices; with nothing on, it is the identity.
---
--- Sorted: crates and writs first, by what they pay a gold of the
--- floor and the fill; then deals, then by discount, with rows that
--- have no reference or no units at the end. Ties keep Blizzard's
--- order. A crate is bought for its favor, not for its discount, and a
--- list that holds crates or writs is almost always a search for them.
-------------------------------------------------------------------------
-local function rank(e)
-  if not e or e.qty == 0 then return -3, -math.huge end
-  if e.perGold then return 2, e.perGold end
-  if e.deal then return 1, e.disc or 0 end
-  if e.disc then return 0, e.disc end
-  return -1, -math.huge
-end
-
-function Browse.BuildIndex(n, getRow, opts)
-  opts = opts or {}
-  local idx, evals = {}, {}
-  for i = 1, n do
-    local e = Browse.Evaluate(getRow(i))
-    local keep = true
-    if opts.deals and not (e and e.deal) then keep = false end
-    if opts.history and not (e and e.history) then keep = false end
-    if opts.notMine and e and e.mine then keep = false end
-    if keep then
-      idx[#idx + 1] = i
-      evals[i] = e
-    end
-  end
-  if opts.sort then
-    table.sort(idx, function(a, b)
-      local ta, da = rank(evals[a])
-      local tb, db = rank(evals[b])
-      if ta ~= tb then return ta > tb end
-      if da ~= db then return da > db end
-      return a < b
-    end)
-  end
-  return idx
-end
-
-------------------------------------------------------------------------
 -- What the Buy tab makes of the first n rows the house gave, for
 -- checking in game that a row meets the history the scan stored.
 ------------------------------------------------------------------------
@@ -311,9 +266,4 @@ function Browse.Debug(n)
         e.key, tostring(H.Store.Has(e.key)), e.ref and H.Money(e.ref) or "none", tostring(e.refSrc))
     end
   end
-end
-
-function Browse.Active(S)
-  S = S or H.Settings()
-  return (S.browseSort or S.browseDeals or S.browseHistory or S.browseNotMine) and true or false
 end

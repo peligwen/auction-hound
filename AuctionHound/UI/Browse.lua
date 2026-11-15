@@ -1,242 +1,151 @@
--- UI/Browse.lua: the Hound column and filter strip on the Buy tab.
+-- UI/Browse.lua: Hound's reading of each row on the Buy tab, and the
+-- strip above the list.
 --
--- Blizzard's browse list is a table builder over a scroll box. The
--- column joins its layout the way the Level column does for armor. The
--- strip sits above the headers and swaps the list's data provider for a
--- filtered, sorted order over the same rows. With Depth on, each row on
--- screen is searched for its ladder (Depth.lua) and the cell's tooltip
--- shows it. Buying still goes through Blizzard's own frames.
+-- Each row of Blizzard's browse list gets Hound's figures at the right
+-- end of its name: the reference, and the units at the floor once
+-- Depth has read them, on the left; the discount off the reference on
+-- the right, green for a deal, amber under the reference, grey above.
+-- The figures are Hound's own frame on the name cell (UI/House.lua has
+-- why nothing of Blizzard's is written), and the name gives them room.
+-- Hovering a row adds Hound's lines to the row's own tooltip. The strip
+-- above the headers sets the minimum a deal clears, turns Depth on and
+-- counts the rows and the deals among them. The list keeps Blizzard's
+-- order: putting it in another one takes its data provider.
 local ADDON, H = ...
 
 local UI = H.UI
-local B = { pages = 0 }
+local House = UI.House
+local B = {}
 UI.Browse = B
-
-------------------------------------------------------------------------
--- Blizzard's item lists take a layout function that adds their columns
--- to a table builder. Wrapping it runs theirs, then addColumn(tb,
--- owner) for ours, which is then moved in front of the last column so
--- the edge column keeps its place. Returns false when the list has no
--- layout yet.
-------------------------------------------------------------------------
-local wrapped = setmetatable({}, { __mode = "k" })
-
-function UI.HookListLayout(list, owner, addColumn)
-  local orig = list.tableBuilderLayoutFunction
-  if type(orig) ~= "function" or wrapped[orig] then return false end
-  local function layout(tb)
-    orig(tb)
-    local col = addColumn(tb, owner)
-    local cols = col and tb.GetColumns and tb:GetColumns()
-    if type(cols) == "table" and #cols >= 2 and cols[#cols] == col then
-      table.remove(cols)
-      table.insert(cols, #cols, col)
-    end
-  end
-  wrapped[layout] = true
-  list:SetTableBuilderLayout(layout)
-  return true
-end
 
 B.STRIP_HEIGHT = 24
 B.COLUMN_WIDTH = 104
+B.ROOM = B.COLUMN_WIDTH + 6     -- how far a name is pulled in from its cell's edge
 
 ------------------------------------------------------------------------
--- The cell. UI/Cells.xml mixes this into AuctionHoundBrowseCellTemplate.
+-- The figures on a row.
 ------------------------------------------------------------------------
-AuctionHoundBrowseCellMixin = UI.CellMixin()
-
-function AuctionHoundBrowseCellMixin:Init(owner)
-  self.owner = owner
+local function build(cell)
+  local o = CreateFrame("Frame", nil, cell)
+  o:EnableMouse(false)
+  o:SetPoint("TOPRIGHT", cell, "TOPRIGHT", 0, 0)
+  o:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+  o:SetWidth(B.COLUMN_WIDTH)
+  o:SetFrameLevel((cell.GetFrameLevel and cell:GetFrameLevel() or 0) + 2)
+  o.Text = UI.Text(o, "Number14FontWhite", "", "RIGHT")
+  o.Text:SetPoint("RIGHT", o, "RIGHT", 0, 0)
+  o.Sub = UI.Text(o, "GameFontDisableSmall", "", "LEFT")
+  o.Sub:SetPoint("LEFT", o, "LEFT", 0, 0)
+  o.Sub:SetPoint("RIGHT", o.Text, "LEFT", -4, 0)
+  return o
 end
 
-function AuctionHoundBrowseCellMixin:Populate(rowData)
-  self.rowData = rowData
+function B.Paint(o, rowData)
   local e = H.Browse.Evaluate(rowData)
   local L = nil
   if e and H.Settings().browseDepth then L = H.Depth.Want(rowData) end
   local note, figure, color = H.Browse.CellText(e, L)
-  self.Sub:SetText(note)
-  self.Text:SetText(figure)
-  self.Text:SetTextColor(color[1], color[2], color[3])
+  o.Sub:SetText(note)
+  o.Text:SetText(figure)
+  o.Text:SetTextColor(color[1], color[2], color[3])
 end
 
-function AuctionHoundBrowseCellMixin:OnEnter()
-  UI.RowScript(self, "OnEnter")
-  local e = H.Browse.Evaluate(self.rowData)
-  if not e or e.qty == 0 or not GameTooltip then return end
-  GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-  GameTooltip:AddLine("|cffe6b800Hound|r", 1, 1, 1)
+-- Hound's figures for a row, for a test or a look in game.
+function B.OverlayFor(cell)
+  return House.overlays[cell]
+end
+
+local function onBrowse(cell)
+  return B.list ~= nil and House.Under(cell, B.list)
+end
+
+-- After Blizzard fills a name cell: room for the figures, the figures
+-- for the row, and the row noted for its tooltip.
+local function onPopulate(cell, rowData, index)
+  if not onBrowse(cell) or type(rowData) ~= "table" then return end
+  House.MakeRoom(cell, B.ROOM)
+  House.Track(cell, "browse", rowData, index)
+  B.Paint(House.Overlay(cell, build), rowData)
+end
+
+-- The name is drawn again when the item's details arrive late, and
+-- anchored to the cell's edge again with it.
+local function onDisplay(cell)
+  if onBrowse(cell) then House.MakeRoom(cell, B.ROOM) end
+end
+
+function B.Repaint()
+  House.Each("browse", function(cell, rowData)
+    local o = House.overlays[cell]
+    if o then B.Paint(o, rowData) end
+  end)
+  B.UpdateStrip()
+end
+
+------------------------------------------------------------------------
+-- The row's tooltip: what the figures stand on.
+------------------------------------------------------------------------
+function B.TooltipLines(tooltip, rowData)
+  local e = H.Browse.Evaluate(rowData)
+  if not e or e.qty == 0 then return end
+  tooltip:AddLine(" ")
+  tooltip:AddLine("|cffe6b800Hound|r on the Buy tab", 1, 1, 1)
   local reward = H.Browse.RewardLines(e)
   if reward then
     for i, line in ipairs(reward) do
       local v = i == 1 and 1 or 0.8
-      GameTooltip:AddLine(line, v, v, v, true)
+      tooltip:AddLine(line, v, v, v, true)
     end
   end
   local depthOn = H.Settings().browseDepth
-  local L = depthOn and H.Depth.Get(self.rowData) or nil
+  local L = depthOn and H.Depth.Get(rowData) or nil
   local cleared = H.Market.ClearedLine(e.st)
   if L then
     for _, line in ipairs(H.Ladder.Lines(L)) do
-      GameTooltip:AddLine(line, 0.8, 0.8, 0.8, true)
+      tooltip:AddLine(line, 0.8, 0.8, 0.8, true)
     end
-    if cleared then GameTooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
-  else
-    if e.ref then
-      GameTooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
-      if string.sub(e.refSrc or "", 1, 6) == "prior:" then
-        GameTooltip:AddLine("untick estimates on the Hound tab to judge by history alone", 0.6, 0.6, 0.6, true)
-      end
-    else
-      GameTooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
-    end
-    GameTooltip:AddLine(H.Browse.FloorLine(e), 0.8, 0.8, 0.8, true)
-    if e.small then
-      GameTooltip:AddLine(string.format("%s under, but only %s a unit; the minimum is %s",
-        H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
-    end
-    if cleared then GameTooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
-    if depthOn and H.Depth.Failed(self.rowData) then
-      GameTooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
-    elseif depthOn then
-      GameTooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
-    else
-      GameTooltip:AddLine("tick Depth for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
-    end
-  end
-  GameTooltip:Show()
-end
-
-function AuctionHoundBrowseCellMixin:OnLeave()
-  UI.RowScript(self, "OnLeave")
-  if GameTooltip then GameTooltip:Hide() end
-end
-
-------------------------------------------------------------------------
--- The column, in front of the favorite star.
-------------------------------------------------------------------------
-local function addColumn(tb, owner)
-  return tb:AddUnsortableFixedWidthColumn(owner, 0, B.COLUMN_WIDTH, 10, 0, "Hound", "AuctionHoundBrowseCellTemplate")
-end
-
-local function wrapLayout(list, owner)
-  UI.HookListLayout(list, owner, addColumn)
-end
-
-------------------------------------------------------------------------
--- The data provider. Blizzard's list reads rows through three
--- functions; ours map through an index over the same rows. An index
--- built for a different row count is stale and passes straight through
--- until the next rebuild.
-------------------------------------------------------------------------
-local function currentIndex()
-  local idx = B.index
-  if idx and idx.n == B.getNum() then return idx end
-  return nil
-end
-
-local function wrapProvider(list)
-  local getEntry, getNum = list.getEntry, list.getNumEntries
-  if type(getEntry) ~= "function" or type(getNum) ~= "function" then return false end
-  B.getEntry, B.getNum = getEntry, getNum
-  list:SetDataProvider(
-    list.searchStartedFunc,
-    function(i)
-      local idx = currentIndex()
-      if idx then return getEntry(idx[i]) end
-      return getEntry(i)
-    end,
-    function()
-      local idx = currentIndex()
-      if idx then return #idx end
-      return getNum()
-    end,
-    list.hasFullResultsFunc)
-  return true
-end
-
-------------------------------------------------------------------------
--- Fetching the rest. With a filter or sort on, the order only means
--- something over the whole result set, so the remaining pages are
--- requested without waiting for a scroll, one at a time through the
--- throttle queue, up to the page setting.
-------------------------------------------------------------------------
-local function requestMore()
-  if B.loading then C_AuctionHouse.RequestMoreBrowseResults() end
-end
-
-function B.LoadMore()
-  local AH = C_AuctionHouse
-  B.loading = false
-  if not B.br or not H.Browse.Active() then return end
-  if not H.atAH or not B.br:IsShown() then return end
-  if AH.HasFullBrowseResults and AH.HasFullBrowseResults() then return end
-  if H.Scan.state ~= "idle" then return end
-  if B.pages >= (H.Settings().snipePages or 40) then
-    B.capped = true
+    if cleared then tooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
     return
   end
-  B.loading = true
-  H.Throttle.Send(requestMore)
+  if e.ref then
+    tooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
+    if string.sub(e.refSrc or "", 1, 6) == "prior:" then
+      tooltip:AddLine("untick estimates on the Hound tab to judge by history alone", 0.6, 0.6, 0.6, true)
+    end
+  else
+    tooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
+  end
+  tooltip:AddLine(H.Browse.FloorLine(e), 0.8, 0.8, 0.8, true)
+  if e.small then
+    tooltip:AddLine(string.format("%s under, but only %s a unit; the minimum is %s",
+      H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
+  end
+  if cleared then tooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
+  if depthOn and H.Depth.Failed(rowData) then
+    tooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
+  elseif depthOn then
+    tooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
+  else
+    tooltip:AddLine("tick Depth for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
+  end
 end
 
--- A dropped message while a page is wanted: ask again once the system
--- is ready. Blizzard's own scroll can request pages too, so a drop is
--- not always ours, and a spare request is harmless.
-H.RegisterEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED", function()
-  if B.loading and not H.Throttle.Pending() then H.Throttle.Send(requestMore) end
-end)
+House.OnTooltip("browse", B.TooltipLines)
 
 ------------------------------------------------------------------------
--- Depth: searches go out only while the list shows and no page is on
--- its way. A ladder landing refreshes the rows so the cells show it.
+-- Depth: searches go out only while the list shows. A ladder landing
+-- repaints the figures.
 ------------------------------------------------------------------------
 H.Depth.SetGate(function()
-  return B.list ~= nil and B.br ~= nil and B.br:IsShown() and not B.loading
+  return B.list ~= nil and B.br ~= nil and B.br:IsShown()
 end)
 
--- A ladder landing can move a row's reference and verdict, so the
--- filtered, sorted order is built again, not only redrawn. No page is
--- asked for: one may already be on its way, and the depth queue has
--- been ticked by the landing itself.
-H.Events:On("DEPTH_UPDATED", function() B.Reindex() end)
-
+H.Events:On("DEPTH_UPDATED", function() B.Repaint() end)
 H.Events:On("DEPTH_STATUS", function() B.UpdateStrip() end)
 
 ------------------------------------------------------------------------
--- The order is built again after Blizzard's rows change, a toggle
--- moves, or a ladder lands; a rebuild also asks for the next page and
--- the next depth search.
-------------------------------------------------------------------------
-function B.Reindex()
-  if not B.list then return end
-  local S = H.Settings()
-  if H.Browse.Active(S) then
-    local n = B.getNum()
-    local idx = H.Browse.BuildIndex(n, B.getEntry, {
-      sort = S.browseSort, deals = S.browseDeals, history = S.browseHistory, notMine = S.browseNotMine,
-    })
-    idx.n = n
-    B.index = idx
-  else
-    B.index = nil
-  end
-  B.list:DirtyScrollFrame()
-  B.UpdateStrip()
-end
-
-function B.Rebuild()
-  if not B.list then return end
-  B.Reindex()
-  B.LoadMore()
-  H.Depth.Tick()
-  B.UpdateStrip()
-end
-
-------------------------------------------------------------------------
--- The strip: five toggles, the minimum (a percentage and copper a
--- unit), and a count.
+-- The strip: the minimum (a percentage and copper a unit), Depth, and
+-- a count of the rows and the deals among them.
 ------------------------------------------------------------------------
 -- Money as the copper box shows it: 5s, 1g20s, 0c.
 local function boxMoney(copper)
@@ -262,33 +171,8 @@ local function buildStrip(br)
   strip:SetPoint("TOPLEFT", br, "TOPLEFT", 6, 0)
   strip:SetPoint("TOPRIGHT", br, "TOPRIGHT", -10, 0)
 
-  local S = H.Settings()
-  local prev
-  local function toggle(label, key)
-    local c = UI.CheckButton(strip, label, function(checked)
-      H.Settings()[key] = checked and true or false
-      B.Rebuild()
-    end)
-    c:SetChecked(S[key] and true or false)
-    if prev then
-      c:SetPoint("LEFT", prev.label, "RIGHT", 10, 0)
-    else
-      c:SetPoint("LEFT", strip, "LEFT", 0, 0)
-    end
-    prev = c
-    return c
-  end
-  strip.sort = toggle("Sort by off", "browseSort")
-  tip(strip.sort, "Sort by off",
-    "Deals first, by how far under the reference, then the rest.",
-    "Waylaid Crates and Craftsman's Writs go ahead of them, by the favor or reputation a gold buys: the crate or writ's own price and its cheapest fill.")
-  strip.deals = toggle("Deals only", "browseDeals")
-  strip.history = toggle("History only", "browseHistory")
-  strip.notMine = toggle("Not mine", "browseNotMine")
-  strip.depth = toggle("Depth", "browseDepth")
-
   local minLabel = UI.Text(strip, "GameFontHighlightSmall", "min", "LEFT")
-  minLabel:SetPoint("LEFT", prev.label, "RIGHT", 14, 0)
+  minLabel:SetPoint("LEFT", strip, "LEFT", 0, 0)
   local box = UI.EditBox(strip, 34, function(text)
     local v = tonumber(text)
     if not v then return end
@@ -319,48 +203,56 @@ local function buildStrip(br)
     "A deal also sits at least this much a unit under the reference, so a cheap item at half price is not one.",
     "Money as you would type it: 5s, 1g20s. 0 for no such floor.")
 
+  strip.depth = UI.CheckButton(strip, "Depth", function(checked)
+    H.Settings().browseDepth = checked and true or false
+    B.Repaint()
+    H.Depth.Tick()
+  end)
+  strip.depth:SetPoint("LEFT", saving, "RIGHT", 14, 0)
+  tip(strip.depth, "Depth",
+    "Each row on screen gets one search of its own, one at a time: its figures then end in the units at the floor, and its tooltip shows the next price step.")
+
   -- the count fills what is left; anchored on both sides it truncates
   -- on a narrow frame instead of running under the boxes
   strip.status = UI.Text(strip, "GameFontDisableSmall", "", "RIGHT")
   strip.status:SetPoint("RIGHT", strip, "RIGHT", 0, 0)
-  strip.status:SetPoint("LEFT", saving, "RIGHT", 8, 0)
+  strip.status:SetPoint("LEFT", strip.depth.label or strip.depth, "RIGHT", 8, 0)
   return strip
+end
+
+-- The rows the house gave and the deals among them: Blizzard's own
+-- list of them is read, never written.
+function B.Counts()
+  local results = B.br and B.br.browseResults
+  if type(results) ~= "table" then return 0, 0 end
+  local deals = 0
+  for _, row in ipairs(results) do
+    local e = H.Browse.Evaluate(row)
+    if e and e.deal and e.qty > 0 then deals = deals + 1 end
+  end
+  return #results, deals
 end
 
 function B.UpdateStrip()
   local strip = B.strip
   if not strip then return end
   local S = H.Settings()
-  strip.sort:SetChecked(S.browseSort and true or false)
-  strip.deals:SetChecked(S.browseDeals and true or false)
-  strip.history:SetChecked(S.browseHistory and true or false)
-  strip.notMine:SetChecked(S.browseNotMine and true or false)
   strip.depth:SetChecked(S.browseDepth and true or false)
   local want = tostring(H.Round((S.minDiscount or 0) * 100))
   if strip.min:GetText() ~= want and not strip.min:HasFocus() then strip.min:SetText(want) end
   want = boxMoney(S.minSaving)
   if strip.saving:GetText() ~= want and not strip.saving:HasFocus() then strip.saving:SetText(want) end
 
-  local n = B.getNum and B.getNum() or 0
-  local idx = B.getNum and currentIndex()
-  local text
-  if idx then
-    text = string.format("%d of %d", #idx, n)
-  else
-    text = string.format("%d rows", n)
-  end
-  if B.loading then
-    text = text .. ", loading more"
-  elseif B.capped then
-    text = text .. string.format(", stopped at %d pages", B.pages)
-  elseif H.Depth.Reading() then
-    text = text .. ", reading depth"
-  end
+  local n, deals = B.Counts()
+  local text = string.format("%d row%s", n, n == 1 and "" or "s")
+  if n > 0 then text = text .. string.format(", %d deal%s", deals, deals == 1 and "" or "s") end
+  if H.Depth.Reading() then text = text .. ", reading depth" end
   strip.status:SetText(text)
 end
 
 ------------------------------------------------------------------------
--- Install once the Blizzard frame exists.
+-- Install once the Blizzard frame exists: the hooks on the name cells,
+-- before the list makes any, and the strip.
 ------------------------------------------------------------------------
 local function install()
   local ah = AuctionHouseFrame
@@ -370,20 +262,15 @@ local function install()
   B.installed = true
   B.br, B.list = br, list
   local ok, err = pcall(function()
-    if not wrapProvider(list) then error("the browse list has no data provider") end
-    wrapLayout(list, br)
-    hooksecurefunc(br, "SetupTableBuilder", function() wrapLayout(list, br) end)
-    hooksecurefunc(br, "UpdateBrowseResults", function(_, added)
-      if added then
-        B.pages = B.pages + 1
-      else
-        B.pages = 0
-        B.capped = false
-      end
-      B.Rebuild()
+    if not House.HookCells("AuctionHouseTableCellItemDisplayMixin", "Populate", "Buy tab figures", onPopulate) then
+      error("the browse list's name cells were not found")
+    end
+    House.HookCells("AuctionHouseTableCellItemDisplayMixin", "UpdateDisplay", "Buy tab figures", onDisplay)
+    hooksecurefunc(br, "UpdateBrowseResults", function()
+      H.Depth.Tick()
+      B.UpdateStrip()
     end)
     br:HookScript("OnShow", function()
-      B.LoadMore()
       H.Depth.Tick()
       B.UpdateStrip()
     end)
@@ -398,19 +285,12 @@ local function install()
     B.UpdateStrip()
   end)
   if not ok then
-    H.Print("could not add the Hound column to the Buy tab (" .. tostring(err) .. ")")
+    H.Print("could not add Hound's figures to the Buy tab (" .. tostring(err) .. ")")
   end
 end
 
 H.Events:On("AH_UI_LOADED", install)
 H.Events:On("AH_OPENED", install)
-H.Events:On("AH_CLOSED", function()
-  B.loading = false
-end)
-H.Events:On("SETTINGS_CHANGED", function()
-  if B.list then B.Rebuild() end
-end)
--- A scan changes the references, and pages paused for it can resume.
-H.Events:On("SCAN_DONE", function()
-  if B.list then B.Rebuild() end
-end)
+-- A scan or a setting moves the references: the figures follow.
+H.Events:On("SETTINGS_CHANGED", function() if B.list then B.Repaint() end end)
+H.Events:On("SCAN_DONE", function() if B.list then B.Repaint() end end)
