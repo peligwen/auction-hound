@@ -1,21 +1,23 @@
--- UI/Bags.lua: what each bag slot is worth, while Shift is held.
+-- UI/Bags.lua: what each bag and bank slot is worth, while Shift is held.
 --
--- With the bags open, holding Shift puts a small figure over every
--- slot: the stack at the house's floor from the latest scan, or at the
--- vendor's price when the vendor pays more than the house would after
--- its cut. Junk and anything soulbound go to the vendor, so they show
--- the vendor's price alone; a slot with neither price shows nothing.
--- Figures are in the game's coin colors with the coin's icon; the
--- house's sit on a dark strip, the vendor's on a blue one. Letting go
--- of Shift takes it all down. /hound overlay off turns it off.
+-- With the bags or the bank open, holding Shift puts a small figure
+-- over every slot: the stack at the house's floor from the latest
+-- scan, or at the vendor's price when the vendor pays more than the
+-- house would after its cut. Junk and anything soulbound go to the
+-- vendor, so they show the vendor's price alone; a slot with neither
+-- price shows nothing. Figures are in the game's coin colors with the
+-- coin's icon; the house's sit on a dark strip, the vendor's on a blue
+-- one. Letting go of Shift takes it all down. /hound overlay off turns
+-- it off.
 --
--- The figures are Hound's own frames, each set on a bag button as a
--- child so it draws on the button's layer and hides with its bag. No
--- field is written on a bag frame or a button, no script of theirs is
--- run, and none of ours takes the mouse, so a click goes to the button
--- under it as always. Only Blizzard's own bags are read; a bag addon
--- that replaces them gets no figures. /hound overlay says what it can
--- see, and /hound overlay test puts the figures up without Shift.
+-- The figures are Hound's own frames, each set on a slot's button as a
+-- child so it draws on the button's layer and hides with its bag or
+-- bank tab. No field is written on a bag frame, the bank or a button,
+-- no script of theirs is run, and none of ours takes the mouse, so a
+-- click goes to the button under it as always. Only Blizzard's own
+-- bags and bank are read; a bag addon that replaces them gets no
+-- figures. /hound overlay says what it can see, and /hound overlay
+-- test puts the figures up without Shift.
 local ADDON, H = ...
 
 local Bags = { overlays = {}, shown = 0 }
@@ -84,7 +86,29 @@ local function slotOf(frame, button)
   return bag, button:GetID()
 end
 
--- Calls fn(button, bag, slot) for every bag button on screen.
+-- The bank's slots. The bank shows one tab at a time from a pool of
+-- buttons, and each button knows the tab it shows, which is its bag,
+-- and its slot there. The pool is only read.
+local function bankPanel()
+  local panel = BankPanel
+  if type(panel) ~= "table" or type(panel.EnumerateValidItems) ~= "function" then return nil end
+  if not panel:IsVisible() then return nil end
+  return panel
+end
+
+function Bags.EachBankButton(fn)
+  local panel = bankPanel()
+  if not panel then return end
+  for button in panel:EnumerateValidItems() do
+    if type(button) == "table" and button:IsShown()
+      and type(button.GetBankTabID) == "function" and type(button.GetContainerSlotID) == "function" then
+      local bag, slot = button:GetBankTabID(), button:GetContainerSlotID()
+      if bag and slot then fn(button, bag, slot) end
+    end
+  end
+end
+
+-- Calls fn(button, bag, slot) for every bag and bank button on screen.
 function Bags.EachButton(fn)
   for _, frame in ipairs(bagFrames()) do
     if frame:IsShown() then
@@ -109,6 +133,7 @@ function Bags.EachButton(fn)
       end
     end
   end
+  Bags.EachBankButton(fn)
 end
 
 ------------------------------------------------------------------------
@@ -286,7 +311,7 @@ local function loaded(name)
 end
 
 function Bags.Survey()
-  local s = { open = 0, slots = 0, priced = 0, addons = {} }
+  local s = { open = 0, slots = 0, priced = 0, addons = {}, bank = bankPanel() ~= nil }
   for _, frame in ipairs(bagFrames()) do
     if frame:IsShown() then s.open = s.open + 1 end
   end
@@ -307,11 +332,12 @@ function Bags.Report()
     H.Print("  reading the bags failed: " .. tostring(s))
     return
   end
-  if s.open == 0 then
-    H.Print("  no Blizzard bag is open right now; open them and ask again")
+  if s.open == 0 and not s.bank then
+    H.Print("  no Blizzard bag or bank is open right now; open them and ask again")
   else
-    H.Print(string.format("  now: %d bag frame%s open, %d slot%s read, %d with a price",
-      s.open, s.open == 1 and "" or "s", s.slots, s.slots == 1 and "" or "s", s.priced))
+    H.Print(string.format("  now: %d bag frame%s open%s, %d slot%s read, %d with a price",
+      s.open, s.open == 1 and "" or "s", s.bank and " and the bank" or "",
+      s.slots, s.slots == 1 and "" or "s", s.priced))
   end
   if #s.addons > 0 then
     H.Print("  loaded: " .. table.concat(s.addons, ", ") .. "; a bag addon that draws its own bags gets no figures")

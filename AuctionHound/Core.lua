@@ -17,7 +17,7 @@ H.DEFAULTS = {
   laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
-  overlay = true,        -- hold Shift with the bags open: each slot's worth, at the house or the vendor
+  overlay = true,        -- hold Shift with the bags or bank open: each slot's worth, at the house or the vendor
   keepDays = 90,         -- daily history retention
   keepPoints = 120,      -- scan-level points kept per item
   fanPerBatch = 5,       -- units per batch when fanning a listing
@@ -132,7 +132,7 @@ commands.help = function()
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound sat <hours>          a floor on offer this long is no longer a deal; 0 judges by price alone")
   H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
-  H.Print("  /hound overlay [on|off|test]  hold Shift with the bags open to see what each slot is worth")
+  H.Print("  /hound overlay [on|off|test]  hold Shift with the bags or bank open to see what each slot is worth")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
   H.Print("  /hound markets    list the markets stored: each region, realm and faction played")
@@ -348,7 +348,7 @@ commands.overlay = function(rest)
     return
   end
   if S.overlay then
-    H.Print("the bag overlay is on: hold Shift with the bags open to see what each slot is worth")
+    H.Print("the bag overlay is on: hold Shift with the bags or bank open to see what each slot is worth")
   else
     H.Print("the bag overlay is off")
   end

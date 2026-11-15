@@ -1180,9 +1180,58 @@ do
     Stub.printed = {}
     SlashCmdList.HOUND("overlay")
     said = table.concat(Stub.printed, "\n")
-    check(string.find(said, "no Blizzard bag is open", 1, true), "/hound overlay with the bags shut says so")
+    check(string.find(said, "no Blizzard bag or bank is open", 1, true), "/hound overlay with the bags shut says so")
     check(string.find(said, "Baganator", 1, true), "and names a bag addon that is loaded: " .. said)
     C_AddOns = savedAddOns
+
+    -- the bank: the panel's pooled buttons, each knowing its tab and slot
+    local bank = CreateFrame("Frame", "BankPanel")
+    local pooled = {}
+    function bank:EnumerateValidItems() return pairs(pooled) end
+    local function bankButton(tab, slot)
+      local bb = CreateFrame("Button", nil, bank)
+      bb.bankTabID, bb.containerSlotID = tab, slot
+      function bb:GetBankTabID() return self.bankTabID end
+      function bb:GetContainerSlotID() return self.containerSlotID end
+      pooled[bb] = true
+      return bb
+    end
+    local vault = bankButton(6, 1)
+    local vaultJunk = bankButton(6, 2)
+    local spare = bankButton(6, 3)
+    spare:Hide()
+    bankButton(6, 4)
+    Stub.SetBag(6, 1, 2770, 10)
+    Stub.SetBag(6, 2, 4865, 2)
+    Stub.SetBag(6, 3, 2770, 5)
+    local bankBefore, vaultBefore = fields(bank), fields(vault)
+    Stub.shift = true
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 2, "the bank alone open: a figure on each bank slot with a price, none on a hidden or empty one")
+    byslot = {}
+    for _, o in ipairs(Bags.overlays) do
+      if o:IsShown() then byslot[o.bag .. ":" .. o.slot] = o end
+    end
+    local vo = byslot["6:1"]
+    check(vo and vo.where == "house" and vo.text:GetText() == H.MoneyCoin(oreFloor * 10), "a bank stack at the floor: " .. tostring(vo and vo.text:GetText()))
+    check(vo and vo:GetParent() == vault and vo.allPoints == vault, "set on its bank button")
+    check(byslot["6:2"] and byslot["6:2"].where == "vendor", "junk in the bank goes to the vendor")
+    check(byslot["6:3"] == nil, "a hidden bank button gets no figure")
+    check(fields(bank) == bankBefore and fields(vault) == vaultBefore, "nothing written on the bank or its buttons")
+    Stub.printed = {}
+    SlashCmdList.HOUND("overlay")
+    said = table.concat(Stub.printed, "\n")
+    check(string.find(said, "0 bag frames open and the bank, 3 slots read, 2 with a price", 1, true), "/hound overlay counts the bank: " .. said)
+    bag0:Show()
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 5, "bags and bank together")
+    bag0:Hide()
+    bank:Hide()
+    frame(Bags.REFRESH)
+    eq(Bags.shown, 0, "the bank shut: its figures go")
+    Stub.shift = false
+    frame()
+    _G.BankPanel = nil
 
     _G.ContainerFrame1, _G.ContainerFrameCombinedBags = nil, nil
     for i = 1, 4 do _G["ContainerFrame1Item" .. i] = nil end
@@ -2336,6 +2385,24 @@ do
   Stub.Advance(1) Stub.Pump()
   eq(#H.Store.Buys(), 2, "a plain bid records nothing")
   eq(Buy.NoteBid(999, 100), false, "an auction no search listed is not followed")
+
+  -- a listing the house counts as many units of an item that does not
+  -- stack: the buyout brings one, at the whole price
+  Stub.ah.currentSearch = { listings = { { 18700, 16, 804 } } }
+  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", key)
+  eq(Buy.Seen(804).qty, 16, "the listing's own count is kept as the house gave it")
+  C_AuctionHouse.PlaceBid(804, 18700)
+  Stub.Advance(1) Stub.Pump()
+  b = H.Store.Buys()[3]
+  eq(b.qty, 1, "a buyout of an item that does not stack is one unit")
+  eq(b.unit, 18700, "at the whole price")
+  check(string.find(Stub.printed[#Stub.printed], "bought Wolf Bracers for " .. H.Money(18700), 1, true), "chat names one, not 16: " .. Stub.printed[#Stub.printed])
+  eq(Buy.Units(15001, 16), 1, "one stack of a non-stacking item is one")
+  eq(Buy.Units(2770, 50), 20, "no more than a stack")
+  eq(Buy.Units(2770, 5), 5, "a stack's own count stands")
+  eq(Buy.Units(424242, 3), 3, "an item the client has not loaded keeps the house's count")
+  eq(H.MaxStack(15001), 1, "the stack size comes from the client")
+  table.remove(H.Store.Buys())
 
   -- the History view lists them, and the summary counts them
   ok, err = pcall(H.UI.ShowView, "history")

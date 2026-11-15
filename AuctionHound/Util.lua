@@ -398,6 +398,21 @@ function H.VendorSell(itemID)
   return nil
 end
 
+-- How many of the item one stack holds: 1 for a bag or a piece of
+-- gear, or nil while the client has yet to load the item.
+function H.MaxStack(itemID)
+  if not itemID or not C_Item then return nil end
+  if C_Item.GetItemMaxStackSizeByID then
+    local n = C_Item.GetItemMaxStackSizeByID(itemID)
+    if type(n) == "number" and n > 0 then return n end
+  end
+  if C_Item.GetItemInfo then
+    local n = select(8, C_Item.GetItemInfo(itemID))
+    if type(n) == "number" and n > 0 then return n end
+  end
+  return nil
+end
+
 ------------------------------------------------------------------------
 -- Tiny event bus for addon-internal notifications.
 ------------------------------------------------------------------------

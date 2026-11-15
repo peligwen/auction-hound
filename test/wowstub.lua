@@ -183,6 +183,11 @@ C_Item = {
     local it = Stub.items[id]
     return it and it.ilvl or 0
   end,
+  GetItemMaxStackSizeByID = function(id)
+    local it = Stub.items[tonumber(string.match(tostring(id), "(%d+)"))]
+    if not it or not it.loaded then return nil end
+    return it.stack
+  end,
   GetItemIconByID = function() return 134400 end,
   GetItemID = function(loc)
     local s = type(loc) == "table" and Stub.bags[loc.bagID] and Stub.bags[loc.bagID][loc.slotIndex]

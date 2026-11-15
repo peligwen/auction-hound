@@ -143,16 +143,16 @@ launch is listed at its head.
   always shows the rest. Junk gets no Hound lines: the vendor is where
   it goes. The Buy tab's cell tooltip and the Item view carry the
   cleared line too, and the Item view the three-day mean.
-- **Bag overlay.** With the bags open, hold Shift: every slot shows
-  what its stack is worth, at the house's floor from the latest scan
+- **Bag overlay.** With the bags or the bank open, hold Shift: every
+  slot shows what its stack is worth, at the house's floor from the latest scan
   on a dark strip, or at the vendor's price on a blue strip when the
   vendor pays more than the house would after its cut. The figure is
   one coin, in the game's gold, silver or copper with its coin icon
   (1.2 gold, 12 gold, 45 silver; the coin's letter with plain money
   set). Junk and anything soulbound show the vendor's price alone; a
   slot with neither shows nothing. Letting go takes it down, and it
-  stays out of combat. Blizzard's own bags only: a bag addon that
-  replaces them gets no figures. `/hound overlay` says what it can see
+  stays out of combat. Blizzard's own bags and bank only: a bag addon
+  that replaces them gets no figures. `/hound overlay` says what it can see
   right now, and `/hound overlay off` turns it off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
@@ -435,7 +435,18 @@ below are still the real test. What did change around the addon:
     list both under the "Bought" filter with the units and the price
     paid, the summary line adding "bought N for X". A bid under the
     buyout should record nothing. Report if a purchase goes unnoted,
-    or is noted twice.
+    or is noted twice. Found on live: a Red Mageweave Bag bought at
+    its buyout of 1g 87s was noted as "bought 16 x Red Mageweave Bag
+    (11s 69c each)". The house gave its listing a quantity of 16, and
+    the units noted were that count. A buyout brings one auction, and
+    an auction holds no more than a stack, so the count now stops at
+    one stack: one for a bag or a piece of gear. Buy a bag or a green
+    at its buyout: chat should say "bought <item> for X" with no
+    count. Before buying, look at the item buy frame's quantity
+    column: if a bag or gear row shows a count there (16, say), report
+    whether the count drops by one after the buyout or the row goes.
+    That says whether the house folds identical auctions into one row,
+    which the scan reads as that many units at the row's price.
 21. **Quick buyout.** Open, and new. On the item buy frame,
     double-click an auction: it should be bought out at once, chat
     saying "buying ... for X" and then "bought ...". On the commodity
@@ -529,25 +540,44 @@ below are still the real test. What did change around the addon:
     Hound saw Shift held. Report figures that sit off their slots,
     overlap the stack count, or show under the bag art;
     `/hound overlay off` turns it off meanwhile. Bag addons (Bagnon,
-    AdiBags and the like) are not covered.
-29. **Bags at the house.** Open, and suspected. Reported on live: a
-    right-click on a Cozy Sleeping Bag in the bags brought up
-    "blocked from an action only available to the Blizzard UI" in
-    Hound's name. The likely path, read from Blizzard's code: with the
-    house open, a right-click on an item the house will not take, a
-    soulbound one say, asks the frame whether it is listing
-    (`AuctionHouseFrame:IsListingAuctions()`, which reads its display
-    mode) and then uses the item, which is protected. The Buy tab's
-    rows come through Hound's data provider and layout (see Taint), a
-    row clicked hands its data to the frame, and the frame's display
-    mode is then written in Hound's name, after which every such
-    right-click at the house is blocked until `/reload`. Away from the
-    house the frame is not asked. To confirm: `/console taintLog 1`,
-    `/reload`, open the house, click any Buy tab row, then right-click
-    a soulbound usable item in the bags. If it is blocked, send
-    `Logs/taint.log`: it names the value read. Then try the same with
-    no Buy tab row clicked since the house opened, and away from the
-    house. Meanwhile, use such items away from the auctioneer.
+    AdiBags and the like) are not covered. New: the bank. Open it and
+    hold Shift: each slot of the tab shown gets its figure the same
+    way, and another tab picked while Shift is held fills in within a
+    moment. `/hound overlay` adds "and the bank" to what it sees while
+    the bank is open. Report bank figures that sit off their slots or
+    stay up after the bank is closed.
+29. **Bags blocked, at the house and away from it.** Open: the
+    cause is found in Blizzard's own code, the fix is not made yet.
+    Reported on live: a right-click on an item in the bags (a Cozy
+    Sleeping Bag at the house, and any item long after leaving it)
+    brings up "blocked from an action only available to the Blizzard
+    UI" in Hound's name, until `/reload`. Read from the live client's
+    UI code (1.60.1, the house's frames and the bag code): Hound
+    writes its data provider and layout on Blizzard's browse list,
+    its layout on the item buy list and the Auctions tab's lists,
+    marks those lists for a redraw from its own code, and presses the
+    house's Buy button for a double-click. Every value written that
+    way carries Hound's name, and the frame reads them whenever a list
+    is shown or redrawn. When the house opens, the frame switches to
+    the Buy view, which shows the browse list and reads those values,
+    and then, in the same call, opens the bags. Opening the bags hands
+    each slot button its bag number, so that number is written in
+    Hound's name too. Every right-click reads the slot's bag number
+    before it uses the item, which is protected, so the use is blocked
+    wherever you are until `/reload` rebuilds the buttons. A button's
+    bag number is only written when it changes, so it happens when the
+    house is what opens the bags and the buttons are new or reshuffled:
+    the first time the bags open after logging in or `/reload` is the
+    sure case, which is why it comes and goes. At the house a Buy tab
+    row clicked does the same to the frame's display mode, which a
+    right-click there reads. To confirm: `/console taintLog 1`,
+    `/reload`, do not open the bags, open the house, close it, walk
+    away and right-click a potion or food in the bags. It should be
+    blocked, and `Logs/taint.log` should name the value read. Then
+    `/reload`, press B to open the bags and close them, and do the
+    same: the right-click should go through. Until it is fixed: open
+    the bags once after logging in, before going to the house, and use
+    items away from the auctioneer.
 30. **Crates and writs on the Buy tab.** Open, and new. After a full
     scan, search "Waylaid Crate": each crate row whose favor is known
     should read "N favor" on the left and a rate such as "4.2/g" on the
@@ -587,17 +617,20 @@ scripts with `HookScript`, never replace either; write nothing on a
 Blizzard frame or table that Blizzard's own code reads back; put
 Hound's own frames beside Blizzard's, not in their lists; show or
 hide nothing of Blizzard's, since its scripts would run in Hound's
-name. The browse list on the Buy tab is the
-one exception, and a knowing one: its data provider and layout are
-Hound's so the column and the ordering can exist at all, and any
-protected call the house makes from a browse row would be blocked.
-None is made from the row itself, but a row clicked writes the
-frame's display mode in Hound's name, and Blizzard's bags read that
-mode when an item is right-clicked at the house: step 29 has the
-suspected block and how to confirm it. The bag overlay keeps the
-rules: its figures are Hound's own frames, set on the bag buttons as
-children that take no mouse, and no field is written on a bag frame
-or button.
+name. The house's own lists break these rules, and it costs more than
+was thought: Hound writes the Buy tab's data provider and layout on
+the browse list, its layout on the item buy and Auctions lists, marks
+them for a redraw, and presses the house's Buy button for a
+double-click. The frame reads those values on its way to opening the
+bags when the house opens, so the bags' slot buttons take Hound's name
+with them, and every item used from the bags after that is blocked
+until `/reload` (step 29). Keeping Hound off those lists means its
+columns become its own frames laid over the rows, set from hooks on
+the cells, and the Buy tab's sorting and filters leave Blizzard's
+list, since putting that list in another order takes its data
+provider. The bag overlay keeps the rules: its figures are Hound's own
+frames, set on the bag and bank buttons as children that take no
+mouse, and no field is written on a bag frame, the bank or a button.
 
 ## Commands
 
@@ -617,7 +650,7 @@ or button.
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
 /hound sat <hours>     a floor on offer this long is no longer a deal, default 1; 0 judges by price alone
 /hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
-/hound overlay [on|off]  hold Shift with the bags open to see what each slot is worth, default on;
+/hound overlay [on|off]  hold Shift with the bags or bank open to see what each slot is worth, default on;
                        alone, what it sees in the bags right now
 /hound overlay test    the figures up for 10 seconds without Shift, and how they are drawn
 /hound debug rep [n]   print raw full-scan rows
@@ -660,7 +693,7 @@ Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              the Buy tab column and filter strip, the buy frames' ladder
              block and colors, the Auctions tab total column (Cells.xml
-             holds the cells); the Shift overlay on the bags (Bags.lua)
+             holds the cells); the Shift overlay on the bags and bank (Bags.lua)
 Data/        conversion recipes with classic item ids; the Waylaid
              Crates, the favor each pays and the bundles that fill
              them; the Craftsman's Writs and the item each asks for

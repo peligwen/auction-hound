@@ -107,10 +107,22 @@ function Buy.Seen(auctionID)
   return seen[auctionID]
 end
 
+-- The units a buyout of one listing brings. The house's quantity for
+-- an item listing can exceed what one auction holds: a Red Mageweave
+-- Bag bought for its buyout came as one bag from a listing of 16. No
+-- auction holds more than a stack, so the count stops at one stack,
+-- one for anything that does not stack at all.
+function Buy.Units(itemID, qty)
+  qty = qty or 1
+  local stack = H.MaxStack(itemID)
+  if stack and qty > stack then qty = stack end
+  return math.max(1, qty)
+end
+
 function Buy.NoteBid(auctionID, amount)
   local a = seen[auctionID]
   if not a or not a.buyout or a.buyout <= 0 or not amount or amount < a.buyout then return false end
-  Buy.bids[auctionID] = { key = a.key, itemID = a.itemID, qty = a.qty, total = amount, t = H.Now() }
+  Buy.bids[auctionID] = { key = a.key, itemID = a.itemID, qty = Buy.Units(a.itemID, a.qty), total = amount, t = H.Now() }
   return true
 end
 
