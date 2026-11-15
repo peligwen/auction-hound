@@ -82,9 +82,11 @@ function UI.EditBox(parent, width, onChange)
   return e
 end
 
--- A button that steps through a short list of options on each click.
+-- A button that steps through a short list of options on each click,
+-- and back with a right-click.
 function UI.CycleButton(parent, width, options, onChange)
   local b = UI.Button(parent, options[1], width, 22)
+  if b.RegisterForClicks then b:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
   b.options = options
   b.index = 1
   function b:SetValue(v)
@@ -95,8 +97,9 @@ function UI.CycleButton(parent, width, options, onChange)
     if self.plainText then self.plainText:SetText(self.options[self.index]) end
   end
   function b:GetValue() return self.options[self.index] end
-  b:SetScript("OnClick", function(self)
-    self.index = self.index % #self.options + 1
+  b:SetScript("OnClick", function(self, button)
+    local step = button == "RightButton" and -1 or 1
+    self.index = (self.index - 1 + step) % #self.options + 1
     self:SetValue(self.options[self.index])
     if onChange then onChange(self:GetValue(), self.index) end
   end)
@@ -160,7 +163,8 @@ end
 --   value    function(row) -> raw value (used for sort and display)
 --   text     optional function(row, raw) -> display string
 --   desc     sort descending first
--- opts: rowHeight, sortKey, sortDesc, onSelect(row), onDouble(row), tooltip(row, frame)
+-- opts: rowHeight, sortKey, sortDesc, onSelect(row), onDouble(row), tooltip(row, frame),
+--       onRefresh(t, shown): after every draw, with the rows on screen, top first
 ------------------------------------------------------------------------
 local function compare(a, b)
   if a == nil and b == nil then return false end
@@ -399,9 +403,12 @@ function UI.CreateTable(parent, cols, opts)
         local desc = self.sortDesc
         local vals = {}
         for i, row in ipairs(view) do vals[row] = col.value(row) end
+        -- a row without a value sorts last whichever way
         table.sort(view, function(a, b)
           local va, vb = vals[a], vals[b]
           if va == vb then return false end
+          if va == nil then return false end
+          if vb == nil then return true end
           if desc then return compare(vb, va) end
           return compare(va, vb)
         end)
@@ -453,6 +460,14 @@ function UI.CreateTable(parent, cols, opts)
           row:Hide()
         end
       end
+    end
+    if self.opts.onRefresh then
+      local shown = {}
+      for i = 1, n do
+        local data = self.view[self.offset + i]
+        if data then shown[#shown + 1] = data end
+      end
+      self.opts.onRefresh(self, shown)
     end
   end
 

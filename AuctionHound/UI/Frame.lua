@@ -1,4 +1,5 @@
--- UI/Frame.lua: the panel, its five views, the AH tab and the window.
+-- UI/Frame.lua: the panel, its views, the AH tab and the window. The
+-- Deals view is built in UI/Deals.lua.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -747,7 +748,7 @@ function UI.EnsurePanel()
   panel.header = header
 
   local x = 0
-  for _, def in ipairs({ { "markets", "Markets" }, { "item", "Item" }, { "fan", "Fan" }, { "history", "History" } }) do
+  for _, def in ipairs({ { "markets", "Markets" }, { "deals", "Deals" }, { "item", "Item" }, { "fan", "Fan" }, { "history", "History" } }) do
     local b = UI.Button(header, def[2], 70, 22, function() UI.ShowView(def[1]) end)
     b:SetPoint("TOPLEFT", header, "TOPLEFT", x, 0)
     tabButtons[def[1]] = b
@@ -791,6 +792,7 @@ function UI.EnsurePanel()
   panel.body = body
 
   views.markets = buildMarketsView(body)
+  views.deals = UI.BuildDealsView(body)
   views.item = buildItemView(body)
   views.fan = buildFanView(body)
   views.history = buildHistoryView(body)

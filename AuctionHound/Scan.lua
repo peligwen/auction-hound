@@ -365,7 +365,8 @@ function Scan.DebugReplicate(n)
 end
 
 ------------------------------------------------------------------------
--- A search answer as listings { p, q, auctionID, timeLeft, owners, mine }
+-- A search answer as listings { p, q, auctionID, timeLeft, owners, mine,
+-- own }: own is how many of a commodity listing's units are yours.
 ------------------------------------------------------------------------
 function Scan.CommodityListings(itemID)
   local listings = {}
@@ -373,7 +374,7 @@ function Scan.CommodityListings(itemID)
   for i = 1, n do
     local r = AH.GetCommoditySearchResultInfo(itemID, i)
     if r and r.unitPrice and r.quantity and r.quantity > 0 then
-      table.insert(listings, { p = r.unitPrice, q = r.quantity, auctionID = r.auctionID, timeLeft = r.timeLeftSeconds, owners = r.owners, mine = r.containsOwnerItem })
+      table.insert(listings, { p = r.unitPrice, q = r.quantity, auctionID = r.auctionID, timeLeft = r.timeLeftSeconds, owners = r.owners, mine = r.containsOwnerItem, own = r.numOwnerItems })
     end
   end
   return listings

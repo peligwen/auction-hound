@@ -33,27 +33,26 @@ launch is listed at its head.
   list, at the right end of the item's name: the reference on the
   left, and how far the floor sits under it on the right, green when
   it clears the minimum discount, amber under reference, grey above.
-  The list keeps Blizzard's order and its own columns; Hound's figures
-  are its own frames laid over the rows (see Taint). Hovering a row
-  adds Hound's reading to the row's own tooltip. A strip above the
-  headers sets the minimum: a percentage off the reference, and copper
-  a unit under it, whichever is more, and counts the rows shown and
-  the deals among them. A three-copper item at half price is fifty
-  percent off and still not worth the click; with the copper minimum
-  at 5s it reads amber, not green, and leaves the deal count, while a
-  20s item at half price stays. The row's tooltip names the minimum
-  that held it back. Tick "Depth" and each row on screen gets one
-  search of its own, one at a time through the house's throttle: the
-  note then ends in the units at the floor ("12.3g x40"), and the
-  row's tooltip shows its ladder, the units at or under the limit, the
-  next price step and the value of the listings. A ladder is kept
-  while the row still shows the same floor and count. The ladder's own
-  value, the cheapest slice of its units, caps the reference when it
-  sits under history, the way the latest scan does: a floor the market
-  has moved to reads as the price before the next scan, the note
-  showing the listings' value, while a stray under the rest is too few
-  units to move it and still reads as a deal. Not while supply is
-  scarce, when the few cheap units left are the deals. The reference is
+  The list keeps Blizzard's order, its own columns and its own place;
+  Hound's figures are its own frames laid over the rows (see Taint),
+  and nothing sits above the headers. Hovering a row adds Hound's
+  reading to the row's own tooltip. The minimum a deal clears is a
+  percentage off the reference, and copper a unit under it, whichever
+  is more, set on the Deals view or with `/hound discount`. A
+  three-copper item at half price is fifty percent off and still not
+  worth the click; with the copper minimum at 5s it reads amber, not
+  green, while a 20s item at half price stays. The row's tooltip names
+  the minimum that held it back. Once the Deals view's Depth has read
+  an item's listings, its Buy tab row shows them too: the note ends in
+  the units at the floor ("12.3g x40"), and the tooltip shows the
+  ladder, the units at or under the limit, the next price step and the
+  value of the listings. The Buy tab itself never sends a search. The
+  ladder's own value, the cheapest slice of its units, caps the
+  reference when it sits under history, the way the latest scan does:
+  a floor the market has moved to reads as the price before the next
+  scan, the note showing the listings' value, while a stray under the
+  rest is too few units to move it and still reads as a deal. Not while
+  supply is scarce, when the few cheap units left are the deals. The reference is
   the market price from the scan's history, or the value at the latest
   scan when that is lower, never the listings on screen, and the figure
   is the floor's percentage under it: a floor that has filled in at a
@@ -70,9 +69,37 @@ launch is listed at its head.
   still counts: the 30-day mean, else the last scan. The usual
   category tree, search box and filters do the narrowing; clicking a
   row buys through Blizzard's frames as always. Sorting by discount
-  and the "Deals only", "History only" and "Not mine" toggles are
-  gone: putting Blizzard's list in another order means writing its
-  data provider, which is what blocked items in the bags.
+  and the filters live on the Deals view: putting Blizzard's list in
+  another order means writing its data provider, which is what
+  blocked items in the bags.
+- **Deals view.** A buy list of Hound's own, on the Hound tab beside
+  Markets: the same results as the Buy tab, in Hound's own list, so it
+  can be sorted and filtered. Its rows are the house's results for the
+  last search, whoever made it: its own search box, or Blizzard's
+  search and category tree on the Buy tab, and Hound asks the house
+  for every page of them while the view shows. Or, with the source set
+  to "Last scan", every item the last full scan saw, at its floor then,
+  with the house open or not; the search box then matches names. Each
+  row has the floor, the units, the reference ("~" for an estimate,
+  "v" for the vendor price), the discount in the Buy tab's colors,
+  what a unit saves, the units at or under the deal limit once Depth
+  has read them, and how long the floor has been on offer. It sorts by
+  discount, deepest first, and any header sorts by its column. The
+  filters: the minimum discount and copper, deals only (on by
+  default), history only, hide mine, the dearest floor shown, the
+  lowest quality and the item class; quality and class go to the house
+  with Hound's own search too. Tick "Depth" and each row on screen gets
+  one search of its own, one at a time through the house's throttle; a
+  ladder is kept while the row still shows the same floor and count.
+  Double-click a row to buy it through Hound's own confirm: the units
+  of a commodity at or under the deal limit, less your own, or the
+  cheapest auction of an item that is not yours. When Depth has not
+  read the row, one search goes out first, Depth on or off, and the
+  confirm says it is reading the listings. A commodity's confirm has a
+  units box and a "Get price" button that asks the house for its
+  price on them, then "Buy"; with the listings already read the
+  double-click asks for the price itself. An item's is "Buy" at its
+  buyout. Nothing on the list or in the confirm is Blizzard's.
 - **Auctions tab.** What each of your auctions brings in, at the right
   end of its name on Blizzard's list: buyout times units for an
   auction still up; a sold auction waiting in the mail already shows
@@ -343,15 +370,13 @@ below are still the real test. What did change around the addon:
    on or off; if a row says "no reference" for an item in the Markets
    view, `/hound debug buy 5` prints the first rows with the item
    level the house gave, the history key, and whether history is
-   stored under it. The count on the right of the strip reads "N rows,
-   M deals". Change the minimum and watch the colors and the deal count
-   move at once. Type `5s` into the second box beside the percentage:
-   cheap rows at "-50%" should turn from green to amber, their tooltips
-   saying only a few copper a unit stand under the reference, and the
-   deal count should drop while a dearer row at the same percentage
-   stays green; `/hound discount` should read the box back. Report if
-   the strip overlaps the column headers or the status on its right,
-   or if a row's figures belong to another row after scrolling. On a
+   stored under it. Changed again: the strip above the headers is gone,
+   and the list should sit exactly where it does without the addon.
+   `/hound discount 60` and the colors move at once; `/hound discount
+   25 5s` and cheap rows at "-50%" turn from green to amber, their
+   tooltips saying only a few copper a unit stand under the reference,
+   while a dearer row at the same percentage stays green. Report if a
+   row's figures belong to another row after scrolling. On a
    gear category the house's own column for the level an item can be
    equipped at sits between the name and the units, and the figures
    should still sit at the end of the name.
@@ -419,16 +444,18 @@ below are still the real test. What did change around the addon:
     its row, the list's own columns untouched. Report if the block
     overlaps the Buy button or the item header, or if the list's
     headers sit under the block.
-18. **Depth.** Open. On the Buy tab tick "Depth": the status
-    on the right should say "reading depth" and, row by row from the
-    top, the notes should gain "xN" for the units at the floor. Hover
-    a row for the ladder in its tooltip. Scroll: rows coming into view
-    are read too. While it reads, click a row: the buy frame must still
-    fill with that item's listings (a query dropped by the throttle is
-    sent again), and type a new search: the results must still arrive.
-    A row for an item never scanned stays "no reference" once its depth
-    is read. Report if any click leaves an empty buy frame, or if the
-    count on the right stops changing while rows still lack their "xN".
+18. **Depth.** Open, and moved to the Deals view. There, tick
+    "Depth": the status should say "reading depth" and, row by row from
+    the top, the "Deal units" column should fill. Hover a row for the
+    ladder in its tooltip. Scroll: rows coming into view are read, and
+    rows scrolled away are not. Back on the Buy tab, the rows read show
+    "xN" in their notes, and no search goes out from there. While it
+    reads, click a Buy tab row: the buy frame must still fill with that
+    item's listings (a query dropped by the throttle is sent again),
+    and type a new search: the results must still arrive. A row for an
+    item never scanned stays "no reference" once its depth is read.
+    Report if any click leaves an empty buy frame, or if the status
+    stops changing while rows on screen still lack their deal units.
 19. **Estimates.** Open, and new. Find a Buy tab row whose note starts
     with "~" (an estimate; the row's tooltip names it). Untick
     "estimates" beside "auto scan" on the Hound tab: the row should
@@ -470,7 +497,8 @@ below are still the real test. What did change around the addon:
     double-click, if the units or the quote are wrong, or if the house
     complains about a hardware event (the quote is asked for from the
     double-click and the purchase from the Buy click, both hardware
-    events).
+    events). New: the confirm has a units box; change it and the
+    button reads "Get price" again, a click asking the house anew.
 22. **Latest scan.** Open, and new. Find an item whose price has
     fallen and stayed down, with plenty of units at the new low. Its
     Buy tab row should read grey or amber at that price, and the row's
@@ -594,6 +622,38 @@ below are still the real test. What did change around the addon:
     the note reads "N rep". Report a rate that does not match the sum
     in its own tooltip, or a crate whose fill differs from the green
     line in the crate's tooltip.
+31. **Deals view.** Open, and new. On the Hound tab click "Deals".
+    With a search already made on the Buy tab, its results should be
+    there, every page of them ("loading more" in the status until they
+    are in), deals only, the deepest discount first, the status reading
+    "N rows, M deals, K shown". Type a search in the view's own box and
+    press Enter or Search: the list should fill with the house's
+    answer, and Blizzard's Buy tab underneath shows the same results
+    (its search box keeps its old text; that is expected). Untick
+    "Deals only", tick "History only" and "Hide mine", set a max price,
+    step quality and class (right-click steps back): the list should
+    follow at once, and a quality or class change sends Hound's search
+    again. Set "min" to 60 and type 5s in the copper box: the counts
+    and colors move, and `/hound discount` reads them back. Click a
+    header to sort by it. Switch the source to "Last scan": the items
+    of the last full scan, the status naming the scan; close the house
+    and `/hound` shows the same rows in the window. Report if the
+    controls overlap one another or the list, if a page is fetched
+    twice (a row listed twice), or if the house says it is busy while
+    the view pages in.
+32. **Buy from the Deals view.** Open, and new. Double-click a
+    commodity deal: Hound's confirm opens under the cursor, "reading
+    the listings", then "Buy N x <item>" with "about X" and a "Get
+    price" button. N should be the units at or under the deal limit,
+    less your own. Click "Get price": the house's quote fills in and
+    the button reads "Buy"; a click buys, and chat says "buying" then
+    "bought". Change the units box before buying: the button goes back
+    to "Get price" and the quote is asked for again. With Depth on and
+    the row read, the double-click should go straight to the quote.
+    Double-click an item (gear, a bag): "Buy <item>" at the cheapest
+    auction's buyout not yours; one click bids it. Report if the house
+    complains about a hardware event at any step, if the units are not
+    the deal's, or if the confirm buys something other than it says.
 
 ## Taint
 
@@ -631,10 +691,14 @@ The rules the code keeps, in `UI/House.lua` for the house's lists:
   pulled in to make room) writes no value and is allowed.
 - Add hover lines to Blizzard's own tooltip for a row from the item
   tooltip's post-call, which the client makes securely.
+- Ask the house with its `C_AuctionHouse` calls, never the frame's own
+  search functions. The Deals view's search and its page requests go
+  out that way; Blizzard's browse list hears the answer in its own
+  event handler, which the client runs clean, and shows the same rows.
 
 What that costs: Blizzard's list keeps its own order and columns, so
-the Buy tab no longer sorts or filters rows, and the Auctions tab keeps
-its Bid column. The panel sits on a solid cover over the frame's own
+the Buy tab no longer sorts or filters rows (the Deals view does, in a
+list of Hound's own), and the Auctions tab keeps its Bid column. The panel sits on a solid cover over the frame's own
 tab rather than hiding it, and the confirm dialog is Hound's own. The
 bag overlay keeps the same rules: its figures are Hound's own frames,
 set on the bag and bank buttons as children that take no mouse, and no
@@ -697,7 +761,8 @@ Reference.lua the reference: history when deep enough, the two-week value or the
 Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict;
              what a crate or writ pays a gold of its floor and fill
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
-Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
+Depth.lua    the ladder behind each Deals view row on screen, one search each, on demand;
+             a row about to be bought first
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Buy.lua      purchases noted from the house's calls, for the History view
 Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
@@ -705,10 +770,10 @@ Writ.lua     the item a Craftsman's Writ asks for, priced the same way
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              House.lua: how Hound sits on the house's lists without
-             writing on them; the Buy tab figures and strip, the buy
-             frames' ladder block, colors and Hound's own commodity
-             confirm, the Auctions tab total; the Shift overlay on the
-             bags and bank (Bags.lua)
+             writing on them; the Buy tab figures, the Deals view
+             (Deals.lua), the buy frames' ladder block and colors,
+             Hound's own buy confirm (Confirm.lua), the Auctions tab
+             total; the Shift overlay on the bags and bank (Bags.lua)
 Data/        conversion recipes with classic item ids; the Waylaid
              Crates, the favor each pays and the bundles that fill
              them; the Craftsman's Writs and the item each asks for
@@ -763,8 +828,10 @@ where the client starts a clean execution (an event, a timer), and a
 function of the addon's found in a Blizzard object's field is too; the
 run fails on any of them. `test/run.lua` runs the full scan, auto scan,
 reference, tooltip with and without Shift, the bag overlay, slash
-command, the Buy tab figures and the rows' tooltips, depth on demand
-through a modelled throttle, listing ladder, Auctions tab total, deposit notes,
+command, the Buy tab figures and the rows' tooltips, the Deals view's
+rows, filters, sort, paging, search and sources, buying from it through
+the confirm's stages, depth on demand through a modelled throttle,
+listing ladder, Auctions tab total, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
 Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
 tab, a full scan the house does
@@ -778,9 +845,8 @@ the gold cap overflows, is enforced the same way.
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads
 - Disenchant tables as a third prior
-- A deals list of Hound's own, sorted by discount and filtered, beside
-  Blizzard's browse list rather than on it, now that the Buy tab can
-  no longer put Blizzard's list in another order
+- Deals view: saved filter sets, and a column for what a crate or writ
+  pays a gold
 - Watchlists: items to flag on the Buy tab whatever the discount
 - Time-of-day view for the Oceanic overlap
 - Waylaid Crates: read a partly filled crate's tooltip and price only

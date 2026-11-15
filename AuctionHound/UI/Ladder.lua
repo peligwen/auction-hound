@@ -255,17 +255,17 @@ end
 
 -- The units a click on a commodity row selects: everything listed up
 -- to and including that row, less your own, which the house will not
--- sell you.
+-- sell you. With no row, every unit listed.
 function LU.UnitsUpTo(itemID, rowData)
-  if not itemID or type(rowData) ~= "table" then return 0 end
+  if not itemID then return 0 end
   local n = AH.GetNumCommoditySearchResults and AH.GetNumCommoditySearchResults(itemID) or 0
   local units = 0
   for i = 1, n do
     local r = AH.GetCommoditySearchResultInfo(itemID, i)
     if r then
       units = units + math.max(0, (r.quantity or 0) - (r.numOwnerItems or 0))
-      if (rowData.auctionID and r.auctionID == rowData.auctionID)
-        or (not rowData.auctionID and r.unitPrice and rowData.unitPrice and r.unitPrice >= rowData.unitPrice) then
+      if type(rowData) == "table" and ((rowData.auctionID and r.auctionID == rowData.auctionID)
+        or (not rowData.auctionID and r.unitPrice and rowData.unitPrice and r.unitPrice >= rowData.unitPrice)) then
         return units
       end
     end
@@ -273,110 +273,34 @@ function LU.UnitsUpTo(itemID, rowData)
   return units
 end
 
--- Hound's confirm: the units, the item, the house's quote, and two
--- buttons. Its own frame entirely; Escape closes it out of combat.
-LU.pending = nil
-
-local function confirmText()
-  local p = LU.pending
-  local f = LU.confirm
-  if not p or not f then return end
-  f.title:SetText(string.format("Buy %d x %s", p.qty, H.ItemName(p.itemID)))
-  if p.total then
-    f.total:SetText(string.format("%s, %s each", H.Money(p.total), H.Money(p.unit or H.Round(p.total / p.qty))))
-    local short = type(GetMoney) == "function" and (GetMoney() or 0) < p.total
-    if short then f.note:SetText("not enough gold") else f.note:SetText("") end
-    if short then f.buy:Disable() else f.buy:Enable() end
-  else
-    f.total:SetText("asking the house for a price")
-    f.note:SetText("")
-    f.buy:Disable()
+-- What the cheapest n units listed come to, less your own: the
+-- confirm's estimate when its units box changes.
+function LU.PriceOf(itemID, n)
+  local count = AH.GetNumCommoditySearchResults and AH.GetNumCommoditySearchResults(itemID) or 0
+  local total, left = 0, n
+  for i = 1, count do
+    if left <= 0 then break end
+    local r = AH.GetCommoditySearchResultInfo(itemID, i)
+    if r and r.unitPrice then
+      local take = math.min(left, math.max(0, (r.quantity or 0) - (r.numOwnerItems or 0)))
+      total = total + take * r.unitPrice
+      left = left - take
+    end
   end
-end
-
--- Hides the confirm; a purchase still waiting on it is called off.
-function LU.CloseConfirm()
-  local p = LU.pending
-  LU.pending = nil
-  if p and not p.confirmed and AH.CancelCommoditiesPurchase then AH.CancelCommoditiesPurchase() end
-  if LU.confirm and LU.confirm:IsShown() then LU.confirm:Hide() end
-end
-
-function LU.ConfirmBuy()
-  local p = LU.pending
-  if not p or not p.total then return false end
-  p.confirmed = true
-  H.Printf("buying %d x %s for %s", p.qty, H.ItemName(p.itemID), H.Money(p.total))
-  AH.ConfirmCommoditiesPurchase(p.itemID, p.qty)
-  LU.pending = nil
-  LU.confirm:Hide()
-  return true
-end
-
-local function buildConfirm()
-  local f = UI.Create("Frame", "AuctionHoundBuyConfirm", UIParent, "BackdropTemplate")
-  f:SetSize(300, 104)
-  f:SetFrameStrata("DIALOG")
-  f:SetClampedToScreen(true)
-  f:EnableMouse(true)
-  if f.SetBackdrop then
-    f:SetBackdrop({
-      bgFile = "Interface\DialogFrame\UI-DialogBox-Background",
-      edgeFile = "Interface\DialogFrame\UI-DialogBox-Border",
-      tile = true, tileSize = 32, edgeSize = 32,
-      insets = { left = 11, right = 12, top = 12, bottom = 11 },
-    })
-  end
-  f.title = UI.Text(f, "GameFontNormal", "", "CENTER")
-  f.title:SetPoint("TOPLEFT", f, "TOPLEFT", 16, -16)
-  f.title:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -16)
-  f.total = UI.Text(f, "GameFontHighlight", "", "CENTER")
-  f.total:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -6)
-  f.total:SetPoint("TOPRIGHT", f.title, "BOTTOMRIGHT", 0, -6)
-  f.note = UI.Text(f, "GameFontRedSmall", "", "CENTER")
-  f.note:SetPoint("TOPLEFT", f.total, "BOTTOMLEFT", 0, -2)
-  f.note:SetPoint("TOPRIGHT", f.total, "BOTTOMRIGHT", 0, -2)
-  f.buy = UI.Button(f, "Buy", 100, 22, function() LU.ConfirmBuy() end)
-  f.buy:SetPoint("BOTTOMRIGHT", f, "BOTTOM", -4, 14)
-  f.cancel = UI.Button(f, "Cancel", 100, 22, function() LU.CloseConfirm() end)
-  f.cancel:SetPoint("BOTTOMLEFT", f, "BOTTOM", 4, 14)
-  f:Hide()
-  UI.WatchEscape(f)
-  f:HookScript("OnHide", function() if LU.pending then LU.CloseConfirm() end end)
-  return f
+  return left <= 0 and total or nil
 end
 
 -- Asks the house for a price on the units up to a commodity row and
--- opens the confirm under the cursor. Returns true, or false and why.
+-- opens Hound's confirm under the cursor (UI/Confirm.lua). Returns
+-- true, or false and why.
 function LU.BuyCommodity(rowData)
   local itemID = LU.commodityItemID
   if not itemID then return false, "no commodity on the buy frame" end
   local qty = LU.UnitsUpTo(itemID, rowData)
   if qty <= 0 then return false, "nothing there to buy: those are your own" end
-  if LU.pending then LU.CloseConfirm() end
-  LU.confirm = LU.confirm or buildConfirm()
-  LU.pending = { itemID = itemID, qty = qty, t = H.Now() }
-  AH.StartCommoditiesPurchase(itemID, qty)
-  confirmText()
-  LU.confirm:Show()
-  UI.CenterOnCursor(LU.confirm)
+  UI.Confirm.Commodity(itemID, qty, LU.UnitsUpTo(itemID), function(n) return LU.PriceOf(itemID, n) end)
   return true
 end
-
-H.RegisterEvent("COMMODITY_PRICE_UPDATED", function(unit, total)
-  local p = LU.pending
-  if not p or p.confirmed then return end
-  p.unit, p.total = unit, total
-  confirmText()
-end)
-
-H.RegisterEvent("COMMODITY_PRICE_UNAVAILABLE", function()
-  local p = LU.pending
-  if not p then return end
-  H.Printf("the house has no price for %d x %s now", p.qty, H.ItemName(p.itemID))
-  LU.pending = nil
-  if LU.confirm then LU.confirm:Hide() end
-end)
 
 House.OnDoubleClick("item", function(rowData)
   local ok, why = LU.BuyItem(rowData)
@@ -414,6 +338,5 @@ end
 
 H.Events:On("AH_UI_LOADED", install)
 H.Events:On("AH_OPENED", install)
-H.Events:On("AH_CLOSED", function() LU.CloseConfirm() end)
 H.Events:On("SCAN_DONE", rebuildCurrent)
 H.Events:On("SETTINGS_CHANGED", rebuildCurrent)

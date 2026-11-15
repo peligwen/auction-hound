@@ -71,6 +71,11 @@ function UnitFactionGroup() return "Horde" end
 
 Enum = {
   AuctionHouseSortOrder = { Price = 0, Name = 1, Level = 2, Bid = 3, Buyout = 4, TimeRemaining = 5 },
+  -- as the client numbers them: the qualities are an inclusion list
+  AuctionHouseFilter = {
+    UncollectedOnly = 0, UsableOnly = 1, UpgradesOnly = 2, ExactMatch = 3,
+    PoorQuality = 4, CommonQuality = 5, UncommonQuality = 6, RareQuality = 7, EpicQuality = 8, LegendaryQuality = 9,
+  },
   ItemCommodityStatus = { Unknown = 0, Item = 1, Commodity = 2 },
   AuctionHouseTimeLeftBand = { Short = 0, Medium = 1, Long = 2, VeryLong = 3 },
   AuctionStatus = { Active = 0, Sold = 1 },
@@ -162,7 +167,7 @@ end
 Stub.items = {}
 function Stub.DefineItem(id, name, opts)
   opts = opts or {}
-  Stub.items[id] = { name = name, sell = opts.sell or 0, equip = opts.equip or "", stack = opts.stack or 20, commodity = opts.commodity, quality = opts.quality or 1, ilvl = opts.ilvl or 1, loaded = opts.loaded ~= false }
+  Stub.items[id] = { name = name, sell = opts.sell or 0, equip = opts.equip or "", stack = opts.stack or 20, commodity = opts.commodity, quality = opts.quality or 1, ilvl = opts.ilvl or 1, loaded = opts.loaded ~= false, class = opts.class or 7 }
 end
 
 C_Item = {
@@ -176,7 +181,7 @@ C_Item = {
     id = tonumber(string.match(tostring(id), "(%d+)"))
     local it = Stub.items[id]
     if not it or not it.loaded then return nil end
-    return id, "Trade Goods", "Metal", it.equip, 134400, 7, 0
+    return id, "Trade Goods", "Metal", it.equip, 134400, it.class or 7, 0
   end,
   GetDetailedItemLevelInfo = function(link)
     local id = tonumber(string.match(tostring(link), "item:(%d+)"))
@@ -715,10 +720,15 @@ C_AuctionHouse = {
     return out
   end,
   HasFullBrowseResults = function() return Stub.ah.browseServed >= #Stub.ah.browse end,
+  -- the next page, as the client sends it: the rows it adds
   RequestMoreBrowseResults = function()
+    Stub.ah.moreCalls = (Stub.ah.moreCalls or 0) + 1
     Stub.Throttled(function(done)
-      Stub.ah.browseServed = math.min(#Stub.ah.browse, Stub.ah.browseServed + Stub.ah.browsePageSize)
-      C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", {}) done() end)
+      local from = Stub.ah.browseServed
+      Stub.ah.browseServed = math.min(#Stub.ah.browse, from + Stub.ah.browsePageSize)
+      local added = {}
+      for i = from + 1, Stub.ah.browseServed do added[#added + 1] = Stub.ah.browse[i] end
+      C_Timer.After(1, function() Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", added) done() end)
     end)
   end,
 

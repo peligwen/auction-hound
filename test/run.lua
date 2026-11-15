@@ -74,6 +74,19 @@ local function rowTip(r, i)
   return text
 end
 
+-- The Deals view, up in the window, and down again.
+local function showDeals()
+  if not (AuctionHoundWindow and AuctionHoundWindow.shown) then H.UI.Toggle() end
+  H.UI.ShowView("deals")
+  -- the client shows a shown child with its parent; the stub does not
+  H.UI.Deals.view.table:Layout()
+end
+
+local function hideDeals()
+  H.UI.ShowView("markets")
+  if AuctionHoundWindow and AuctionHoundWindow.shown then H.UI.Toggle() end
+end
+
 Stub.FireEvent("ADDON_LOADED", "AuctionHound")
 Stub.FireEvent("PLAYER_LOGIN")
 
@@ -1508,7 +1521,7 @@ do
 end
 
 ------------------------------------------------------------------------
--- Buy tab: the Hound column and filter strip
+-- Buy tab: Hound's figures on Blizzard's list, and the Deals view
 ------------------------------------------------------------------------
 do
   Stub.badTemplates = nil
@@ -1595,14 +1608,13 @@ do
   local br = AuctionHouseFrame.BrowseResultsFrame
   local BUI = H.UI.Browse
   local listFns = { br.ItemList.searchStartedFunc, br.ItemList.getEntry, br.ItemList.getNumEntries, br.ItemList.tableBuilderLayoutFunction }
+  local listPoints, bgHeight = #br.ItemList.points, br.ItemList.Background.height
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "buy tab hook: " .. tostring(err))
-  check(BUI.installed and BUI.strip ~= nil, "strip built")
-  local lp = br.ItemList.points[#br.ItemList.points]
-  eq(lp[1], "TOPLEFT", "list re-anchored at its top")
-  eq(lp[5], -(BUI.STRIP_HEIGHT + 1), "list starts below the strip")
-  eq(br.ItemList.Background.height, 414 - BUI.STRIP_HEIGHT - 1, "background shortened to match")
-  eq(BUI.strip.min.text, "25", "minimum box shows the setting")
+  check(BUI.installed, "figures hooked")
+  eq(BUI.strip, nil, "no strip above the list")
+  eq(#br.ItemList.points, listPoints, "the list keeps Blizzard's anchors")
+  eq(br.ItemList.Background.height, bgHeight, "and its background")
   local same = br.ItemList.searchStartedFunc == listFns[1] and br.ItemList.getEntry == listFns[2]
     and br.ItemList.getNumEntries == listFns[3] and br.ItemList.tableBuilderLayoutFunction == listFns[4]
   check(same, "the list keeps its own data provider and layout")
@@ -1630,7 +1642,6 @@ do
   check(namePt[1] == "RIGHT" and namePt[4] == -BUI.ROOM, "the name is pulled in to give them room")
   eq(fig(r, 4).Sub.text, "no reference", "unknown item says so")
   eq(fig(r, 5).Sub.text, "vendor 10s", "vendor reference labelled")
-  eq(BUI.strip.status.text, "7 rows, 3 deals", "status counts rows and deals: " .. BUI.strip.status.text)
   local tipText = rowTip(r, 1)
   check(string.find(tipText, "Hound|r on the Buy tab", 1, true) and string.find(tipText, "reference " .. H.Money(refOre), 1, true),
     "the row's own tooltip carries Hound's reading: " .. tipText)
@@ -1646,44 +1657,34 @@ do
   br:SetupTableBuilder(nil)
   r = br.ItemList:Render()
 
-  -- the minimum box re-evaluates, and the figures on screen follow
-  -- without the list being redrawn
-  BUI.strip.min:SetText("60")
-  BUI.strip.min.scripts.OnTextChanged(BUI.strip.min)
-  eq(H.Settings().minDiscount, 0.6, "minimum box sets the discount")
+  -- the minimum re-evaluates, and the figures on screen follow without
+  -- the list being redrawn
+  SlashCmdList.HOUND("discount 60")
+  eq(H.Settings().minDiscount, 0.6, "the slash command sets the discount")
   check(not Browse.Evaluate(half).deal, "half price is no deal at a 60% minimum")
   eq(fig(r, 1).Text.color[1], Browse.COLORS.under[1], "the figure on screen turns amber at once")
   SlashCmdList.HOUND("discount 25")
-  eq(BUI.strip.min.text, "25", "slash command updates the box")
   check(Browse.Evaluate(half).deal, "half price is a deal again")
   eq(fig(r, 1).Text.color[2], Browse.COLORS.deal[2], "and green again on screen")
 
   -- the copper minimum: a deal must also sit that far under the
   -- reference in copper a unit, so a one-silver item at half price is
   -- fifty percent off and still no deal
-  eq(BUI.strip.saving.text, "0c", "copper box shows no floor")
   e = Browse.Evaluate(half)
   eq(e.saving, 50, "saving is the copper a unit under the reference")
-  BUI.strip.saving:SetText("1s")
-  BUI.strip.saving.scripts.OnTextChanged(BUI.strip.saving)
-  eq(H.Settings().minSaving, 100, "copper box sets the minimum")
+  SlashCmdList.HOUND("discount 25 1s")
+  eq(H.Settings().minSaving, 100, "the slash command sets the copper minimum")
   e = Browse.Evaluate(half)
   check(not e.deal and e.small, "half price is no deal at 50c a unit under a 1s minimum")
   eq(select(2, Browse.CellText(e)), "-50%", "the figure still reads the percentage")
   eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "and the row is amber")
   check(Browse.Evaluate(vendorRow).deal, "two silver under vendor clears it and stays a deal")
-  eq(BUI.strip.status.text, "7 rows, 1 deal", "the count drops the rows short of the copper minimum: " .. BUI.strip.status.text)
   eq(fig(r, 1).Text.color and fig(r, 1).Text.color[2], Browse.COLORS.under[2], "the figure turns amber")
   tipText = rowTip(r, 1)
   check(string.find(tipText, "50% under, but only 50c a unit; the minimum is 1s", 1, true),
     "the row's tooltip names the copper minimum: " .. tipText)
-  GameTooltip:ClearLines()
-  BUI.strip.saving.scripts.OnEnter(BUI.strip.saving)
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "Minimum in copper", 1, true), "the box explains itself on hover")
-  BUI.strip.saving.scripts.OnLeave(BUI.strip.saving)
   SlashCmdList.HOUND("discount 25 3s")
   eq(H.Settings().minSaving, 300, "slash command sets the copper minimum")
-  eq(BUI.strip.saving.text, "3s", "and the box follows")
   e = Browse.Evaluate(vendorRow)
   check(not e.deal and e.small, "the vendor flip is no deal under a 3s minimum")
   Stub.printed = {}
@@ -1696,15 +1697,201 @@ do
   near(H.Settings().minDiscount, 0.25, 0.0001, "not the percentage either")
   SlashCmdList.HOUND("discount 0c")
   eq(H.Settings().minSaving, 0, "0c clears the copper minimum")
-  eq(BUI.strip.saving.text, "0c", "box shows no floor again")
   check(Browse.Evaluate(half).deal, "half price is a deal once more")
 
-  -- the list asks for its own pages: Hound asks for none
+  -- the list asks for its own pages: with the Deals view down, Hound
+  -- asks for none
   Stub.ah.browsePageSize = 2
   C_AuctionHouse.SendBrowseQuery({})
   for _ = 1, 6 do Stub.Advance(1) Stub.Pump() end
   eq(Stub.ah.browseServed, 2, "no pages fetched behind the list's back")
-  eq(BUI.strip.status.text, "2 rows, 1 deal", "status counts the page shown")
+
+  ----------------------------------------------------------------------
+  -- The Deals view: the same results in Hound's own list, sorted by
+  -- discount and filtered
+  ----------------------------------------------------------------------
+  local DV, S = H.UI.Deals, H.Settings()
+  Stub.ah.browsePageSize = 10
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  H.UI.EnsurePanel()
+  local dealsButton
+  for _, f in ipairs(Stub.frames) do
+    if f.parent == AuctionHoundPanel.header and f.text == "Deals" then dealsButton = f end
+  end
+  check(dealsButton ~= nil, "the panel has a Deals button")
+  check(DV.view ~= nil and not DV.view:IsShown(), "the view is built, and down")
+  showDeals()
+  local dv = DV.view
+  check(dv:IsShown() and DV.Source() == "house", "it comes up on the house's results")
+  eq(dv.status.text, "6 rows, 3 deals, 3 shown", "it reads the Buy tab's results, the row with no units left out: " .. dv.status.text)
+  local view = dv.table.view
+  eq(#view, 3, "deals only, by default")
+  eq(view[1].raw, mineRow, "the deepest discount first")
+  eq(view[2].raw, half, "then half price")
+  eq(view[3].raw, vendorRow, "then the vendor flip")
+  local row1 = dv.table.rows[1]
+  eq(row1.cells[2].text, H.MoneyExact(mineRow.minPrice), "the floor")
+  eq(row1.cells[3].text, "40", "the units")
+  eq(row1.cells[4].text, H.MoneyShort(refOre), "the reference")
+  eq(row1.cells[5].text, "-60%", "the discount")
+  eq(row1.cells[5].color[2], Browse.COLORS.deal[2], "green for a deal")
+  eq(row1.cells[6].text, H.MoneyExact(refOre - mineRow.minPrice), "what a unit saves")
+  eq(dv.table.rows[3].cells[4].text, "v " .. H.MoneyShort(1000), "a vendor reference marked")
+  eq(dv.min.text, "25", "the minimum box shows the setting")
+  eq(dv.saving.text, "0c", "the copper box shows no floor")
+  check(dv.only.checked, "deals only ticked")
+  -- the row's tooltip: the item, and Hound's reading of it
+  GameTooltip:ClearLines()
+  ExecuteFrameScript(row1, "OnEnter")
+  tipText = table.concat(GameTooltip.lines, "\n")
+  check(GameTooltip.itemID == 2770, "the tooltip shows the item")
+  check(string.find(tipText, "Hound|r on the Deals view", 1, true) and string.find(tipText, "reference " .. H.Money(refOre), 1, true),
+    "and Hound's reading: " .. tipText)
+  check(string.find(tipText, "double-click to buy", 1, true), "and how to buy")
+  ExecuteFrameScript(row1, "OnLeave")
+
+  -- the filters
+  local function click(c) c:SetChecked(not c.checked) c.scripts.OnClick(c) end
+  click(dv.only)
+  eq(S.dealsOnly, false, "deals only saved")
+  eq(#dv.table.view, 6, "every row with units")
+  eq(dv.table.view[6].raw, none, "a row without a reference sorts last")
+  eq(dv.table.view[5].raw, over, "after the row above its reference")
+  eq(dv.table.rows[5].cells[5].color[1], Browse.COLORS.over[1], "which is grey")
+  eq(dv.table.rows[4].cells[5].color[1], Browse.COLORS.under[1], "and one under it amber")
+  click(dv.history)
+  eq(#dv.table.view, 4, "history only leaves out the vendor flip and the unknown item")
+  click(dv.history)
+  click(dv.mine)
+  eq(#dv.table.view, 5, "hide mine leaves out the row with an auction of yours")
+  click(dv.mine)
+  local cap, under = half.minPrice, 0
+  for _, rr in ipairs(rows) do if rr.totalQuantity > 0 and rr.minPrice <= cap then under = under + 1 end end
+  dv.max:SetText(H.MoneyExact(cap))
+  dv.max.scripts.OnTextChanged(dv.max)
+  eq(S.dealsMaxPrice, cap, "the cap is saved")
+  eq(#dv.table.view, under, "rows dearer than the cap left out")
+  dv.max:SetText("")
+  dv.max.scripts.OnTextChanged(dv.max)
+  eq(S.dealsMaxPrice, 0, "an empty box is no cap")
+  eq(#dv.table.view, 6, "every row back")
+  dv.quality:Click() dv.quality:Click()
+  eq(dv.quality:GetValue(), "Uncommon+", "quality steps up")
+  eq(#dv.table.view, 0, "common items left out")
+  dv.quality:Click("RightButton") dv.quality:Click("RightButton")
+  eq(dv.quality:GetValue(), "Any quality", "and steps back with a right-click")
+  eq(S.dealsQuality, 0, "saved")
+  dv.class:Click()
+  eq(dv.class:GetValue(), "Weapons", "class steps on")
+  eq(#dv.table.view, 0, "no weapon among the trade goods")
+  dv.class:Click("RightButton")
+  eq(S.dealsClass, -1, "all items again")
+  eq(#dv.table.view, 6, "every row back")
+
+  -- the sort: a header click
+  dv.table.headers[2].scripts.OnClick(dv.table.headers[2])
+  eq(dv.table.sortKey, "min", "sorted by floor")
+  local cheapest = dv.table.view[1].e.min
+  for _, rr in ipairs(dv.table.view) do check(rr.e.min >= cheapest, "cheapest floor first") end
+  dv.table.headers[5].scripts.OnClick(dv.table.headers[5])
+  eq(dv.table.sortKey, "disc", "back to the discount")
+  check(dv.table.sortDesc, "deepest first")
+
+  -- the minimum boxes: the same settings as the slash command's
+  dv.min:SetText("60")
+  dv.min.scripts.OnTextChanged(dv.min)
+  eq(S.minDiscount, 0.6, "the minimum box sets the discount")
+  eq(dv.status.text, "6 rows, 2 deals, 6 shown", "the count follows, half price no longer among them: " .. dv.status.text)
+  SlashCmdList.HOUND("discount 25")
+  eq(dv.min.text, "25", "the slash command updates the box")
+  dv.saving:SetText("1s")
+  dv.saving.scripts.OnTextChanged(dv.saving)
+  eq(S.minSaving, 100, "the copper box sets the minimum")
+  eq(dv.status.text, "6 rows, 1 deal, 6 shown", "the count drops the rows short of the copper minimum: " .. dv.status.text)
+  GameTooltip:ClearLines()
+  dv.saving.scripts.OnEnter(dv.saving)
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "Minimum in copper", 1, true), "the box explains itself on hover")
+  dv.saving.scripts.OnLeave(dv.saving)
+  SlashCmdList.HOUND("discount 25 3s")
+  eq(dv.saving.text, "3s", "and follows the slash command")
+  SlashCmdList.HOUND("discount 25 0c")
+  eq(dv.saving.text, "0c", "back to no floor")
+
+  -- the rest of the pages come in while the view shows
+  Stub.ah.browsePageSize = 2
+  local more = Stub.ah.moreCalls or 0
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  check(string.find(dv.status.text, "loading more", 1, true), "it says it is loading: " .. dv.status.text)
+  for _ = 1, 6 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.browseServed, #rows, "every page fetched")
+  eq(Stub.ah.moreCalls, more + 3, "one request a page")
+  eq(#DV.houseRows, #rows, "each page's rows added once")
+  eq(dv.status.text, "6 rows, 3 deals, 6 shown", "and the count settles: " .. dv.status.text)
+  Stub.ah.browsePageSize = 10
+
+  -- Hound's own search
+  Stub.ah.lastQuery = nil
+  dv.search:SetText("ore")
+  dv.go:Click()
+  eq(Stub.ah.lastQuery and Stub.ah.lastQuery.searchString, "ore", "the search box asks the house")
+  eq(#Stub.ah.lastQuery.itemClassFilters, 0, "for every class")
+  eq(#Stub.ah.lastQuery.filters, 6, "and every quality, as Blizzard's search sends them")
+  eq(Stub.ah.lastQuery.minLevel, 0, "with no level range")
+  eq(dv.status.text, "searching", "and says so")
+  Stub.Advance(1) Stub.Pump()
+  eq(dv.status.text, "6 rows, 3 deals, 6 shown", "the answer fills the list: " .. dv.status.text)
+  for _ = 1, 5 do dv.class:Click() end
+  eq(dv.class:GetValue(), "Trade Goods", "a class picked")
+  eq(Stub.ah.lastQuery.itemClassFilters[1] and Stub.ah.lastQuery.itemClassFilters[1].classID, 7, "asks again for that class")
+  eq(Stub.ah.lastQuery.searchString, "ore", "with the same text")
+  Stub.Advance(1) Stub.Pump()
+  for _ = 1, 6 do dv.class:Click() end
+  eq(S.dealsClass, -1, "all items again")
+  dv.quality:Click() dv.quality:Click()
+  local qf = Stub.ah.lastQuery.filters
+  eq(#qf, 4, "uncommon and up asks for four qualities")
+  eq(qf[1], Enum.AuctionHouseFilter.UncommonQuality, "from uncommon")
+  Stub.Advance(1) Stub.Pump()
+  dv.quality:Click("RightButton") dv.quality:Click("RightButton")
+  eq(#Stub.ah.lastQuery.filters, 6, "every quality again")
+  Stub.Advance(1) Stub.Pump()
+  dv.search.scripts.OnEnterPressed(dv.search)
+  eq(Stub.ah.lastQuery.searchString, "ore", "Enter searches too")
+  Stub.Advance(1) Stub.Pump()
+
+  -- the last full scan as the source: the items it saw, at their floor
+  local lastFull = AuctionHoundDB.lastFull
+  AuctionHoundDB.lastFull = H.Market.Stats(H.Store.Get("2770"), H.Now()).at
+  dv.source:Click()
+  eq(S.dealsSource, "scan", "source saved")
+  check(string.find(dv.status.text, "last scan", 1, true), "the status names the scan: " .. dv.status.text)
+  check(#DV.rows > 0, "the scan's items are rows")
+  local fromScan = true
+  for _, rr in ipairs(DV.rows) do fromScan = fromScan and rr.raw.fromScan == true end
+  check(fromScan, "every one of them from the scan")
+  local queries = Stub.ah.lastQuery
+  dv.search:SetText("copper")
+  dv.go:Click()
+  check(Stub.ah.lastQuery == queries, "the search box asks the house nothing")
+  check(#dv.table.view > 0, "it matches names")
+  for _, rr in ipairs(dv.table.view) do
+    check(string.find(string.lower(H.ItemName(rr.itemID)), "copper", 1, true), "only copper: " .. H.ItemName(rr.itemID))
+  end
+  H.atAH = false
+  DV.Rebuild()
+  check(#DV.rows > 0, "the scan's rows with the house closed")
+  dv.source:Click()
+  eq(dv.status.text, "open the auction house: the results of its searches show here", "the house's results want the house")
+  Stub.printed = {}
+  dv.go:Click()
+  check(string.find(Stub.printed[1] or "", "open the auction house", 1, true), "and so does a search")
+  H.atAH = true
+  AuctionHoundDB.lastFull = lastFull
+  dv.search:SetText("")
+  S.dealsOnly = true
+  hideDeals()
 end
 
 ------------------------------------------------------------------------
@@ -2428,7 +2615,7 @@ do
   row.scripts.OnDoubleClick(row)
   eq(Stub.ah.buyClicks, 0, "the house's own Buy button is left alone")
   eq(Stub.ah.started and Stub.ah.started.qty, 45, "the house is asked for a price on those units")
-  local conf = LU.confirm
+  local conf = H.UI.Confirm.frame
   check(conf and conf.shown, "Hound's confirm is up")
   eq(conf.title.text, "Buy 45 x Copper Ore", "it names the units and the item")
   eq(conf.total.text, "asking the house for a price", "and waits for the quote")
@@ -2462,7 +2649,7 @@ do
   -- leaving the house does the same
   row.scripts.OnDoubleClick(row)
   H.Events:Fire("AH_CLOSED")
-  check(not conf.shown and LU.pending == nil, "closing the house takes the confirm down")
+  check(not conf.shown and H.UI.Confirm.pending == nil, "closing the house takes the confirm down")
   eq(Stub.ah.cancelled, cancels + 3, "and the purchase with it")
   -- not enough gold for the quote: Buy stays off
   Stub.money = 100
@@ -2477,14 +2664,14 @@ do
   row.scripts.OnDoubleClick(row)
   dp = conf.points[1]
   eq(dp[4], 150, "kept on the screen, across")
-  eq(dp[5], 848, "and up")
+  eq(dp[5], 900 - conf:GetHeight() / 2, "and up")
   conf.cancel:Click()
   Stub.cursor = { 500, 300 }
   -- no price from the house
   Stub.ah.commodityPrice[2770] = nil
   row.scripts.OnDoubleClick(row)
   Stub.Advance(1) Stub.Pump()
-  check(not conf.shown and LU.pending == nil, "no price: the confirm goes")
+  check(not conf.shown and H.UI.Confirm.pending == nil, "no price: the confirm goes")
   check(string.find(Stub.printed[#Stub.printed], "has no price", 1, true), "and chat says so")
   Stub.ah.commodityPrice[2770] = 95
   -- a row of nothing but your own units
@@ -2499,10 +2686,11 @@ do
 end
 
 ------------------------------------------------------------------------
--- Depth on demand: one search per row on screen, through the throttle
+-- Depth on demand: one search per row on the Deals view's screen,
+-- through the throttle; the Buy tab shows what it reads
 ------------------------------------------------------------------------
 do
-  local Depth, BUI, T = H.Depth, H.UI.Browse, H.Throttle
+  local Depth, BUI, T, DV = H.Depth, H.UI.Browse, H.Throttle, H.UI.Deals
   local br = AuctionHouseFrame.BrowseResultsFrame
   local S = H.Settings()
   H.atAH = true
@@ -2521,35 +2709,45 @@ do
   Stub.ah.throttleModel = true
   Stub.ah.ready = true
   Stub.ah.searchCalls, Stub.ah.dropped, T.replayed = 0, 0, 0
+  S.dealsOnly = false
+  local dv = DV.view
+  local function dealsTip(i)
+    GameTooltip:ClearLines()
+    ExecuteFrameScript(dv.table.rows[i], "OnEnter")
+    local text = table.concat(GameTooltip.lines, "\n")
+    ExecuteFrameScript(dv.table.rows[i], "OnLeave")
+    return text
+  end
   br:Show()
   C_AuctionHouse.SendBrowseQuery({})
   Stub.Advance(1) Stub.Pump()
   eq(Stub.ah.ready, true, "the model frees the house once the browse answers")
+  showDeals()
+  eq(Stub.ah.ready, true, "and the view, coming up on a full set, asks for no page")
 
-  -- off: the column reads the row alone
+  -- off: the figures read the row alone
   local r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, 0, "depth off: no searches")
   eq(fig(r, 1).Sub.text, H.MoneyShort(refOre), "depth off: the note is the reference alone")
   GameTooltip:ClearLines()
   ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "tick Depth", 1, true), "tooltip points at the toggle")
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "tick Depth on the Hound tab's Deals view", 1, true), "the Buy tab's tooltip points at the toggle")
   ExecuteFrameScript(r.rowFrames[1], "OnLeave")
+  eq(dv.table.rows[1].cells[7].text, "-", "the Deals view has no deal units without it")
 
-  -- on: the rows on screen are searched one at a time
-  BUI.strip.depth:SetChecked(true)
-  BUI.strip.depth.scripts.OnClick(BUI.strip.depth)
+  -- on: the Deals view's rows on screen are searched one at a time,
+  -- top first; the Buy tab never asks
+  dv.depth:SetChecked(true)
+  dv.depth.scripts.OnClick(dv.depth)
   eq(S.browseDepth, true, "depth toggle saved")
-  r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, 1, "one search out for the first row")
   eq(Stub.ah.lastSearchKey, "2770", "the first row's item searched")
   check(Depth.Reading(), "reading while a search is out")
-  check(string.find(BUI.strip.status.text, "reading depth", 1, true), "status says so: " .. BUI.strip.status.text)
+  check(string.find(dv.status.text, "reading depth", 1, true), "status says so: " .. dv.status.text)
+  DV.Rebuild()
   r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 1, "a second render sends nothing more while one is out")
-  GameTooltip:ClearLines()
-  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "reading the listings", 1, true), "tooltip says it is reading")
-  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
+  eq(Stub.ah.searchCalls, 1, "a second draw sends nothing more while one is out")
+  check(string.find(dealsTip(1), "reading the listings", 1, true), "the row's tooltip says it is reading")
   Stub.Advance(1) Stub.Pump()
   local L = Depth.Get(oreRow)
   check(L ~= nil, "ore depth cached")
@@ -2560,7 +2758,8 @@ do
   Stub.Advance(1) Stub.Pump()
   eq(Stub.ah.searchCalls, 2, "the empty row is never searched")
   check(not Depth.Reading(), "reading done")
-  check(not string.find(BUI.strip.status.text, "reading depth", 1, true), "status settles: " .. BUI.strip.status.text)
+  check(not string.find(dv.status.text, "reading depth", 1, true), "status settles: " .. dv.status.text)
+  eq(dv.table.rows[1].cells[7].text, "20", "the Deals view shows the units at or under the deal limit")
   r = br.ItemList:Render()
   eq(fig(r, 1).Sub.text, H.MoneyShort(refOre) .. " x12", "cell shows the units at the floor")
   eq(fig(r, 2).Sub.text, H.MoneyShort(refTin) .. " x10", "second cell too")
@@ -2584,28 +2783,30 @@ do
   -- a moved floor stales the depth, and the row is read again
   oreRow.minPrice = oreRow.minPrice - 1
   eq(Depth.Get(oreRow), nil, "a moved floor stales the depth")
-  r = br.ItemList:Render()
+  DV.Rebuild()
   eq(Stub.ah.searchCalls, 3, "the moved row is searched again")
   Stub.Advance(1) Stub.Pump()
   check(Depth.Get(oreRow) ~= nil, "and cached again")
 
-  -- the gate: nothing goes out while the list is hidden
+  -- the gate: nothing goes out while the view is down, the Buy tab
+  -- showing or not
   tinRow.totalQuantity = 11
-  br:Hide()
+  H.UI.ShowView("markets")
+  DV.Rebuild()
   r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 3, "no search while the list is hidden")
-  br:Show()
-  eq(Stub.ah.searchCalls, 4, "showing the list sends the waiting search")
+  eq(Stub.ah.searchCalls, 3, "no search while the view is down")
+  H.UI.ShowView("deals")
+  eq(Stub.ah.searchCalls, 4, "showing it sends the waiting search")
   Stub.Advance(1) Stub.Pump()
   tinRow.totalQuantity = 12
-  r = br.ItemList:Render()
+  DV.Rebuild()
   eq(Stub.ah.searchCalls, 5, "a row that moved is searched again")
   Stub.Advance(1) Stub.Pump()
 
   -- a full scan holds it, and its end lets it go
   tinRow.totalQuantity = 13
   H.Scan.state = "browsing"
-  r = br.ItemList:Render()
+  DV.Rebuild()
   eq(Stub.ah.searchCalls, 5, "no search during a scan")
   H.Scan.state = "idle"
   H.Events:Fire("SCAN_STATUS")
@@ -2615,7 +2816,7 @@ do
   -- Blizzard's own query while ours is out: dropped by the house, then
   -- sent again by Hound once the house is ready
   tinRow.totalQuantity = 14
-  r = br.ItemList:Render()
+  DV.Rebuild()
   eq(Stub.ah.searchCalls, 7, "a depth search is out")
   eq(Stub.ah.ready, false, "the house is busy with it")
   Stub.ah.lastSearchKey = nil
@@ -2636,11 +2837,12 @@ do
   -- an empty answer is remembered for a while, and the tooltip says so
   Stub.ah.searchResults["2771"] = { commodity = true, listings = {} }
   tinRow.totalQuantity = 15
-  r = br.ItemList:Render()
+  DV.Rebuild()
   Stub.Advance(1) Stub.Pump()
   eq(Depth.Get(tinRow), nil, "an empty answer gives no ladder")
   check(Depth.Failed(tinRow), "and is remembered as a failure")
   local calls = Stub.ah.searchCalls
+  DV.Rebuild()
   r = br.ItemList:Render()
   eq(Stub.ah.searchCalls, calls, "not asked again straight away")
   GameTooltip:ClearLines()
@@ -2653,7 +2855,7 @@ do
   tinRow.totalQuantity = 16
   local realSearch = C_AuctionHouse.SendSearchQuery
   C_AuctionHouse.SendSearchQuery = function() Stub.ah.ready = false end
-  r = br.ItemList:Render()
+  DV.Rebuild()
   check(Depth.inflight ~= nil, "silent search in flight")
   Stub.Advance(Depth.TIMEOUT + 1) Stub.Pump()
   check(Depth.inflight == nil, "silent search timed out")
@@ -2723,7 +2925,7 @@ do
   eq(LO and LO.refSrc, "market", "the leveled ore's ladder is read against its history")
   eq(fig(r, 2).Sub.text, H.MoneyShort(refOre) .. " x30", "its cell shows the market price")
   eq(fig(r, 2).Text.text, "-50%", "and the floor's percentage under it")
-  eq(BUI.strip.status.text, "2 rows, 1 deal", "the count keeps the row under market as its one deal: " .. BUI.strip.status.text)
+  eq(dv.status.text, "2 rows, 1 deal, 2 shown", "the count keeps the row under market as its one deal: " .. dv.status.text)
   SlashCmdList.HOUND("estimates on")
 
   -- a wall behind a row: with its depth read, the listings' value sits
@@ -2743,7 +2945,7 @@ do
   we = H.Browse.Evaluate(wallRow)
   check(we.capped and not we.deal, "with the depth read, the row is no deal")
   eq(we.ref, 150, "its reference is the listings' value")
-  eq(BUI.strip.status.text, "1 row, 0 deals", "and the count drops it: " .. BUI.strip.status.text)
+  eq(dv.status.text, "1 row, 0 deals, 1 shown", "and the count drops it: " .. dv.status.text)
   r = br.ItemList:Render()
   eq(fig(r, 1).Sub.text, H.MoneyShort(150) .. " x100", "the cell notes the listings' value and the units at the floor")
   eq(fig(r, 1).Text.text, "0%", "no discount off it")
@@ -2772,7 +2974,160 @@ do
   H.atAH = true
   Stub.ah.throttleModel = false
   S.browseDepth = false
+  S.dealsOnly = true
   Depth.Clear()
+  hideDeals()
+end
+
+------------------------------------------------------------------------
+-- Buying from the Deals view: a double-click, through Hound's confirm.
+-- A row whose listings are not read is searched first, Depth on or off;
+-- a commodity's units are those at or under the deal limit, less your
+-- own, and an item's the cheapest auction not your own.
+------------------------------------------------------------------------
+do
+  local DV, C, S, Depth = H.UI.Deals, H.UI.Confirm, H.Settings(), H.Depth
+  H.atAH = true
+  S.browseDepth, S.dealsOnly = false, false
+  S.minDiscount, S.minSaving = 0.25, 0
+  H.Browse.Invalidate()
+  Depth.Clear()
+  local refOre = H.Reference("2770", 2770)
+  local oreRow = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * 0.5), totalQuantity = 60 }
+  local bracers = { itemKey = C_AuctionHouse.MakeItemKey(15001, 20), minPrice = 40000, totalQuantity = 2 }
+  local tinRow = { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = 50, totalQuantity = 5 }
+  local p1, p2, p3 = oreRow.minPrice, H.Round(refOre * 0.55), H.Round(refOre * 1.1)
+  Stub.ah.searchResults["2770"] = { commodity = true, listings = { { p1, 12 }, { p2, 8, own = 3 }, { p3, 40 } } }
+  Stub.ah.searchResults["15001:20:0"] = { commodity = false, listings = { { 40000, 1, 901, mine = true }, { 45000, 1, 902 } } }
+  Stub.ah.searchResults["2771"] = { commodity = true, listings = {} }
+  Stub.ah.browse, Stub.ah.browsePageSize = { oreRow, bracers, tinRow }, 10
+  C_AuctionHouse.SendBrowseQuery({})
+  Stub.Advance(1) Stub.Pump()
+  showDeals()
+  local dv = DV.view
+  local function frameOf(raw)
+    for _, f in ipairs(dv.table.rows) do if f.shown and f.row and f.row.raw == raw then return f end end
+  end
+  local function double(raw) local f = frameOf(raw) f.scripts.OnDoubleClick(f) end
+
+  -- a commodity whose listings are not read: one search, Depth off
+  local calls = Stub.ah.searchCalls or 0
+  local started = Stub.ah.started
+  double(oreRow)
+  local conf = C.frame
+  check(conf and conf.shown, "the confirm is up")
+  eq(conf.total.text, "reading the listings", "while the listings are read")
+  check(not conf.buy:IsEnabled(), "with nothing to press")
+  check(not conf.units.shown, "nor a units box")
+  eq(Stub.ah.searchCalls, calls + 1, "one search for them, Depth off")
+  eq(Stub.ah.lastSearchKey, "2770", "for the row's item")
+  Stub.Advance(1) Stub.Pump()
+  local deal = 12 + 5
+  eq(conf.title.text, "Buy " .. deal .. " x Copper Ore", "the units at or under the deal limit, less your own: " .. conf.title.text)
+  eq(conf.total.text, "about " .. H.Money(12 * p1 + 5 * p2), "what the listings say they come to")
+  eq(conf.buy.text, "Get price", "the button asks the house for a price")
+  check(conf.buy:IsEnabled(), "and can be pressed")
+  check(conf.units.shown and conf.units.text == tostring(deal), "the units box holds the units")
+  check(Stub.ah.started == started, "the house is not asked before the click")
+  Stub.ah.commodityPrice[2770] = p1 + 2
+  conf.buy:Click()
+  eq(Stub.ah.started and Stub.ah.started.qty, deal, "the click asks the house for a price on them")
+  eq(conf.total.text, "asking the house for a price", "and the confirm waits")
+  check(not conf.buy:IsEnabled(), "with nothing to press")
+  Stub.Advance(1) Stub.Pump()
+  eq(conf.total.text, H.Money((p1 + 2) * deal) .. ", " .. H.Money(p1 + 2) .. " each", "the quote fills in")
+  eq(conf.buy.text, "Buy", "and the button buys")
+  -- fewer units: the price asked for is called off and asked again
+  local cancels = Stub.ah.cancelled or 0
+  conf.units:SetText("10")
+  conf.units.scripts.OnTextChanged(conf.units)
+  eq(Stub.ah.cancelled, cancels + 1, "a new count calls the quoted purchase off")
+  eq(conf.title.text, "Buy 10 x Copper Ore", "the title follows")
+  eq(conf.buy.text, "Get price", "the button asks again")
+  eq(conf.total.text, "about " .. H.Money(10 * p1), "with a new estimate")
+  conf.units:SetText("500")
+  conf.units.scripts.OnTextChanged(conf.units)
+  eq(conf.title.text, "Buy 57 x Copper Ore", "no more than the units there are to buy")
+  eq(Stub.ah.cancelled, cancels + 1, "nothing to call off before a price is asked for")
+  conf.units:SetText("10")
+  conf.units.scripts.OnTextChanged(conf.units)
+  conf.buy:Click()
+  eq(Stub.ah.started.qty, 10, "the new count is priced")
+  Stub.Advance(1) Stub.Pump()
+  local buys = #H.Store.Buys()
+  conf.buy:Click()
+  check(not conf.shown, "the confirm goes with the purchase")
+  local last = Stub.ah.purchases[#Stub.ah.purchases]
+  check(last.itemID == 2770 and last.qty == 10, "the house is told to buy those units")
+  check(string.find(Stub.printed[#Stub.printed], "buying 10 x Copper Ore", 1, true), "chat says so")
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), buys + 1, "and the purchase is noted")
+
+  -- an item: the cheapest auction not your own, bid at its buyout
+  double(bracers)
+  eq(conf.total.text, "reading the listings", "an item's auctions are read first")
+  Stub.Advance(1) Stub.Pump()
+  eq(conf.title.text, "Buy Wolf Bracers", "the item named")
+  eq(conf.total.text, H.Money(45000), "the cheapest auction not your own")
+  check(not conf.units.shown, "no units box for an auction")
+  eq(conf.buy.text, "Buy", "ready to buy")
+  Stub.money = 100
+  C.Text()
+  check(not conf.buy:IsEnabled(), "not with too little gold")
+  eq(conf.note.text, "not enough gold", "and it says why")
+  Stub.money = nil
+  C.Text()
+  local n = #Stub.ah.purchases
+  conf.buy:Click()
+  eq(Stub.ah.purchases[n + 1] and Stub.ah.purchases[n + 1].auctionID, 902, "the click bids that auction")
+  eq(Stub.ah.purchases[n + 1].amount, 45000, "at its buyout")
+  check(not conf.shown, "and the confirm goes")
+  Stub.Advance(1) Stub.Pump()
+
+  -- the house has no listings for it after all
+  Stub.printed = {}
+  double(tinRow)
+  Stub.Advance(1) Stub.Pump()
+  check(not conf.shown and C.pending == nil, "nothing listed: the confirm goes")
+  check(string.find(Stub.printed[#Stub.printed] or "", "no listings for Tin Ore", 1, true), "and chat says so")
+
+  -- with Depth on the listings are known: the double-click asks for the
+  -- price itself, and the buy is one click more
+  dv.depth:SetChecked(true)
+  dv.depth.scripts.OnClick(dv.depth)
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  check(Depth.Listings(oreRow) ~= nil, "the ore's listings are read")
+  started = Stub.ah.started
+  double(oreRow)
+  check(Stub.ah.started ~= started and Stub.ah.started.qty == deal, "the double-click asks the house for a price at once")
+  eq(conf.total.text, "asking the house for a price", "and the confirm waits on it")
+  Stub.Advance(1) Stub.Pump()
+  eq(conf.buy.text, "Buy", "one click left")
+  cancels = Stub.ah.cancelled or 0
+  conf.cancel:Click()
+  eq(Stub.ah.cancelled, cancels + 1, "Cancel calls it off")
+
+  -- a commodity that is no deal now: the floor's units, said so
+  S.minDiscount = 0.9
+  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+  double(oreRow)
+  eq(conf.title.text, "Buy 12 x Copper Ore", "the floor's units")
+  eq(conf.note.text, "none of these are a deal now", "and a word that they are no deal")
+  conf.cancel:Click()
+  S.minDiscount = 0.25
+  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
+
+  -- away from the house
+  H.atAH = false
+  Stub.printed = {}
+  double(oreRow)
+  check(not conf.shown, "no confirm away from the house")
+  check(string.find(Stub.printed[#Stub.printed] or "", "open the auction house to buy", 1, true), "chat says why")
+  H.atAH = true
+  S.browseDepth, S.dealsOnly = false, true
+  Stub.ah.purchases = {}
+  Depth.Clear()
+  hideDeals()
 end
 
 ------------------------------------------------------------------------

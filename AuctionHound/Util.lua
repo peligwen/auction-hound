@@ -1,7 +1,7 @@
 -- Util.lua: small helpers shared by every module. No game state lives here.
 local ADDON, H = ...
 
-H.VERSION = "0.5.0"
+H.VERSION = "0.6.0"
 H.PREFIX = "|cffe6b800Hound|r: "
 
 ------------------------------------------------------------------------
@@ -275,17 +275,6 @@ function H.CommodityStatusAt(location)
   if not ok then return nil end
   if status == E.Commodity then return true end
   if status == E.Item then return false end
-  return nil
-end
-
--- Largest stack the item forms, or nil while the item is not cached.
--- Stackable and not equippable is a fair guess at commodity status when
--- the auction house has not said.
-function H.MaxStack(itemID)
-  if C_Item and C_Item.GetItemInfo then
-    local stack = select(8, C_Item.GetItemInfo(itemID))
-    if stack and stack > 0 then return stack end
-  end
   return nil
 end
 
