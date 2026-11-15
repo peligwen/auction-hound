@@ -67,6 +67,13 @@ function AuctionHoundBrowseCellMixin:OnEnter()
   if not e or e.qty == 0 or not GameTooltip then return end
   GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
   GameTooltip:AddLine("|cffe6b800Hound|r", 1, 1, 1)
+  local reward = H.Browse.RewardLines(e)
+  if reward then
+    for i, line in ipairs(reward) do
+      local v = i == 1 and 1 or 0.8
+      GameTooltip:AddLine(line, v, v, v, true)
+    end
+  end
   local depthOn = H.Settings().browseDepth
   local L = depthOn and H.Depth.Get(self.rowData) or nil
   local cleared = H.Market.ClearedLine(e.st)
@@ -272,6 +279,9 @@ local function buildStrip(br)
     return c
   end
   strip.sort = toggle("Sort by off", "browseSort")
+  tip(strip.sort, "Sort by off",
+    "Deals first, by how far under the reference, then the rest.",
+    "Waylaid Crates and Craftsman's Writs go ahead of them, by the favor or reputation a gold buys: the crate or writ's own price and its cheapest fill.")
   strip.deals = toggle("Deals only", "browseDeals")
   strip.history = toggle("History only", "browseHistory")
   strip.notMine = toggle("Not mine", "browseNotMine")

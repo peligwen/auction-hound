@@ -156,9 +156,14 @@ launch is listed at its head.
   right now, and `/hound overlay off` turns it off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
-  does. Hound adds a line for each under it: the units, the good, the
+  does. Hound adds a header naming the Merchant's Favor the crate pays
+  when turned in, then a line for each bundle: the units, the good, the
   market price of one and the bundle's total, with the cheapest fill
-  the house can sell in green. A good the last scan saw fewer of than
+  the house can sell in green. The favor is the guides' figure: a raw
+  crate (herbs, ore, textiles, curiosities) pays 5 a tier, 5, 10 and
+  15, and a worked one (fabrics, ingots, parts) twice that. No guide
+  has the Artisan tier yet, so an Artisan crate's header says its favor
+  is not known. A good the last scan saw fewer of than
   the bundle takes says so ("only 6 listed", "none listed") and is
   passed over for the green. A good with no history is priced by what
   it costs to make, marked "~", while estimates are on; otherwise the
@@ -176,6 +181,19 @@ launch is listed at its head.
   hundred Crafted Solid Shot, shows the price of each and the total.
   `/hound writ <link>` prints the same lines in chat. All 150 writs
   are covered, kept as data by writ ID.
+- **Crates and writs on the Buy tab.** A crate or writ is bought for
+  what it pays, not for its discount, so its row in the Hound column
+  reads the reward and what a gold buys of it: "10 favor" and "4.2/g",
+  "75 rep" and "30/g". The gold is the row's floor and the cheapest
+  fill together, the bundle a crate's tooltip shows in green or the
+  item a writ asks for, priced the same way. A fill priced by what it
+  costs to make, or one the last scan saw too few of, marks the rate
+  "~". The cell's tooltip gives the rate and the sum, crate plus fill,
+  before the usual reference and floor lines. With "Sort by off"
+  ticked, crates and writs go to the top, the best rate first, then
+  the deals and the rest as before; "Deals only" still means under the
+  reference. A crate whose favor is not known yet, or whose fill has
+  no price, reads like any other row.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
   a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
   graph, anchors, connections and your own sales, reached by
@@ -471,6 +489,12 @@ below are still the real test. What did change around the addon:
     prints the item's ID, which is the thing to report along with the
     crate's list. Report what a partly filled crate's tooltip says as
     well: the lines price the whole bundle whatever is already in it.
+    New: the header names the Merchant's Favor the crate pays ("10
+    Merchant's Favor, any one bundle fills it"). Turn one in and check
+    the favor the quest gives against it; the figures are the guides',
+    not read in game. For an Artisan crate the header says the favor is
+    not known yet: report what one pays, and the eight Artisan crates
+    get their figure.
 27. **Craftsman's Writs.** Open, and new. After a full scan, hover a
     writ ("Craftsman's Writ: Lesser Wizard's Robe"), in the bags or on
     the house: under its own text there should be a Hound header with
@@ -486,7 +510,6 @@ below are still the real test. What did change around the addon:
     `/hound key` says for the item's link. If no Hound lines show,
     type `/hound writ ` and shift-click the writ: for an item the data
     does not know it prints the item's ID.
-
 28. **Bag overlay.** Open, and in part verified. On live the figures
     first drew under the bags; set on the bag buttons themselves they
     show. They are now in the game's coin colors with the coin's icon,
@@ -525,6 +548,19 @@ below are still the real test. What did change around the addon:
     `Logs/taint.log`: it names the value read. Then try the same with
     no Buy tab row clicked since the house opened, and away from the
     house. Meanwhile, use such items away from the auctioneer.
+30. **Crates and writs on the Buy tab.** Open, and new. After a full
+    scan, search "Waylaid Crate": each crate row whose favor is known
+    should read "N favor" on the left and a rate such as "4.2/g" on the
+    right. Hover the cell: the first lines give the rate and the sum,
+    the crate's floor plus the fill its own tooltip shows in green.
+    Tick "Sort by off": the best rate rises to the top. Do the same
+    with "Craftsman's Writ", where the note reads "N rep". Then pick a
+    category that holds crates or writs among other things: they
+    should sit above the deals, and the rest keep their order by
+    discount. Report a rate that does not match the sum in its own
+    tooltip, a crate whose fill differs from the green line in the
+    crate's tooltip, or a mixed list where the crates and writs on top
+    get in the way.
 
 ## Taint
 
@@ -612,12 +648,13 @@ Market.lua   value from listings, ladder, stats, confidence
 Priors.lua   vendor, crafted cost, value as input, connections economics
 Reference.lua the reference: history when deep enough, the two-week value or the
              latest scan's, whichever is lower; else a prior, else older history
-Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict, order
+Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict, order;
+             what a crate or writ pays a gold of its floor and fill
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Buy tab row on screen, one search each, on demand
 Fan.lua      fan plans (linear or bell), posting, own-sales tracking
 Buy.lua      purchases noted from the house's calls, for the History view
-Crate.lua    a Waylaid Crate's bundles, each priced; the cheapest the house can fill
+Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
 Writ.lua     the item a Craftsman's Writ asks for, priced the same way
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
@@ -625,8 +662,8 @@ UI/          table, graph, sparkline; panel, views, AH tab, window;
              block and colors, the Auctions tab total column (Cells.xml
              holds the cells); the Shift overlay on the bags (Bags.lua)
 Data/        conversion recipes with classic item ids; the Waylaid
-             Crates and the bundles that fill them; the Craftsman's
-             Writs and the item each asks for
+             Crates, the favor each pays and the bundles that fill
+             them; the Craftsman's Writs and the item each asks for
 ```
 
 History is scoped by region, realm and faction: `US-ClassicBetaPvP2-Horde`
@@ -676,7 +713,8 @@ template declares, so a cell template and its mixin must agree.
 with and without Shift, the bag overlay, slash command, Buy tab column and filter, depth on demand through a
 modelled throttle, listing ladder, Auctions tab column, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
-Waylaid Crate and Craftsman's Writ lines, a full scan the house does
+Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
+tab, a full scan the house does
 not answer, the house closing twice, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
@@ -690,7 +728,7 @@ the gold cap overflows, is enforced the same way.
 - Watchlists: items to flag on the Buy tab whatever the discount
 - Time-of-day view for the Oceanic overlap
 - Waylaid Crates: read a partly filled crate's tooltip and price only
-  what is still missing; Merchant's Favor per gold for each fill
+  what is still missing; the Artisan tier's favor once a turn-in has
+  been read
 - Craftsman's Writs: the recipes behind the 150 items, so a writ whose
-  item is not on the house shows what it costs to make; reputation
-  per gold for each writ
+  item is not on the house shows what it costs to make

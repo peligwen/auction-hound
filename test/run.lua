@@ -2864,6 +2864,26 @@ do
   end
   eq(crates, 30, "thirty crates")
   eq(bundles, 96, "ninety-six bundles")
+  -- the favor each pays, as the guides give it: a raw crate 5 a tier,
+  -- a worked one twice that, and the Artisan tier not known yet
+  local worked = { Fabrics = true, Ingots = true, Parts = true }
+  local tiers = { Apprentice = 1, Journeyman = 2, Expert = 3 }
+  local known = 0
+  for id, c in pairs(H.Crates) do
+    local tier = string.match(c.name, "^(%a+)")
+    if tier == "Earthly" or tier == "Flowering" then tier = string.match(c.name, "^%a+ (%a+)") end
+    local kind = string.match(c.name, "(%a+)$")
+    if tier == "Artisan" then
+      eq(c.favor, nil, c.name .. ": favor not known yet")
+    else
+      check(tiers[tier] ~= nil, c.name .. ": a tier the guides give")
+      eq(c.favor, 5 * (tiers[tier] or 0) * (worked[kind] and 2 or 1), c.name .. ": its favor")
+      known = known + 1
+    end
+  end
+  eq(known, 22, "twenty-two crates with their favor")
+  eq(H.Crates[248683].favor, 5, "apprentice ore pays 5")
+  eq(H.Crates[248710].favor, 30, "expert parts 30")
   -- as the crates' own tooltips list them
   local ore = H.Crates[248683]
   eq(ore.name, "Apprentice Ore", "the apprentice ore crate")
@@ -2901,12 +2921,14 @@ do
   eq(r.bundles[2].total, 12000, "twenty iron ore")
   eq(r.bundles[1].listed, nil, "forty listed covers ten")
   eq(r.best, 2, "the iron is the cheaper fill")
+  eq(r.fill, 2, "and the fill to buy")
+  eq(r.favor, 10, "the crate pays 10 favor")
   eq(r.scanAge, 0, "the scan is fresh")
   eq((Crate.UnitPrice(2775)), (P.MarketValue(2775)), "a good is priced as its own tooltip prices it")
 
   local lines = Crate.Lines(r)
   eq(#lines, 3, "a header and a line per bundle")
-  eq(lines[1][1], "|cffe6b800Hound|r any one bundle fills it", "the header says one is enough")
+  eq(lines[1][1], "|cffe6b800Hound|r 10 Merchant's Favor, any one bundle fills it", "the header gives the favor and says one bundle is enough")
   eq(lines[1][2], "scanned 0s ago", "and how old the prices are")
   eq(lines[2][1], "  10 Silver Ore, " .. H.Money(1500) .. " each", "units, name and the price of one")
   eq(lines[2][2], H.Money(15000), "the bundle's total on the right")
@@ -2921,6 +2943,7 @@ do
   Stub.tooltipHandler(GameTooltip, { id = 248687, hyperlink = "|cffffffff|Hitem:248687:0:0:0:0:0:0:0:60:0:0:0:0|h[Waylaid Crate: Journeyman Ore]|h|r" })
   eq(#GameTooltip.lines, 4, "a blank line, the header and the bundles: " .. table.concat(GameTooltip.lines, " / "))
   eq(GameTooltip.lines[1], " ", "set apart from the crate's own lines")
+  eq(GameTooltip.lines[2], "|cffe6b800Hound|r 10 Merchant's Favor, any one bundle fills it | scanned 0s ago", "the favor in the tooltip's header")
   eq(GameTooltip.lines[3], "  10 Silver Ore, " .. H.Money(1500) .. " each | " .. H.Money(15000), "silver ore line in the tooltip")
   eq(GameTooltip.lines[4], "  20 Iron Ore, " .. H.Money(600) .. " each | " .. H.Money(12000), "iron ore line in the tooltip")
   eq(GameTooltip.rightColors[4][2], Crate.COLORS.best[2], "the cheapest total is green there too")
@@ -2953,6 +2976,7 @@ do
   check(r.bundles[1].total < r.bundles[2].total, "silver is now the cheaper on paper")
   eq(r.bundles[1].listed, 4, "but only four are listed")
   eq(r.best, 2, "so the iron is still the fill to buy")
+  eq(r.fill, 2, "the fill as well")
   lines = Crate.Lines(r)
   check(string.find(lines[2][1], "only 4 listed", 1, true), "the line says so: " .. lines[2][1])
   eq(lines[2][3], Crate.COLORS.price, "and is not the green one")
@@ -2993,6 +3017,8 @@ do
   eq(r.bundles[3].src, "market", "gold bars from the house")
   eq(r.bundles[1].listed, 0, "no mithril bar is listed")
   eq(r.best, 3, "so gold bars are the fill the house can sell, dearer or not")
+  eq(r.fill, 3, "and the fill")
+  eq(r.favor, 30, "a worked expert crate pays 30")
   lines = Crate.Lines(r)
   eq(lines[2][1], "  20 Mithril Bar, ~" .. H.Money(r.bundles[1].unit) .. " each, |cffd9cc73none listed|r", "an estimate carries its mark")
   eq(lines[2][2], "~" .. H.Money(r.bundles[1].total), "on the total too")
@@ -3003,6 +3029,7 @@ do
   eq(r.priced, 1, "with estimates off only the gold bars have a price")
   eq(r.bundles[1].unit, nil, "mithril bars have none")
   eq(r.best, nil, "and one price alone is not called the cheapest")
+  eq(r.fill, 3, "but it is still the fill")
   lines = Crate.Lines(r)
   eq(lines[2][1], "  20 Mithril Bar", "the bundle is still named")
   eq(lines[2][2], "no price", "and says it has no price")
@@ -3029,8 +3056,10 @@ do
   check(Stub.loadRequests >= 3, "and the items are requested: " .. tostring(Stub.loadRequests))
   eq(r.priced, 0, "nothing scanned, nothing priced")
   eq(r.best, nil, "and no cheapest")
+  eq(r.fill, nil, "nor any fill")
+  eq(r.favor, nil, "an artisan crate's favor is not known")
   lines = Crate.Lines(r)
-  eq(lines[1][1], "|cffe6b800Hound|r any one bundle fills it", "the header still names the rule")
+  eq(lines[1][1], "|cffe6b800Hound|r favor not known yet, any one bundle fills it", "the header says so, and still names the rule")
   eq(lines[4][2], "no price", "each bundle says it has no price")
   Stub.DefineItem(7911, "Echtsilbererz", { sell = 1, commodity = true })
   eq(Crate.Read(248697).bundles[1].name, "Echtsilbererz", "the client's name wins once it is there")
@@ -3053,7 +3082,7 @@ do
   SlashCmdList.HOUND("crate 248687")
   local out = table.concat(Stub.printed, "\n")
   check(string.find(out, "Waylaid Crate: Journeyman Ore (item 248687)", 1, true), "the command names the crate: " .. out)
-  check(string.find(out, "any one bundle fills it, scanned", 1, true), "its header")
+  check(string.find(out, "  10 Merchant's Favor, any one bundle fills it, scanned", 1, true), "its header, with the favor")
   check(string.find(out, "20 Iron Ore, " .. H.Money(600) .. " each: " .. H.Money(12000) .. " (cheapest)", 1, true), "and the cheapest bundle")
   eq(#Stub.printed, 4, "a title, the header and a line per bundle")
   Stub.printed = {}
@@ -3286,6 +3315,170 @@ do
   Stub.printed = {}
   SlashCmdList.HOUND("help")
   check(string.find(table.concat(Stub.printed, "\n"), "/hound writ <link or id>", 1, true), "the help lists the command")
+end
+
+------------------------------------------------------------------------
+-- Buy tab: a Waylaid Crate or a Craftsman's Writ is bought for what it
+-- pays, so its row reads the favor or reputation a gold buys, the
+-- crate or writ and its cheapest fill together, and the sort puts the
+-- best of them first
+------------------------------------------------------------------------
+do
+  local Browse, BUI = H.Browse, H.UI.Browse
+  local br = AuctionHouseFrame.BrowseResultsFrame
+  local S = H.Settings()
+  local function scan(t, samples)
+    for key, listing in pairs(samples) do
+      Store.AddScanSample(key, t, { { p = listing[1], q = listing[2] } })
+    end
+    Store.LogScan({ t = t, kind = "full", rows = 0, keys = 0, secs = 0, skipped = 0 })
+  end
+  Stub.DefineItem(248704, "Waylaid Crate: Apprentice Parts", { stack = 1, commodity = false })
+  Stub.DefineItem(248707, "Waylaid Crate: Journeyman Parts", { stack = 1, commodity = false })
+  Stub.DefineItem(248710, "Waylaid Crate: Expert Parts", { stack = 1, commodity = false })
+  Stub.DefineItem(248683, "Waylaid Crate: Apprentice Ore", { stack = 1, commodity = false })
+  Stub.DefineItem(4359, "Handful of Copper Bolts", { sell = 1, commodity = true })
+  Stub.DefineItem(4361, "Copper Tube", { sell = 1, commodity = true })
+  Stub.DefineItem(4371, "Bronze Tube", { sell = 1, commodity = true })
+  local robeKey = "5766:27:0"
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["4359"] = { 50, 100 }, ["4361"] = { 200, 100 }, ["4371"] = { 1000, 20 }, [robeKey] = { 12000, 3 } })
+  S.estimates = true
+  S.minSaving = 0
+  Browse.Invalidate()
+
+  local refOre = H.Reference("2770", 2770)
+  local function row(id, min, qty)
+    return { itemKey = C_AuctionHouse.MakeItemKey(id), minPrice = min, totalQuantity = qty }
+  end
+  local oreHalf = row(2770, H.Round(refOre * 0.5), 40)
+  local jParts = row(248707, 12000, 2)
+  local aParts = row(248704, 1200, 3)
+  local writ = row(264047, 13000, 1)
+  local artOre = row(248697, 5000, 1)
+  local eParts = row(248710, 20000, 1)
+  local gone = row(248683, 0, 0)
+  check(Browse.Evaluate(oreHalf).deal, "copper ore at half is a deal")
+  eq(Browse.Evaluate(oreHalf).reward, nil, "and pays nothing on a turn-in")
+
+  -- Apprentice Parts: 10 favor, filled with sixteen copper bolts at
+  -- 50c for 8s, on a crate at 12s: 20s in all, 50 favor a gold
+  local e = Browse.Evaluate(aParts)
+  eq(e.reward.kind, "crate", "a crate row")
+  eq(e.reward.amount, 10, "pays its favor")
+  eq(e.reward.what, "Merchant's Favor", "named as such")
+  eq(e.reward.fillItem, 4359, "the copper bolts are the cheapest fill")
+  eq(e.reward.fillQty, 16, "sixteen of them")
+  eq(e.reward.fill, 16 * (P.MarketValue(4359)), "priced as the crate's own tooltip prices them")
+  eq(e.reward.fill, 800, "8s")
+  eq(e.cost, 2000, "the crate's floor and the fill")
+  near(e.perGold, 50, 1e-9, "50 favor a gold")
+  local note, figure, color = Browse.CellText(e)
+  eq(note, "10 favor", "the note is what it pays")
+  eq(figure, "50/g", "the figure what a gold buys of it")
+  eq(color, Browse.COLORS.reward, "in white, not a verdict on the floor")
+  local lines = Browse.RewardLines(e)
+  eq(lines[1], "10 Merchant's Favor, 50 a gold", "the tooltip gives the rate")
+  eq(lines[2], "crate " .. H.Money(1200) .. " + 16 Handful of Copper Bolts " .. H.Money(800) .. " = " .. H.Money(2000), "and the sum")
+  -- Journeyman Parts: 20 favor for 12s and eight bronze tubes at 10s
+  e = Browse.Evaluate(jParts)
+  eq(e.reward.fillItem, 4371, "bronze tubes, the one good priced")
+  near(e.perGold, 10, 1e-9, "20 favor for 2g")
+  eq(select(2, Browse.CellText(e)), "10/g", "ten a gold")
+  -- the robe's writ: 75 reputation for the writ and the robe
+  local robe = H.Writ.Read(264047).total
+  e = Browse.Evaluate(writ)
+  eq(e.reward.kind, "writ", "a writ row")
+  eq(e.reward.amount, 75, "pays its reputation")
+  eq(e.reward.fill, robe, "the robe at its market value")
+  near(e.perGold, 75 * 10000 / (13000 + robe), 1e-9, "75 reputation over the writ and the robe")
+  eq(select(1, Browse.CellText(e)), "75 rep", "the note says reputation")
+  lines = Browse.RewardLines(e)
+  eq(lines[2], "writ " .. H.Money(13000) .. " + Lesser Wizard's Robe " .. H.Money(robe) .. " = " .. H.Money(13000 + robe), "one item is only named")
+  -- an artisan crate's favor is not known: it reads as any other row
+  e = Browse.Evaluate(artOre)
+  eq(e.reward.amount, nil, "artisan ore pays an unknown favor")
+  eq(e.perGold, nil, "so no rate")
+  eq(select(1, Browse.CellText(e)), "no reference", "and the cell reads as any other row's")
+  eq(Browse.RewardLines(e)[1], "the Merchant's Favor this crate pays is not known yet", "the tooltip says why")
+  -- nothing in Expert Parts priced: no rate either
+  e = Browse.Evaluate(eParts)
+  eq(e.reward.amount, 30, "expert parts pays 30")
+  eq(e.reward.fill, nil, "but none of its goods has a price")
+  eq(e.perGold, nil, "so no rate")
+  eq(Browse.RewardLines(e)[1], "30 Merchant's Favor; no price for any bundle that fills it", "the tooltip says so")
+  -- a crate with nothing listed has no floor to price it by
+  e = Browse.Evaluate(gone)
+  eq(e.perGold, nil, "no units, no rate")
+  eq(select(2, Browse.CellText(e)), "", "and no figure")
+
+  -- the sort: crates and writs first, best rate first, then the deals,
+  -- then the rest as before
+  local rows = { oreHalf, jParts, aParts, writ, artOre, eParts, gone }
+  local function getRow(i) return rows[i] end
+  eq(table.concat(Browse.BuildIndex(#rows, getRow, {}), ","), "1,2,3,4,5,6,7", "unsorted, Blizzard's order")
+  eq(table.concat(Browse.BuildIndex(#rows, getRow, { sort = true }), ","), "3,4,2,1,5,6,7",
+    "sorted: favor or reputation a gold, then deals, then the rest")
+  eq(table.concat(Browse.BuildIndex(#rows, getRow, { sort = true, deals = true }), ","), "1",
+    "deals only still means under the reference")
+
+  -- through the frame: the cell and its tooltip, and the toggle's own
+  S.browseSort = true
+  Stub.ah.browsePageSize = 10
+  Stub.ah.browse = rows
+  C_AuctionHouse.SendBrowseQuery({})
+  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
+  local r = br.ItemList:Render()
+  eq(#r.rows, 7, "every row shown")
+  eq(r.columns[4].header, "Hound", "the column in its place")
+  local cell = r.rows[1][4]
+  eq(cell.Sub.text, "10 favor", "the best rate on top")
+  eq(cell.Text.text, "50/g", "with its rate")
+  eq(r.rows[3][4].Text.text, "10/g", "the worst of the three below the writ")
+  hover(r, "buy tab with crates")
+  GameTooltip:ClearLines()
+  cell:OnEnter()
+  local tip = table.concat(GameTooltip.lines, " / ")
+  eq(GameTooltip.lines[2], "10 Merchant's Favor, 50 a gold", "the cell tooltip leads with the rate: " .. tip)
+  check(string.find(tip, "crate " .. H.Money(1200) .. " + 16 Handful of Copper Bolts", 1, true), "then the sum")
+  check(string.find(tip, "floor " .. H.Money(1200) .. ", 3 units listed", 1, true), "and the floor as before")
+  cell:OnLeave()
+  GameTooltip:ClearLines()
+  BUI.strip.sort.scripts.OnEnter(BUI.strip.sort)
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "Waylaid Crates and Craftsman's Writs go ahead", 1, true),
+    "the sort toggle says what it does with crates and writs")
+  BUI.strip.sort.scripts.OnLeave(BUI.strip.sort)
+
+  -- the fill the house cannot sell whole: five bronze tubes where
+  -- eight are wanted, and nothing else priced. The rate stands, marked
+  Stub.now = Stub.now + 900
+  scan(Stub.now, { ["4371"] = { 1000, 5 }, ["4359"] = { 50, 100 }, [robeKey] = { 12000, 3 } })
+  e = Browse.Evaluate(jParts)
+  eq(e.reward.listed, nil, "the cache holds until a scan or a setting moves it")
+  H.Events:Fire("SETTINGS_CHANGED", "estimates")
+  e = Browse.Evaluate(jParts)
+  eq(e.reward.listed, 5, "then only five listed")
+  check(e.perGold ~= nil, "still a rate")
+  eq(string.sub(select(2, Browse.CellText(e)), 1, 1), "~", "marked as short")
+  lines = Browse.RewardLines(e)
+  check(string.find(lines[1], "20 Merchant's Favor, ~", 1, true), "in the tooltip: " .. lines[1])
+  check(string.find(lines[2], "8 Bronze Tube " .. H.Money(e.reward.fill) .. ", only 5 listed = ~", 1, true), "with the count: " .. lines[2])
+  -- an estimated fill carries its mark on the fill and the sum
+  lines = Browse.RewardLines({ min = 100, cost = 600, perGold = 250, reward = {
+    kind = "writ", amount = 125, what = "reputation", fill = 500, fillItem = 10560, fillQty = 1, fillName = "Unstable Trigger", est = true } })
+  eq(lines[1], "125 reputation, ~250 a gold", "an estimate marks the rate")
+  eq(lines[2], "writ " .. H.Money(100) .. " + Unstable Trigger ~" .. H.Money(500) .. " = ~" .. H.Money(600), "and the fill and the sum")
+
+  -- the rate, as the cell writes it
+  eq(Browse.Rate(150), "150", "whole numbers from ten")
+  eq(Browse.Rate(9.97), "10", "rounding up into them")
+  eq(Browse.Rate(4.26), "4.3", "one decimal under ten")
+  eq(Browse.Rate(0.997), "1.0", "rounding up into that")
+  eq(Browse.Rate(0.5), "0.50", "two under one")
+
+  S.browseSort = false
+  Stub.ah.browse = {}
+  BUI.Rebuild()
 end
 
 ------------------------------------------------------------------------

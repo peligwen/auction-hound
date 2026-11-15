@@ -61,9 +61,12 @@ Crate.GoodName = goodName
 --               listed      units the last scan saw, when that is fewer
 --                           than the bundle takes: it cannot be bought
 --                           whole at the house
+--   favor     the Merchant's Favor it pays, nil while not known
 --   priced    how many bundles have a price
 --   best      index of the cheapest bundle the house could fill, when
 --             more than one is priced
+--   fill      index of the bundle to buy whenever one is priced: the
+--             cheapest the house could fill, else the cheapest of all
 --   scanAge   seconds since the last full scan, nil without one
 ------------------------------------------------------------------------
 function Crate.Read(itemID, now)
@@ -71,8 +74,8 @@ function Crate.Read(itemID, now)
   if not c then return nil end
   now = now or H.Now()
   local scan = H.Store.LastScan()
-  local out = { itemID = itemID, name = c.name, bundles = {}, priced = 0, scanAge = scan and (now - scan.t) or nil }
-  local best
+  local out = { itemID = itemID, name = c.name, favor = c.favor, bundles = {}, priced = 0, scanAge = scan and (now - scan.t) or nil }
+  local best, low
   for i, b in ipairs(c.bundles) do
     local unit, src, st = Crate.UnitPrice(b[1])
     local e = { itemID = b[1], qty = b[2], name = goodName(b[1], b[3]), unit = unit, src = src }
@@ -85,18 +88,21 @@ function Crate.Read(itemID, now)
       elseif not best or e.total < out.bundles[best].total then
         best = i
       end
+      if not low or e.total < out.bundles[low].total then low = i end
     end
     out.bundles[i] = e
   end
   if out.priced > 1 then out.best = best end
+  out.fill = best or low
   return out
 end
 
 ------------------------------------------------------------------------
--- The lines a tooltip or the chat shows for a crate: a header, then
--- one line per bundle with the units and the price of one on the left
--- and the bundle's total on the right. Each is { left, right, color }.
--- An estimate carries a "~", the way the Buy tab marks one.
+-- The lines a tooltip or the chat shows for a crate: a header with the
+-- favor it pays, then one line per bundle with the units and the price
+-- of one on the left and the bundle's total on the right. Each is
+-- { left, right, color }. An estimate carries a "~", the way the Buy
+-- tab marks one.
 ------------------------------------------------------------------------
 Crate.COLORS = {
   best = { 0.30, 0.85, 0.30 },
@@ -107,6 +113,11 @@ Crate.COLORS = {
 function Crate.Lines(r)
   local lines = {}
   local head = #r.bundles > 1 and "any one bundle fills it" or "fills it"
+  if r.favor then
+    head = string.format("%d Merchant's Favor, %s", r.favor, head)
+  else
+    head = "favor not known yet, " .. head
+  end
   local age = ""
   if r.scanAge then
     age = "scanned " .. H.Ago(r.scanAge)
