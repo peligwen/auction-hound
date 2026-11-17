@@ -3,9 +3,10 @@
 -- Writ the price of the item it asks for (Writ.lua), and on the tooltip
 -- of a row on the house's lists what Hound read for it.
 --
--- An item's own lines are one by default, the floor at the latest
--- scan; on a stack the stack's price follows in brackets, to read
--- against the game's sell price, which is the stack's. Shift held
+-- An item's own lines are one by default, the latest floor seen, at
+-- the last scan or on the house since; on a stack the stack's price
+-- follows in brackets, to read against the game's sell price, which is
+-- the stack's. Shift held
 -- shows the rest: the market value, the three-day mean, the trend,
 -- what has cleared and your own sales. The vendor price is left to the
 -- game's own line. A tooltip the client refreshes while it is up, a
@@ -15,7 +16,7 @@
 local ADDON, H = ...
 
 -- A floor older than this says how old it is.
-H.TOOLTIP_STALE = 86400
+H.TOOLTIP_STALE = 2 * 3600
 
 local function detailed(tooltip)
   if tooltip == ItemRefTooltip then return true end
@@ -47,10 +48,10 @@ end
 
 local function floorLine(tooltip, st)
   local label = "|cffe6b800AH|r floor"
-  if st.age and st.age > H.TOOLTIP_STALE then
-    label = label .. " |cff999999" .. H.Ago(st.age) .. "|r"
+  if st.floorAge and st.floorAge > H.TOOLTIP_STALE then
+    label = label .. " |cff999999" .. H.Ago(st.floorAge) .. "|r"
   end
-  tooltip:AddDoubleLine(label, unitAndStack(st.min or st.market, stackCount(tooltip)), 1, 0.82, 0, 1, 1, 1)
+  tooltip:AddDoubleLine(label, unitAndStack(st.floor or st.market, stackCount(tooltip)), 1, 0.82, 0, 1, 1, 1)
 end
 
 local function addLines(tooltip, itemID, link)

@@ -127,6 +127,9 @@ end
 --   market  decay-weighted mean of daily values over the last 14 days
 --   recent  value from the latest scan
 --   min     floor at the latest scan
+--   floor   the latest floor seen: the latest scan's, or one the house
+--           has shown since on the Buy tab or a search (Store.NoteFloor)
+--   floorAt, floorAge   when that floor was seen, and how long ago
 --   hist    plain mean of daily values over 30 days, for history older
 --           than the two weeks the market value spans
 --   avg3    plain mean of daily values over the last three days, today
@@ -140,12 +143,22 @@ end
 --           the last week, when any were
 --   clearing the mean price they went for over the last three days
 --   days, samples, age
+--
+-- The figures are kept on the record until a scan, a floor noted or
+-- the day moves them; the ages are worked out afresh at every call, so
+-- a figure kept from the morning does not read as new at night.
 ------------------------------------------------------------------------
+local function ages(st, now)
+  st.age = st.at and (now - st.at) or nil
+  st.floorAge = st.floorAt and (now - st.floorAt) or nil
+  return st
+end
+
 function Market.Stats(rec, now)
   now = now or H.Now()
   local today = H.DayIndex(now)
   if rec.stats and rec.stats.day == today and rec.stats.at == (rec.pts[#rec.pts] and rec.pts[#rec.pts].t) then
-    return rec.stats
+    return ages(rec.stats, now)
   end
 
   local st = { day = today, days = 0, samples = 0 }
@@ -195,8 +208,12 @@ function Market.Stats(rec, now)
     st.min = last.min
     st.qty = last.qty
     st.n = last.n
-    st.age = now - last.t
     st.at = last.t
+  end
+  st.floor, st.floorAt = st.min, st.at
+  local seen = rec.seen
+  if seen and (seen.min or 0) > 0 and (not st.at or seen.t > st.at) then
+    st.floor, st.floorAt = seen.min, seen.t
   end
 
   if st.recent and weekN > 0 then
@@ -236,7 +253,7 @@ function Market.Stats(rec, now)
   if fillUnits3 > 0 then st.clearing = H.Round(fillValue3 / fillUnits3) end
 
   rec.stats = st
-  return st
+  return ages(st, now)
 end
 
 -- What has been seen to sell, as a tooltip reads it, or nil.
@@ -269,8 +286,7 @@ end
 -- What buyers paid us: the outcomes of our own posts for one key over
 -- the last 30 days. Returns nil when there is nothing to say.
 --
---   soldUnits, soldMax, soldMin, soldMean, lastSoldAt
---   inferredUnits   sales deduced from an auction vanishing early
+--   soldUnits, soldMax, soldMin, soldMean, lastSoldAt   from sale mail
 --   unsoldUnits, unsoldMin   units that expired, and the cheapest price
 --                            that failed to sell
 --   activeUnits     still listed
@@ -280,17 +296,16 @@ Market.CLEARING_DAYS = 30
 
 function Market.Clearing(posts, now)
   now = now or H.Now()
-  local cl = { soldUnits = 0, inferredUnits = 0, unsoldUnits = 0, n = 0 }
+  local cl = { soldUnits = 0, unsoldUnits = 0, n = 0 }
   local wsum = 0
   for _, p in ipairs(posts or {}) do
-    local counted = p.status == "active" or p.status == "sold" or p.status == "expired"
+    local counted = p.status == "active" or p.status == "sold" or p.status == "expired" or p.status == "ended"
     if counted and now - p.t <= Market.CLEARING_DAYS * 86400 then
       cl.n = cl.n + 1
       local sold = p.sold or 0
       if sold > 0 then
         cl.soldUnits = cl.soldUnits + sold
         wsum = wsum + sold * p.unit
-        if p.inferred then cl.inferredUnits = cl.inferredUnits + sold end
         if not cl.soldMax or p.unit > cl.soldMax then cl.soldMax = p.unit end
         if not cl.soldMin or p.unit < cl.soldMin then cl.soldMin = p.unit end
         if p.soldAt and (not cl.lastSoldAt or p.soldAt > cl.lastSoldAt) then cl.lastSoldAt = p.soldAt end

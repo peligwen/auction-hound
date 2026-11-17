@@ -90,7 +90,7 @@ local function buildMarketsView(parent)
   local cols = {
     { key = "item", title = "Item", width = 200, kind = "item", value = function(r) return r.name end },
     { key = "market", title = "Market", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.st.market end, desc = true },
-    { key = "min", title = "Floor", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.st.min end, desc = true },
+    { key = "min", title = "Floor", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.st.floor end, desc = true },
     { key = "qty", title = "Listed", width = 54, align = "RIGHT", kind = "int", value = function(r) return r.st.qty end, desc = true },
     { key = "moved", title = "~/day", width = 50, align = "RIGHT", kind = "int", value = function(r) return r.st.moved end, desc = true },
     { key = "trend", title = "Trend", width = 54, align = "RIGHT", kind = "spct", value = function(r) return r.st.trend end, desc = true,
@@ -277,7 +277,7 @@ local function buildItemView(parent)
     if st and st.market then
       local demand = H.Market.ClearedLine(st) or string.format("moved ~%s a day", st.moved and tostring(H.Round(st.moved)) or "?")
       statsLeft:SetText(string.format("market %s   floor %s   3 day %s\nlisted %d   %s   trend %s\nswing %s   %d scans over %d days   last %s",
-        H.Money(st.market), H.Money(st.min or 0), H.Money(st.avg3 or 0),
+        H.Money(st.market), H.Money(st.floor or 0), H.Money(st.avg3 or 0),
         st.qty or 0, demand, H.Pct(st.trend, true),
         H.Pct(st.stab), st.samples, st.days, H.Ago(st.age)))
       graph:SetSeries(UI.SeriesFor(rec))
@@ -609,14 +609,14 @@ end
 -- History view: every auction of yours the addon has seen, fan batches
 -- and Blizzard posts alike, with what became of each.
 ------------------------------------------------------------------------
-local HISTORY_FILTERS = { "All", "Active", "Sold", "Bought", "Expired", "Cancelled" }
+local HISTORY_FILTERS = { "All", "Active", "Sold", "Bought", "Ended", "Cancelled" }
 
 local function historyMatches(p, f)
   if f == "All" then return true end
   if f == "Active" then return p.status == "active" or p.status == "pending" end
   if f == "Sold" then return p.status == "sold" or (p.sold or 0) > 0 end
   if f == "Bought" then return p.status == "bought" end
-  if f == "Expired" then return p.status == "expired" end
+  if f == "Ended" then return p.status == "expired" or p.status == "ended" end
   if f == "Cancelled" then return p.status == "cancelled" end
   return true
 end

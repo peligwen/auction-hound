@@ -738,32 +738,30 @@ do
   F.Reset()
   check(F.plan == nil, "reset clears the plan")
 
-  -- own sales through the owned auction list
+  -- the owned auction list says what is off the house, never what sold
   local posts = H.Store.Posts("2770")
   local a1, a2, a3, a4, a5 = posts[1].auctionID, posts[2].auctionID, posts[3].auctionID, posts[4].auctionID, posts[5].auctionID
   Stub.Owned(a1).status = Enum.AuctionStatus.Sold
   Stub.Owned(a2).quantity = 4
   local ledgerBefore = #AuctionHoundDB.ledger
+  Stub.printed = {}
   check(F.Reconcile(Stub.ah.owned, Stub.now) > 0, "reconcile reports changes")
-  eq(posts[1].status, "sold", "sold auction marked sold")
-  eq(posts[1].sold, 10, "sold auction counts all units")
-  check(not posts[1].inferred, "sold status is confirmed")
-  eq(posts[2].sold, 6, "partial fill counted")
-  eq(posts[2].status, "active", "partial fill still active")
-  eq(#AuctionHoundDB.ledger, ledgerBefore + 2, "two sale ledger entries")
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "ledger kind is sale")
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].qty, 6, "ledger sale quantity")
-  eq(F.PostStatus(posts[2]), "sold 6/10", "partial status text")
+  eq(posts[1].status, "ended", "an auction the list calls sold has ended")
+  eq(posts[1].sold or 0, 0, "and sold nothing until its mail says so")
+  eq(posts[2].sold or 0, 0, "fewer units on the list is no sale either")
+  eq(posts[2].status, "active", "the shrunk auction is still up")
+  eq(#AuctionHoundDB.ledger, ledgerBefore, "no sale in the ledger")
+  check(not string.find(table.concat(Stub.printed, "\n"), "sold", 1, true), "and none in chat: " .. table.concat(Stub.printed, " | "))
+  eq(F.PostStatus(posts[1]), "ended", "ended status text")
   eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile is quiet")
 
   Stub.RemoveOwned(a3)
   F.Reconcile(Stub.ah.owned, Stub.now)
   eq(posts[3].status, "active", "fresh post missing from the list is left alone")
   F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE)
-  eq(posts[3].status, "sold", "vanished early counts as sold")
-  check(posts[3].inferred, "vanished early is inferred")
-  eq(posts[3].sold, 10, "inferred sale counts all units")
-  eq(F.PostStatus(posts[3]), "sold (inferred)", "inferred status text")
+  eq(posts[3].status, "ended", "gone before its time: ended, not sold")
+  eq(posts[3].sold or 0, 0, "nothing sold is inferred from it")
+  eq(posts[3].inferred, nil, "and nothing is flagged inferred")
 
   Stub.RemoveOwned(a4)
   posts[4].t = Stub.now - 49 * 3600
@@ -775,49 +773,61 @@ do
   eq(posts[5].status, "cancelled", "cancel event marks the post")
 
   local cl = H.Market.Clearing(posts, Stub.now)
-  eq(cl.soldUnits, 26, "clearing sold units")
-  eq(cl.inferredUnits, 10, "clearing inferred units")
+  eq(cl.soldUnits, 0, "no mail, no units sold")
+  eq(cl.soldMax, nil, "no best price sold")
   eq(cl.unsoldUnits, 10, "clearing unsold units")
-  eq(cl.soldMax, posts[3].unit, "clearing sold max")
-  eq(cl.soldMin, posts[1].unit, "clearing sold min")
   eq(cl.unsoldMin, posts[4].unit, "clearing unsold min")
-  eq(cl.activeUnits, 4, "clearing active units")
-  eq(cl.n, 4, "cancelled post not counted")
+  eq(cl.activeUnits, 10, "clearing active units")
+  eq(cl.n, 4, "ended posts counted, the cancelled one not")
   local line = F.ClearingLine(cl, Stub.now)
-  check(string.find(line, "sold 26 up to", 1, true), "clearing line: " .. line)
-  check(string.find(line, "10 inferred", 1, true), "clearing line mentions inferred")
+  check(not string.find(line, "sold %d"), "clearing line claims no sale: " .. line)
   check(string.find(line, "10 unsold from", 1, true), "clearing line mentions unsold")
-  check(string.find(line, "4 listed", 1, true), "clearing line mentions listed")
+  check(string.find(line, "10 listed", 1, true), "clearing line mentions listed")
   eq(F.ClearingLine(nil), "no sales recorded", "clearing line without data")
   eq(H.Market.Clearing({}, Stub.now), nil, "clearing of nothing is nil")
+  local _, a0s = F.Anchor("2770", 2770, Stub.now)
+  check(a0s ~= "sold", "with no sale mail the fan does not center on a sale: " .. tostring(a0s))
 
-  local a2v, a2s = F.Anchor("2770", 2770, Stub.now)
-  eq(a2s, "sold", "anchor now follows sales")
-  eq(a2v, posts[3].unit, "anchor is the best sold price")
-
-  -- mail: confirms the inferred sale, catches a fill the list missed,
-  -- and corrects an expiry that was really a sale
+  -- mail: the one record of a sale. It sells the auctions the list
+  -- called sold or saw go, a part of one still up, and one that read
+  -- as expired; a buyer's invoice and an item never posted are not ours.
+  -- A post saved with the placeholder name of an unloaded item matches
+  -- by the name the client gives now.
+  posts[2].name = "item:2770"
   Stub.mail = {
+    { invoiceType = "seller", itemName = "Copper Ore", bid = posts[1].unit * 10, count = 10 },
     { invoiceType = "seller", itemName = "Copper Ore", bid = posts[3].unit * 10, count = 10 },
-    { invoiceType = "seller", itemName = "Copper Ore", bid = posts[2].unit * 8, count = 8 },
+    { invoiceType = "seller", itemName = "Copper Ore", bid = posts[2].unit * 6, count = 6 },
     { invoiceType = "seller", itemName = "Copper Ore", bid = posts[4].unit * 10, count = 10 },
     { invoiceType = "buyer", itemName = "Copper Ore", bid = posts[1].unit, count = 1 },
     { invoiceType = "seller", itemName = "Nothing We Sold", bid = 100, count = 1 },
   }
-  eq(F.ScanMail(Stub.now), 3, "three invoices matched")
-  check(not posts[3].inferred, "mail confirms the inferred sale")
-  eq(posts[3].status, "sold", "confirmed sale stays sold")
-  eq(posts[2].sold, 8, "mail raises the sold count")
+  Stub.printed = {}
+  eq(F.ScanMail(Stub.now), 4, "four invoices matched")
+  eq(posts[1].status, "sold", "mail sells the auction the list called sold")
+  eq(posts[1].sold, 10, "all of it")
+  eq(posts[3].status, "sold", "and the one gone before its time")
+  eq(posts[2].sold, 6, "mail counts a part sold")
   eq(posts[2].status, "active", "partly sold batch still active")
-  eq(posts[4].status, "sold", "mail turns a false expiry into a sale")
+  eq(F.PostStatus(posts[2]), "sold 6/10", "partial status text")
+  eq(posts[4].status, "sold", "mail turns an expiry into a sale")
   eq(posts[4].sold, 10, "corrected sale counts all units")
-  eq(F.ScanMail(Stub.now), 3, "rescanning the same mail changes nothing")
-  eq(posts[2].sold, 8, "no double counting from mail")
+  eq(#AuctionHoundDB.ledger, ledgerBefore + 4, "four sales in the ledger")
+  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "ledger kind is sale")
+  eq(#Stub.printed, 4, "each said once in chat")
+  eq(F.ScanMail(Stub.now), 4, "rescanning the same mail changes nothing")
+  eq(posts[2].sold, 6, "no double counting from mail")
+  eq(#AuctionHoundDB.ledger, ledgerBefore + 4, "nor in the ledger")
   Stub.mail = {}
+  posts[2].name = "Copper Ore"
   cl = H.Market.Clearing(posts, Stub.now)
-  eq(cl.soldUnits, 38, "clearing after mail")
-  eq(cl.inferredUnits, 0, "nothing inferred after mail")
+  eq(cl.soldUnits, 36, "clearing after mail")
   eq(cl.unsoldUnits, 0, "nothing unsold after mail")
+  eq(cl.soldMin, posts[1].unit, "clearing sold min")
+  eq(cl.soldMax, posts[4].unit, "clearing sold max")
+  local a2v, a2s = F.Anchor("2770", 2770, Stub.now)
+  eq(a2s, "sold", "anchor now follows sales")
+  eq(a2v, posts[4].unit, "anchor is the best sold price")
 
   -- opening the auction house checks on open posts
   local q = Stub.ah.ownedQueries
@@ -892,7 +902,7 @@ do
   F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE, true)
   eq(lastPost.status, "active", "partial reconcile leaves missing posts alone")
   F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE)
-  eq(lastPost.status, "sold", "full reconcile resolves it")
+  eq(lastPost.status, "ended", "full reconcile resolves it")
   Stub.ah.ownedPageSize = nil
   F.Reset()
 
@@ -2147,6 +2157,7 @@ do
   local printed = #Stub.printed
   local ledger = #AuctionHoundDB.ledger
   check(F.Reconcile(Stub.ah.owned, Stub.now) >= 2, "adoption counts as a change")
+  eq(#AuctionHoundDB.ledger, ledger, "adopting writes no sale")
   local posts = H.Store.Posts()
   eq(#posts, before + 2, "two auctions adopted, the bid-only one skipped")
   local adopted, soldOne
@@ -2159,11 +2170,10 @@ do
   eq(adopted.unit, 700, "adopted unit is the buyout")
   eq(adopted.qty, 5, "adopted units")
   eq(adopted.dur, 3600, "remaining time from the exact figure")
-  check(soldOne and soldOne.status == "sold" and soldOne.sold == 3, "sold auction adopted as a sale")
+  check(soldOne and soldOne.status == "ended" and (soldOne.sold or 0) == 0, "sold auction adopted as ended, for its mail to sell")
   eq(soldOne.unit, 167, "a sold auction's buyout is the whole sum: the unit is its share")
   eq(soldOne.dur, 12 * 3600, "remaining time from the band")
-  eq(#Stub.printed, printed, "adopted sale is quiet: " .. tostring(Stub.printed[#Stub.printed]))
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "adopted sale in the ledger")
+  eq(#Stub.printed, printed, "adoption is quiet: " .. tostring(Stub.printed[#Stub.printed]))
   eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile adopts nothing")
   -- a batch that sold before its id came back: the owned list shows the
   -- whole sum, and the post is matched by it rather than adopted twice
@@ -2174,13 +2184,14 @@ do
   F.Reconcile(Stub.ah.owned, Stub.now)
   eq(#H.Store.Posts(), n, "the sold batch is not adopted a second time")
   eq(quick.auctionID, 8204, "the batch took the auction's id")
-  eq(quick.status, "sold", "and reads as sold")
-  eq(quick.sold, 4, "in full")
-  -- gone before it could expire: bought
+  eq(quick.status, "ended", "and reads as ended")
+  eq(quick.sold, 0, "with nothing sold before its mail")
+  -- gone before it could expire: ended, not bought
   Stub.RemoveOwned(8201)
   F.Reconcile(Stub.ah.owned, Stub.now + F.SETTLE)
-  eq(adopted.status, "sold", "adopted auction that vanished early counts as sold")
-  check(adopted.inferred, "the sale is marked inferred")
+  eq(adopted.status, "ended", "adopted auction that vanished early has ended")
+  eq(adopted.sold, 0, "and sold nothing")
+  eq(adopted.inferred, nil, "with nothing inferred")
 
   -- summary over recent posts
   local now = Stub.now
@@ -3898,6 +3909,162 @@ do
   end
   eq(version, H.VERSION, "TOC and code agree on the version")
   eq(interface, "16001", "interface 16001, patch 1.60.1")
+end
+
+------------------------------------------------------------------------
+-- The floor follows the house between full scans. Black Vitriol, as
+-- reported: a scan caught one dear unit left, the house has filled in
+-- under 10s since, and the tooltip went on reading the dear one.
+------------------------------------------------------------------------
+do
+  local M, Store, Sc = H.Market, H.Store, H.Scan
+  Stub.DefineItem(9262, "Black Vitriol", { sell = 0, commodity = true })
+  local t0 = Stub.now
+  Store.AddScanSample("9262", t0 - 2 * 86400, { { p = 800, q = 40 } })
+  Store.AddScanSample("9262", t0 - 600, { { p = 6000, q = 1 } })
+  local rec = Store.Get("9262")
+  local st = M.Stats(rec, t0)
+  eq(st.floor, 6000, "the last scan's floor: the one dear unit it saw")
+  eq(st.floorAge, 600, "seen ten minutes ago")
+
+  -- the figures are kept on the record, the ages are not: a figure
+  -- worked out in the morning is not new at night
+  st = M.Stats(rec, t0 + 5 * 3600)
+  eq(st.age, 5 * 3600 + 600, "the scan's age moves with the clock")
+  eq(st.floorAge, 5 * 3600 + 600, "and so does the floor's")
+  local hover = function()
+    GameTooltip.lines = {}
+    Stub.tooltipHandler(GameTooltip, { id = 9262 })
+    return GameTooltip.lines[1] or ""
+  end
+  Stub.now = t0 + 3 * 3600
+  check(string.find(hover(), "3.2h ago", 1, true), "a floor hours old says so: " .. hover())
+  Stub.now = t0 + 3600
+  check(not string.find(hover(), "ago", 1, true), "one an hour old does not: " .. hover())
+  Stub.now = t0
+
+  -- the Buy tab's list shows the cheap floor: it is the floor now
+  Stub.ah.browse, Stub.ah.browseServed = { { itemKey = C_AuctionHouse.MakeItemKey(9262), minPrice = 750, totalQuantity = 60 } }, 1
+  Stub.FireEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+  st = M.Stats(rec)
+  eq(st.floor, 750, "a Buy tab row's floor replaces the scan's")
+  eq(st.floorAge, 0, "seen just now")
+  eq(st.min, 6000, "the scan's own floor is kept as it was")
+  eq(hover(), "|cffe6b800AH|r floor | " .. H.Money(750), "the tooltip reads the house's floor")
+  eq(H.Bags.Value(9262, 20), 750 * 20, "and so do the bag figures")
+  Stub.ah.browse, Stub.ah.browseServed = {}, 0
+  -- a page the list adds is read the same way
+  eq(Sc.NoteBrowse({ { itemKey = C_AuctionHouse.MakeItemKey(9262), minPrice = 740, totalQuantity = 61 } }, t0 + 30), 1, "an added page is noted")
+  eq(M.Stats(rec).floor, 740, "its floor read")
+  -- an item never scanned gains no record from the list
+  eq(Sc.NoteBrowse({ { itemKey = C_AuctionHouse.MakeItemKey(424243), minPrice = 5, totalQuantity = 1 } }), 0, "nothing noted without history")
+  eq(Store.Get("424243"), nil, "and no record made for it")
+  eq(Store.NoteFloor("9262", t0 - 700, 1), nil, "a floor older than the scan is not taken")
+
+  -- kept over a reload; an older record has none
+  local back = Store.Decode(Store.Encode(rec))
+  check(back.seen ~= nil and back.seen.min == 740, "the house's floor is saved with the record")
+  eq(back.seen.t, math.floor((t0 + 30) / 60) * 60, "to the minute")
+  eq(Store.Decode("1#D#P#M#F").seen, nil, "an older record has none")
+
+  -- a commodity search's cheapest listing is noted too
+  Stub.now = t0 + 120
+  Stub.ah.currentSearch = { commodity = true, listings = { { 700, 10 }, { 720, 50 } } }
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 9262)
+  eq(M.Stats(rec).floor, 700, "the search's cheapest is the floor")
+  Stub.ah.currentSearch = nil
+
+  -- the next full scan's floor takes over, and the noted one goes
+  Store.AddScanSample("9262", t0 + 180, { { p = 710, q = 55 } })
+  eq(rec.seen, nil, "a scan newer than the noted floor drops it")
+  eq(M.Stats(rec).floor, 710, "the scan's floor is the floor again")
+  Stub.now = t0
+end
+
+------------------------------------------------------------------------
+-- Another addon's full scan is read as Hound's own: the house hands
+-- the list to every addon, and with another scanner about Hound's own
+-- request inside the fifteen minutes gets no answer
+------------------------------------------------------------------------
+do
+  local Sc = H.Scan
+  H.atAH = true
+  eq(Sc.state, "idle", "no scan under way")
+  local scans = AuctionHoundDB.markets[H.marketKey].scans
+  local logged = #scans
+  AuctionHoundDB.lastFull = Stub.now - Sc.FOREIGN_GAP - 1
+  Stub.ah.replicate = { { itemID = 9262, count = 20, buyout = 20 * 650 } }
+  Stub.printed = {}
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  check(Sc.state ~= "idle", "a list nobody asked Hound for is read: " .. Sc.state)
+  Stub.Advance(2) Stub.Pump()
+  eq(Sc.state, "idle", "to the end")
+  eq(#scans, logged + 1, "logged as a scan")
+  check(AuctionHoundDB.lastFull >= Stub.now - 3, "its time kept, so auto scan waits its fifteen minutes")
+  eq(H.Market.Stats(H.Store.Get("9262")).floor, 650, "its floors are the floors")
+  check(string.find(table.concat(Stub.printed, "\n"), "full scan (another addon's)", 1, true),
+    "chat says whose it was: " .. table.concat(Stub.printed, " | "))
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  eq(Sc.state, "idle", "the same list again is not read twice")
+  eq(#scans, logged + 1, "nor logged twice")
+  -- with the house closed it is nobody's to read
+  H.atAH = false
+  AuctionHoundDB.lastFull = Stub.now - Sc.FOREIGN_GAP - 1
+  Stub.FireEvent("REPLICATE_ITEM_LIST_UPDATE")
+  eq(Sc.state, "idle", "not away from the house")
+  H.atAH = true
+  Stub.ah.replicate = {}
+end
+
+------------------------------------------------------------------------
+-- Sales once inferred from an auction gone before its time are taken
+-- out of the saved posts and the ledger, every market's, once
+------------------------------------------------------------------------
+do
+  local F = H.Fan
+  local db = {
+    ledger = {
+      { t = 100, key = "1", unit = 50, qty = 4, kind = "sale" },
+      { t = 200, key = "1", unit = 50, qty = 6, kind = "sale", inferred = true },
+      { t = 300, key = "2", unit = 70, qty = 3, kind = "sale", inferred = true },
+      { t = 400, key = "3", unit = 10, qty = 1, kind = "buy" },
+    },
+    markets = {
+      A = { posts = {
+        { key = "1", unit = 50, qty = 10, sold = 10, soldAt = 200, status = "sold", inferred = true },
+        { key = "4", unit = 20, qty = 5, sold = 5, soldAt = 250, status = "sold", inferred = true },
+        { key = "5", unit = 30, qty = 2, sold = 2, soldAt = 260, status = "sold" },
+      } },
+      B = { posts = { { key = "6", unit = 1, qty = 1, sold = 0, status = "active" } } },
+    },
+  }
+  eq(F.PurgeInferred(db), 2, "two posts carried an inferred sale")
+  local p1, p2, p3 = db.markets.A.posts[1], db.markets.A.posts[2], db.markets.A.posts[3]
+  eq(p1.sold, 4, "a post keeps the units sold before the guess")
+  eq(p1.status, "ended", "and reads ended, for its mail to sell the rest")
+  eq(p1.inferred, nil, "no longer flagged")
+  eq(p2.sold, 0, "a post sold only by the guess sold nothing")
+  eq(p2.status, "ended", "and has ended")
+  eq(p2.soldAt, nil, "with no time of sale")
+  eq(p3.sold, 2, "a sale that was not guessed stays")
+  eq(p3.status, "sold", "as sold")
+  eq(db.markets.B.posts[1].status, "active", "another market's live post is left alone")
+  eq(#db.ledger, 2, "the guessed lines leave the ledger, the rest stay")
+  eq(db.ledger[1].qty, 4, "the sale before the guess")
+  eq(db.ledger[2].kind, "buy", "and the purchase")
+  eq(F.PurgeInferred(db), 0, "a second run finds nothing")
+
+  -- at load, saying so once in chat
+  local live = { key = "2770", itemID = 2770, unit = 99, qty = 3, sold = 3, soldAt = Stub.now, status = "sold", inferred = true, t = Stub.now }
+  H.Store.AddPost(live)
+  Stub.printed = {}
+  H.InitDB()
+  eq(live.sold, 0, "the saved post is purged as the addon loads")
+  eq(live.status, "ended", "and reads ended")
+  check(string.find(table.concat(Stub.printed, "\n"), "no longer count", 1, true), "chat says so: " .. table.concat(Stub.printed, " | "))
+  Stub.printed = {}
+  H.InitDB()
+  eq(#Stub.printed, 0, "and only once")
 end
 
 ------------------------------------------------------------------------

@@ -31,8 +31,8 @@ Bags.VENDOR_STRIP = { 0.05, 0.14, 0.38, 0.85 } -- behind one at the vendor's pri
 -- What one slot is worth, and where to sell it.
 --
 -- Returns the copper the stack fetches and "house" or "vendor", or nil
--- when there is nothing to say. The house figure is the floor at the
--- latest scan for every unit, as the tooltip shows it; the vendor
+-- when there is nothing to say. The house figure is the latest floor
+-- seen for every unit, as the tooltip shows it; the vendor
 -- figure is the vendor's price for every unit, and it wins when the
 -- house would pay less once its cut is taken.
 ------------------------------------------------------------------------
@@ -48,7 +48,7 @@ function Bags.Value(itemID, count, link, bound)
   local key = link and H.KeyFromLink(link, itemID) or H.KeyForItemID(itemID) or tostring(itemID)
   local rec = key and H.Store.Get(key)
   local st = rec and H.Market.Stats(rec) or nil
-  local unit = st and st.market and (st.min or st.market) or nil
+  local unit = st and st.market and (st.floor or st.market) or nil
   local house = unit and unit * count or nil
   local cut = H.Settings().cut or 0
   if house and (not vendor or house * (1 - cut) > vendor) then return house, "house" end

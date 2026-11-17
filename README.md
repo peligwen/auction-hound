@@ -125,7 +125,8 @@ launch is listed at its head.
   price on every unit up to it, less your own, and Hound's own confirm
   opens under the cursor with the total, for one more click.
 - **History.** Every auction of yours the addon has seen, with what
-  became of it: active, sold, expired or cancelled, units and gold. Fan
+  became of it: active, sold, ended, expired or cancelled, units and
+  gold. Fan
   batches and auctions posted from Blizzard's own Sell tab alike; the
   owned list is read once per visit and anything new is adopted. Every
   purchase of yours too, commodity or item, with the units and what
@@ -133,7 +134,9 @@ launch is listed at its head.
   purchases over thirty days.
 - **Auto scan.** A checkbox beside the scan timer starts a full scan
   whenever the house allows one, every fifteen minutes while you stand
-  at the auctioneer.
+  at the auctioneer. A full scan another addon asks for is read too,
+  auto scan or not: the house hands the list to every addon, and its
+  fifteen minutes count for all of them.
 - **Priors.** When history is thin, vendor price, crafted cost and value
   as a crafting input stand in as the reference. That is what makes the
   Buy tab usable in launch week. An item whose price has settled well
@@ -156,15 +159,24 @@ launch is listed at its head.
   money column in Hound's tables shows the exact figure down to the
   copper wherever the column has room; only a figure too wide for its
   column drops the copper, then rounds.
-- **Own sales.** Every batch is tracked. A sold status or a shrinking
-  quantity in your auction list, an auction that vanishes before it
-  could expire, or a seller invoice in the mailbox each mark units sold
-  at that price; an auction that vanishes after its time marks them
-  unsold. The result is a sold / unsold bracket per item, shown in the
-  Item view, the tooltip and `/hound stats`, and the next fan centers on
-  the best price buyers actually paid.
-- **Tooltips.** One line by default: the floor at the latest scan, with
-  its age when that is more than a day: "AH floor 5s 89c". On a stack
+- **Own sales.** Every batch is tracked, and a sale is counted from
+  one thing only: its seller invoice in the mailbox, which names the
+  item, the units and the price. Open the mailbox with the addon loaded
+  for sales to count. Your auction list says when an auction is off the
+  house, and nothing more: one the list calls sold, or one gone before
+  its time, reads "ended" until its mail is seen, and one gone after
+  its time reads "expired". Neither is a sale; a sale's mail turns
+  either into one. Sales were once deduced from an auction gone before
+  its time, and those were as often expiries: they are taken out of
+  the saved history when the addon loads, saying so once in chat. The
+  result is a sold / unsold bracket per item, shown in the Item view,
+  the tooltip and `/hound stats`, and the next fan centers on the best
+  price buyers actually paid.
+- **Tooltips.** One line by default: the latest floor seen, with its
+  age when that is more than two hours: "AH floor 5s 89c". The floor is
+  the latest full scan's, or the one the house has shown since, on a Buy
+  tab row or a commodity search, whichever is newer: a price that has
+  dropped since the scan reads as it is now. On a stack
   the stack's price follows in brackets ("AH floor 5s 89c (17s 67c)"),
   to read against the game's sell price, which is the whole stack's.
   Hold Shift for the rest: market value, the three-day mean, units
@@ -177,8 +189,8 @@ launch is listed at its head.
   it goes. A Buy tab row's tooltip and the Item view carry the
   cleared line too, and the Item view the three-day mean.
 - **Bag overlay.** With the bags or the bank open, hold Shift: every
-  slot shows what its stack is worth, at the house's floor from the latest scan
-  on a dark strip, or at the vendor's price on a blue strip when the
+  slot shows what its stack is worth, at the latest floor seen, as the
+  tooltip reads it, on a dark strip, or at the vendor's price on a blue strip when the
   vendor pays more than the house would after its cut. The figure is
   one coin, in the game's gold, silver or copper with its coin icon
   (1.2 gold, 12 gold, 45 silver; the coin's letter with plain money
@@ -340,8 +352,9 @@ below are still the real test. What did change around the addon:
    that says whether its item keys still carry them the way a link
    does.
 4. **Tooltips.** Open, and changed. Hover a scanned item in your
-   bags: one Hound line, "AH floor". Hold Shift with the tooltip up:
-   the rest appears (market, 3 day, listed and trend, yours; the
+   bags: one Hound line, "AH floor". Changed: it carries its age once
+   that is past two hours ("AH floor 3.2h ago"), not a day. Hold Shift
+   with the tooltip up: the rest appears (market, 3 day, listed and trend, yours; the
    vendor price is the game's own line, not Hound's), and goes again
    when Shift is let go. Click the item's link in chat:
    that tooltip shows the rest without Shift. Hover a gray item: no
@@ -398,9 +411,16 @@ below are still the real test. What did change around the addon:
 11. **Your posts.** Open. Open the Blizzard Auctions tab, then the Fan
     view: the batches show as active in the "Your posts" table. Cancel
     one from the Blizzard tab; it should flip to cancelled.
-12. **Sales.** Open. Sell something. The next time you open the auction
-    house (or check your mail with the addon loaded), the Fan view and
-    `/hound stats` should show it under "yours".
+12. **Sales.** Open, and changed: the mail is now the only sale. Sell
+    something. Until you open the mailbox, the History view shows it as
+    active, then "ended" once the house's list calls it sold; no "sold"
+    line in chat. Open the mailbox with the addon loaded: chat should
+    say "sold N x item at X", and the Fan view, the History view and
+    `/hound stats` show it under "yours". Let one expire: "ended" or
+    "expired", never sold. On the first load with this version, chat
+    says how many auctions once counted as sold for leaving the house
+    early no longer count, if any did. Report a sale whose mail was
+    open and still not counted, with the mail's subject.
 13. **Auctions tab total.** Open, and rebuilt. On Blizzard's Auctions
     tab the columns are Blizzard's own, Bid included, and each auction's
     total sits at the right end of its name. For a commodity stack
@@ -654,6 +674,23 @@ below are still the real test. What did change around the addon:
     auction's buyout not yours; one click bids it. Report if the house
     complains about a hardware event at any step, if the units are not
     the deal's, or if the confirm buys something other than it says.
+33. **Floors between scans.** Open, and new. Reported on live: Black
+    Vitriol's tooltip read "AH floor 60s" for hours while the house sat
+    under 10s. A scan had caught one dear unit left; the tooltip kept
+    it, and the age it would have shown was worked out once a day, so
+    it never said how old it was. Now: hover a scanned item whose price
+    has moved, with no full scan since: the floor should show its age
+    past two hours. Search for it on the Buy tab, or click its row:
+    hover it in the bags again and the floor should be the one on the
+    Buy tab, with no age. Hold Shift over the bags: the slot's figure
+    follows it. `/hound stats <link>` names the floor and how old it
+    is. Report a floor that does not follow a Buy tab row you have just
+    seen.
+34. **Another addon's full scan.** Open, and new. With another scanner
+    loaded (Auctionator, say), let it run its full scan at the house:
+    chat should say "full scan (another addon's): N listings, ...",
+    and Hound's own scan timer should start its fifteen minutes from
+    it, with no "no answer to the full scan" line after.
 
 ## Taint
 
@@ -751,7 +788,8 @@ batches never post on their own.
 The addon lives in `AuctionHound/`; `test/` and this file sit beside it.
 
 ```
-Scan.lua     ReplicateItems (full), fills between scans, and any search answer as listings
+Scan.lua     ReplicateItems (full), Hound's or another addon's; fills between scans;
+             the floors the house shows between them; any search answer as listings
 Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent again
 Store.lua    per-market history, compact strings, async flush
 Market.lua   value from listings, ladder, stats, confidence
@@ -763,7 +801,7 @@ Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdic
 Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
 Depth.lua    the ladder behind each Deals view row on screen, one search each, on demand;
              a row about to be bought first
-Fan.lua      fan plans (linear or bell), posting, own-sales tracking
+Fan.lua      fan plans (linear or bell), posting, own sales from the mail
 Buy.lua      purchases noted from the house's calls, for the History view
 Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
 Writ.lua     the item a Craftsman's Writ asks for, priced the same way
@@ -835,7 +873,9 @@ listing ladder, Auctions tab total, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
 Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
 tab, a full scan the house does
-not answer, the house closing twice, and UI construction paths. Where the beta has
+not answer, another addon's full scan, floors noted between scans,
+sales counted from mail alone and the old inferred ones purged, the
+house closing twice, and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.

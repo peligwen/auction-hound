@@ -10,6 +10,8 @@
 --   moved = { [dayIndex] = units }                    consumed-units proxy
 --   fills = { [dayIndex] = { u = units, v = value } } units gone to buyers between
 --                                                     scans, and what they went for
+--   seen  = { t, min }                                the floor the house showed
+--                                                     after the latest scan, if any
 local ADDON, H = ...
 
 local Store = {}
@@ -53,7 +55,11 @@ local function encode(rec)
     local f = rec.fills[d]
     table.insert(fills, string.format("%.0f:%.0f:%.0f", d, f.u, f.v))
   end
-  return FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",") .. "#F" .. table.concat(fills, ",")
+  local out = FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",") .. "#F" .. table.concat(fills, ",")
+  if rec.seen then
+    out = out .. string.format("#S%.0f:%.0f", math.floor(rec.seen.t / 60), rec.seen.min)
+  end
+  return out
 end
 
 local function decode(str)
@@ -63,6 +69,8 @@ local function decode(str)
   local ptsStr = string.match(str, "#P([^#]*)") or ""
   local movedStr = string.match(str, "#M([^#]*)") or ""
   local fillsStr = string.match(str, "#F([^#]*)") or ""
+  local seenT, seenMin = string.match(str, "#S(%d+):(%d+)")
+  if seenT then rec.seen = { t = tonumber(seenT) * 60, min = tonumber(seenMin) } end
   for entry in string.gmatch(daysStr, "[^,]+") do
     local d, mv, min, qty, n, s = strsplit(":", entry)
     d = tonumber(d)
@@ -237,6 +245,7 @@ function Store.AddScanSample(key, t, listings)
   end
 
   table.insert(rec.pts, { t = t, mv = mv, min = min, qty = qty, n = n })
+  if rec.seen and rec.seen.t <= t then rec.seen = nil end
   local keepPoints = S.keepPoints or 120
   while #rec.pts > keepPoints do table.remove(rec.pts, 1) end
 
@@ -253,6 +262,25 @@ function Store.AddScanSample(key, t, listings)
     if d < cutoff then rec.fills[d] = nil end
   end
 
+  rec.stats = nil
+  dirty[key] = true
+  return rec
+end
+
+-- A floor the house shows between full scans, a Buy tab row or the
+-- cheapest of a search, for an item with history: what the tooltip
+-- and the bag figures read until the next scan. A floor seen once the
+-- latest scan is older than it replaces the scan's, so a price that
+-- has dropped since reads as it is now, not as it was.
+function Store.NoteFloor(key, t, min)
+  if not key or not min or min <= 0 then return nil end
+  local rec = Store.Get(key)
+  if not rec then return nil end
+  local last = rec.pts[#rec.pts]
+  if last and t <= last.t then return nil end
+  local s = rec.seen
+  if s and s.min == min and t - s.t < 60 then return rec end
+  rec.seen = { t = t, min = min }
   rec.stats = nil
   dirty[key] = true
   return rec
@@ -389,7 +417,7 @@ function Store.Posts(key)
 end
 
 local function resolved(p)
-  return p.status == "sold" or p.status == "expired" or p.status == "cancelled" or p.status == "failed"
+  return p.status == "sold" or p.status == "expired" or p.status == "ended" or p.status == "cancelled" or p.status == "failed"
 end
 
 function Store.PrunePosts(now)

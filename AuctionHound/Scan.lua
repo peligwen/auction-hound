@@ -199,8 +199,26 @@ function Scan.StartFull()
   return true
 end
 
+-- Someone else's full scan. The house hands the list to every addon,
+-- whichever asked, so one landing while Hound is idle at the house is
+-- read as its own: with another scanner about, Hound's own request
+-- inside the fifteen minutes gets no answer, and its history would go
+-- stale. The house sends no two lists within fifteen minutes, so one
+-- landing soon after the last read is that list again.
+Scan.FOREIGN_GAP = 10 * 60
+
+function Scan.Foreign()
+  return Scan.state == "idle" and H.atAH and H.Now() - Scan.LastFull() >= Scan.FOREIGN_GAP
+end
+
 H.RegisterEvent("REPLICATE_ITEM_LIST_UPDATE", function()
-  if Scan.state == "replicating" or Scan.Late() then Scan.BeginProcess() end
+  if Scan.state == "replicating" or Scan.Late() then
+    Scan.BeginProcess()
+  elseif Scan.Foreign() then
+    Scan.startedAt = H.Now()
+    Scan.BeginProcess()
+    Scan.foreign = true
+  end
 end)
 
 local function unitPrice(buyout, count)
@@ -263,6 +281,7 @@ function Scan.BeginProcess()
   Scan.soon = {}
   Scan.missing = {}
   Scan.retries = 0
+  Scan.foreign = false
   stepFrame:Show()
 end
 
@@ -326,11 +345,13 @@ function Scan.Finish()
   if H.db then H.db.lastFull = t end
   H.Store.LogScan({ t = t, kind = "full", rows = Scan.total, keys = keys, secs = t - (Scan.startedAt or t), skipped = skipped })
   H.Store.FlushAsync()
+  local whose = Scan.foreign and "full scan (another addon's)" or "full scan"
+  Scan.foreign = false
   setState("idle")
   if prev and filled > 0 then
-    H.Printf("full scan: %d listings, %d items, %d unresolved, %ds; %d units cleared since the last", Scan.total, keys, skipped, t - (Scan.startedAt or t), filled)
+    H.Printf("%s: %d listings, %d items, %d unresolved, %ds; %d units cleared since the last", whose, Scan.total, keys, skipped, t - (Scan.startedAt or t), filled)
   else
-    H.Printf("full scan: %d listings, %d items, %d unresolved, %ds", Scan.total, keys, skipped, t - (Scan.startedAt or t))
+    H.Printf("%s: %d listings, %d items, %d unresolved, %ds", whose, Scan.total, keys, skipped, t - (Scan.startedAt or t))
   end
   H.Events:Fire("SCAN_DONE", "full")
 end
@@ -363,6 +384,45 @@ function Scan.DebugReplicate(n)
       tostring(owner), tostring(hasAllInfo), tostring(AH.GetReplicateItemLink(i)))
   end
 end
+
+------------------------------------------------------------------------
+-- Floors between full scans. Every floor the house shows, a row of the
+-- Buy tab's list or the cheapest listing of a commodity search, is
+-- noted for an item with history (Store.NoteFloor), so the tooltip and
+-- the bag figures follow the house instead of waiting on the next full
+-- scan. Nothing is asked of the house for it.
+------------------------------------------------------------------------
+function Scan.NoteBrowse(rows, now)
+  now = now or H.Now()
+  local n = 0
+  for _, r in ipairs(type(rows) == "table" and rows or {}) do
+    if type(r) == "table" and type(r.itemKey) == "table" and r.itemKey.itemID
+      and (r.totalQuantity or 0) > 0 and (r.minPrice or 0) > 0 then
+      if H.Store.NoteFloor(H.KeyFromItemKey(r.itemKey), now, r.minPrice) then n = n + 1 end
+    end
+  end
+  if n > 0 then H.Store.FlushAsync() end
+  return n
+end
+
+H.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED", function()
+  if AH.GetBrowseResults then Scan.NoteBrowse(AH.GetBrowseResults()) end
+end)
+
+H.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", function(added)
+  Scan.NoteBrowse(added)
+end)
+
+H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
+  if not itemID then return end
+  local min
+  for _, l in ipairs(Scan.CommodityListings(itemID)) do
+    if not min or l.p < min then min = l.p end
+  end
+  if min and H.Store.NoteFloor(H.KeyForItemID(itemID) or tostring(itemID), H.Now(), min) then
+    H.Store.FlushAsync()
+  end
+end)
 
 ------------------------------------------------------------------------
 -- A search answer as listings { p, q, auctionID, timeLeft, owners, mine,

@@ -428,10 +428,13 @@ H.RegisterEvent("AUCTION_HOUSE_SHOW_ERROR", function()
 end)
 
 ------------------------------------------------------------------------
--- Own sales. Three signals, any of which may arrive first:
---   owned auctions   status Sold, or fewer units than we posted
---   vanished early   an auction gone before it could expire was bought
---   mail             a seller invoice names the item, units and price
+-- Own sales. One signal: a seller invoice in the mailbox, naming the
+-- item, the units and the price. Nothing else counts as a sale. The
+-- owned list says when an auction is off the house, sold or gone,
+-- and that marks it "ended" until its mail says what it sold; an
+-- auction gone after its time is "expired". Sales were once deduced
+-- from an auction gone before its time, and those were as often
+-- expiries: Fan.PurgeInferred takes them out of the saved posts.
 ------------------------------------------------------------------------
 function Fan.HasOpenPosts()
   for _, p in ipairs(H.Store.Posts() or {}) do
@@ -440,16 +443,49 @@ function Fan.HasOpenPosts()
   return false
 end
 
-local function markSold(p, soldTotal, inferred, now)
+local function markSold(p, soldTotal, now)
   soldTotal = math.min(soldTotal, p.qty)
   local delta = soldTotal - (p.sold or 0)
   if delta <= 0 then return false end
   p.sold = soldTotal
   p.soldAt = now
-  p.inferred = inferred and true or nil
-  H.Store.Ledger({ t = now, key = p.key, itemID = p.itemID, qty = delta, unit = p.unit, kind = "sale", inferred = inferred or nil })
-  H.Printf("sold %d x %s at %s%s", delta, p.name or p.key, H.Money(p.unit), inferred and " (inferred)" or "")
+  H.Store.Ledger({ t = now, key = p.key, itemID = p.itemID, qty = delta, unit = p.unit, kind = "sale" })
+  H.Printf("sold %d x %s at %s", delta, p.name or p.key, H.Money(p.unit))
   return true
+end
+
+-- Every market's posts lose the sales once deduced from an auction
+-- gone before its time, and the ledger its lines for them. A post that
+-- was all inferred reads "ended", and its mail can still make it a
+-- sale. Safe to run at every load: once purged, nothing is flagged.
+function Fan.PurgeInferred(db)
+  if type(db) ~= "table" then return 0 end
+  local ledger = db.ledger or {}
+  local n = 0
+  for _, m in pairs(db.markets or {}) do
+    for _, p in ipairs(m.posts or {}) do
+      if p.inferred then
+        local guessed
+        for i = #ledger, 1, -1 do
+          local e = ledger[i]
+          if e.kind == "sale" and e.inferred and e.key == p.key and e.unit == p.unit and e.t == p.soldAt then
+            guessed = e.qty
+            table.remove(ledger, i)
+            break
+          end
+        end
+        p.sold = math.max(0, (p.sold or 0) - (guessed or p.sold or 0))
+        p.inferred = nil
+        if p.sold == 0 then p.soldAt = nil end
+        if p.status == "sold" and p.sold < (p.qty or 0) then p.status = "ended" end
+        n = n + 1
+      end
+    end
+  end
+  for i = #ledger, 1, -1 do
+    if ledger[i].inferred then table.remove(ledger, i) end
+  end
+  return n
 end
 
 local SOLD = (Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold) or 1
@@ -552,8 +588,8 @@ end
 -- own Sell tab or before the addon was installed. It joins the posts so
 -- the history covers every auction, with the buyout read the way the
 -- owned list gives it: the unit price while the auction is up, the
--- whole sum once it has sold. One already sold joins as a sale without
--- a chat line.
+-- whole sum once it has sold. One already sold joins as ended, for its
+-- mail to make it a sale.
 local function adopt(a, key, now)
   local unit = a.buyoutAmount
   if not H.db or not unit or unit <= 0 then return false end
@@ -570,12 +606,7 @@ local function adopt(a, key, now)
     post.deposit = note.deposit
     post.dur = Fan.DURATIONS[note.duration] or post.dur
   end
-  if a.status == SOLD then
-    post.status = "sold"
-    post.sold = qty
-    post.soldAt = now
-    H.Store.Ledger({ t = now, key = key, itemID = itemID, qty = qty, unit = unit, kind = "sale" })
-  end
+  if a.status == SOLD then post.status = "ended" end
   H.Store.AddPost(post)
   return true
 end
@@ -617,25 +648,21 @@ function Fan.Reconcile(owned, now, partial)
     end
   end
 
+  -- Off the house: the list says sold, or the auction is gone. Neither
+  -- is a sale until its mail is seen. Gone before its time it may have
+  -- sold, been cancelled elsewhere or run out early: ended. Gone after
+  -- its time it expired.
   for _, p in ipairs(posts) do
     if p.status == "active" and p.auctionID then
       local a = byID[p.auctionID]
       if a then
-        local soldNow
         if a.status == SOLD then
-          soldNow = p.qty
-        elseif a.quantity and a.quantity < p.qty then
-          soldNow = p.qty - a.quantity
-        end
-        if soldNow and markSold(p, soldNow, false, now) then changed = changed + 1 end
-        if a.status == SOLD and p.status ~= "sold" then
-          p.status = "sold"
+          p.status = "ended"
           changed = changed + 1
         end
       elseif not partial and now - p.t >= Fan.SETTLE then
         if now < p.t + (p.dur or 0) - 60 then
-          markSold(p, p.qty, true, now)
-          p.status = "sold"
+          p.status = "ended"
         else
           p.status = "expired"
           if (p.sold or 0) < p.qty then
@@ -707,9 +734,15 @@ H.Events:On("AH_CLOSED", function()
   end
 end)
 
--- Seller invoices in the mailbox. Visible invoices are matched to posts
--- by item name and unit price; a match confirms an inferred sale and
--- raises the sold count when the owned list has not caught up.
+-- Seller invoices in the mailbox, the one record of a sale. Visible
+-- invoices are matched to posts by item name and unit price, and the
+-- units they name are the units sold. The name a post was saved with
+-- may be the placeholder of an item the client had yet to load, so the
+-- name the client gives now counts too.
+local function named(p, itemName)
+  return p.name == itemName or (p.itemID ~= nil and H.ItemName(p.itemID) == itemName)
+end
+
 function Fan.ScanMail(now)
   if not (GetInboxNumItems and GetInboxInvoiceInfo) then return 0 end
   local posts = H.Store.Posts()
@@ -724,7 +757,7 @@ function Fan.ScanMail(now)
       local unit = total / count
       for j = #posts, 1, -1 do
         local p = posts[j]
-        if p.name == itemName and p.status ~= "cancelled" and math.abs(p.unit - unit) < 1
+        if p.status ~= "cancelled" and math.abs(p.unit - unit) < 1 and named(p, itemName)
           and (seen[p] or 0) < p.qty then
           seen[p] = (seen[p] or 0) + count
           matched = matched + 1
@@ -736,13 +769,7 @@ function Fan.ScanMail(now)
   local changed = false
   for p, units in pairs(seen) do
     units = math.min(units, p.qty)
-    if units > (p.sold or 0) then
-      markSold(p, units, false, now)
-      changed = true
-    elseif p.inferred and units >= (p.sold or 0) then
-      p.inferred = nil
-      changed = true
-    end
+    if markSold(p, units, now) then changed = true end
     if (p.sold or 0) >= p.qty and p.status ~= "sold" then
       p.status = "sold"
       changed = true
@@ -759,8 +786,8 @@ H.RegisterEvent("MAIL_INBOX_UPDATE", function() Fan.ScanMail() end)
 ------------------------------------------------------------------------
 function Fan.PostStatus(p)
   local sold = p.sold or 0
-  if p.status == "sold" then return p.inferred and "sold (inferred)" or "sold" end
-  if p.status == "active" and sold > 0 then return string.format("sold %d/%d", sold, p.qty) end
+  if p.status == "sold" then return "sold" end
+  if (p.status == "active" or p.status == "ended") and sold > 0 then return string.format("sold %d/%d", sold, p.qty) end
   if p.status == "expired" and sold > 0 then return string.format("%d sold, %d expired", sold, p.qty - sold) end
   return p.status
 end
@@ -818,7 +845,6 @@ function Fan.ClearingLine(cl, now)
   local parts = {}
   if cl.soldUnits > 0 then
     local s = string.format("sold %d up to %s", cl.soldUnits, H.Money(cl.soldMax))
-    if cl.inferredUnits > 0 then s = s .. string.format(" (%d inferred)", cl.inferredUnits) end
     if cl.lastSoldAt then s = s .. ", last " .. H.Ago(now - cl.lastSoldAt) end
     table.insert(parts, s)
   end

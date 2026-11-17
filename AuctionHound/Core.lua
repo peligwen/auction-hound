@@ -67,6 +67,11 @@ function H.InitDB()
   H.market = db.markets[H.marketKey]
   H.market.posts = H.market.posts or {}
   H.db = db
+  local purged = H.Fan and H.Fan.PurgeInferred(db) or 0
+  if purged > 0 then
+    H.Printf("%d auction%s once counted as sold for leaving the house early no longer count; only a sale's mail does",
+      purged, purged == 1 and "" or "s")
+  end
   return db
 end
 
@@ -206,8 +211,8 @@ commands.stats = function(rest)
   H.Printf("%s [%s]", H.ItemName(H.ItemIDFromKey(key)), key)
   if rec then
     local st = H.Market.Stats(rec)
-    H.Printf("  market %s  min %s  3d %s  listed %s  trend %s  stability %s",
-      H.Money(st.market or 0), H.Money(st.min or 0), H.Money(st.avg3 or 0),
+    H.Printf("  market %s  floor %s (%s)  3d %s  listed %s  trend %s  stability %s",
+      H.Money(st.market or 0), H.Money(st.floor or 0), H.Ago(st.floorAge), H.Money(st.avg3 or 0),
       tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
     H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
       st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
