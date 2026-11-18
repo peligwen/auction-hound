@@ -1,19 +1,15 @@
--- Fan.lua: price fanning. Post one item as a series of batches at spaced
--- prices, then watch which batches sell.
---
--- Scans tell us what sellers ask. The only sure sign of what buyers pay
--- is a sale of our own, so every batch is a probe: a batch that sells
--- says the market clears at or above that price, a batch that expires
--- says it does not. The outcomes are kept per item and the next fan
--- centers on what actually sold.
---
--- A fan is x units per batch, z batches, y apart. Linear spacing puts
--- the batches at even steps. Bell spacing keeps the same range but
--- places batches at normal quantiles, so they bunch near the center
--- with a few probes out at the tails.
+-- Fan.lua: fanned auctions. One item posted as a series of batches at
+-- a price interval: x units per batch, z batches, the first at the
+-- start price and each next one y percent of it dearer. A step of zero
+-- puts every batch at the start price, which is how to re-list at one
+-- price and land at the front of the queue again.
 --
 -- Posting needs a hardware event per auction, so one click (or one
 -- /hound post) posts one batch and the plan advances.
+--
+-- Every auction of yours, a batch or one posted from Blizzard's own
+-- Sell tab, is kept as a post for the History view with what became of
+-- it; a sale is counted from its mail alone.
 local ADDON, H = ...
 
 local Fan = {}
@@ -24,96 +20,31 @@ local AH = C_AuctionHouse
 Fan.plan = nil        -- the current plan, see Fan.Setup
 Fan.pending = nil     -- batch in flight, waiting for AUCTION_HOUSE_AUCTION_CREATED
 
-Fan.SHAPES = { "linear", "bell" }
-Fan.SPREADS = { "around", "above", "below" }
 Fan.DURATIONS = { 12 * 3600, 24 * 3600, 48 * 3600 }   -- index is the API duration value
 Fan.POST_TIMEOUT = 10     -- seconds before a post with no reply counts as failed
 Fan.SETTLE = 120          -- seconds before a missing auction counts as gone
-Fan.RECENT_SALE = 14 * 86400
-
-------------------------------------------------------------------------
--- Inverse normal CDF, Acklam's rational approximation. Accurate to
--- about 1e-9, which is far more than a price ladder needs.
-------------------------------------------------------------------------
-local A = { -3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02, 1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00 }
-local B = { -5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02, 6.680131188771972e+01, -1.328068155288572e+01 }
-local C = { -7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00, -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00 }
-local D = { 7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00, 3.754408661907416e+00 }
-
-function Fan.NormalQuantile(p)
-  if p <= 0 then return -math.huge end
-  if p >= 1 then return math.huge end
-  if p < 0.02425 then
-    local q = math.sqrt(-2 * math.log(p))
-    return (((((C[1] * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) * q + C[6])
-      / ((((D[1] * q + D[2]) * q + D[3]) * q + D[4]) * q + 1)
-  elseif p <= 1 - 0.02425 then
-    local q = p - 0.5
-    local r = q * q
-    return (((((A[1] * r + A[2]) * r + A[3]) * r + A[4]) * r + A[5]) * r + A[6]) * q
-      / (((((B[1] * r + B[2]) * r + B[3]) * r + B[4]) * r + B[5]) * r + 1)
-  else
-    local q = math.sqrt(-2 * math.log(1 - p))
-    return -(((((C[1] * q + C[2]) * q + C[3]) * q + C[4]) * q + C[5]) * q + C[6])
-      / ((((D[1] * q + D[2]) * q + D[3]) * q + D[4]) * q + 1)
-  end
-end
 
 ------------------------------------------------------------------------
 -- Plan math. Pure, no game state.
-------------------------------------------------------------------------
-
--- Positions of z batches in step units, centered on zero.
---   linear  -2, -1, 0, 1, 2
---   bell    same end points, the rest at normal quantiles so the
---           middle batches sit closer together
-function Fan.Positions(z, shape)
-  local out = {}
-  if z <= 1 then out[1] = 0 return out end
-  local half = (z - 1) / 2
-  if shape == "bell" then
-    local edge = Fan.NormalQuantile((z - 0.5) / z)
-    for i = 1, z do
-      out[i] = Fan.NormalQuantile((i - 0.5) / z) / edge * half
-    end
-  else
-    for i = 1, z do out[i] = i - 1 - half end
-  end
-  return out
-end
-
--- Build a plan.
---   center    anchor price in copper
---   step      gap between batches as a fraction of center; zero puts
---             every batch at the center, which is how to re-list at
---             one price and land at the front of the queue again
+--   start     the first batch's unit price, in copper
+--   step      the gap between batches as a fraction of the start price
 --   batches   z
 --   perBatch  x
---   shape     linear | bell
---   spread    around (center in the middle) | above (center is the
---             cheapest batch) | below (center is the dearest)
 --   avail     units on hand; batches beyond it are shortened or dropped
 --   vendor    vendor sell price, to flag batches that would lose money
 -- Batches come back cheapest first, every unit price distinct unless
 -- the step is zero.
+------------------------------------------------------------------------
 function Fan.Plan(o)
   local z = math.max(1, math.floor(o.batches or 1))
   local x = math.max(1, math.floor(o.perBatch or 1))
-  local center = o.center
+  local start = o.start
   local stepFrac = math.max(0, o.step or 0)
-  local step = stepFrac * center
-  local shape = o.shape == "bell" and "bell" or "linear"
-  local spread = o.spread
-  if spread ~= "above" and spread ~= "below" then spread = "around" end
-  local pos = Fan.Positions(z, shape)
-  local shift = 0
-  if spread == "above" then shift = -pos[1] elseif spread == "below" then shift = -pos[z] end
-
-  local plan = { center = center, step = stepFrac, shape = shape, spread = spread, perBatch = x, requested = z, batches = {} }
+  local plan = { start = start, step = stepFrac, perBatch = x, requested = z, batches = {} }
   local left = o.avail
   local prev
   for i = 1, z do
-    local unit = math.max(1, H.Round(center + (pos[i] + shift) * step))
+    local unit = math.max(1, H.Round(start * (1 + (i - 1) * stepFrac)))
     if stepFrac > 0 and prev and unit <= prev then unit = prev + 1 end
     prev = unit
     local qty = x
@@ -144,23 +75,14 @@ function Fan.Plan(o)
   return plan
 end
 
-------------------------------------------------------------------------
--- What to center on when the user does not say: the best price buyers
--- paid us recently, else the market value, else a prior.
-------------------------------------------------------------------------
-function Fan.Anchor(key, itemID, now)
-  now = now or H.Now()
-  itemID = itemID or H.ItemIDFromKey(key)
-  local cl = H.Market.Clearing(H.Store.Posts(key), now)
-  if cl and cl.soldMax and cl.lastSoldAt and now - cl.lastSoldAt <= Fan.RECENT_SALE then
-    return cl.soldMax, "sold"
-  end
-  local rec = H.Store.Get(key)
-  local st = rec and H.Market.Stats(rec, now) or nil
-  if st and st.market then return st.market, "market" end
-  local prior, src = H.Priors.Estimate(itemID)
-  if prior then return prior, src end
-  return nil, "none"
+-- Where a fan starts when no price is given: the item's latest floor
+-- seen, else its market value. Nil without history.
+function Fan.DefaultPrice(key)
+  local rec = key and H.Store.Get(key)
+  local st = rec and H.Market.Stats(rec) or nil
+  local p = st and (st.floor or st.market)
+  if p and p > 0 then return p end
+  return nil
 end
 
 ------------------------------------------------------------------------
@@ -283,9 +205,10 @@ end
 
 local planSeq, postSeq = 0, 0
 
--- o: key, and optionally perBatch, step, batches, shape, spread,
--- duration (1..3), center. Missing values come from settings; a missing
--- center comes from Fan.Anchor. Returns the plan, or nil and a reason.
+-- o: key, and optionally perBatch, step, batches, duration (1..3),
+-- start. Missing values come from settings; a missing start is the
+-- item's floor (Fan.DefaultPrice). Returns the plan, or nil and a
+-- reason.
 function Fan.Setup(o)
   if Fan.InProgress() then return nil, "a fan is in progress; reset it first" end
   local key = o.key
@@ -293,34 +216,31 @@ function Fan.Setup(o)
   if not key or not itemID then return nil, "no item" end
   local S = H.Settings()
   local count, entry = Fan.BagCount(key)
-  local center, src = o.center, "set"
-  if not center then center, src = Fan.Anchor(key, itemID) end
-  if not center or center <= 0 then return nil, "no reference price for this item; give a center price" end
+  local start, src = o.start, "set"
+  if not start then start, src = Fan.DefaultPrice(key), "floor" end
+  if not start or start <= 0 then return nil, "no price for this item yet; give a start price" end
 
   local plan = Fan.Plan({
-    center = center,
+    start = start,
     step = o.step or S.fanStep,
     batches = o.batches or S.fanBatches,
     perBatch = o.perBatch or S.fanPerBatch,
-    shape = o.shape or S.fanShape,
-    spread = o.spread or S.fanSpread,
     avail = count,
-    vendor = H.Priors.VendorSell(itemID),
+    vendor = H.VendorSell(itemID),
   })
   planSeq = planSeq + 1
   plan.id = planSeq
   plan.key = key
   plan.itemID = itemID
   plan.name = H.ItemName(itemID)
-  plan.centerSrc = src
+  plan.startSrc = src
   plan.duration = o.duration or S.postDuration or 3
   if not Fan.DURATIONS[plan.duration] then plan.duration = 3 end
   plan.avail = count
   plan.isCommodity = isCommodity(itemID, entry)
   for _, b in ipairs(plan.batches) do b.deposit = deposit(plan, b, entry) end
 
-  S.fanStep, S.fanBatches, S.fanPerBatch = plan.step, plan.requested, plan.perBatch
-  S.fanShape, S.fanSpread, S.postDuration = plan.shape, plan.spread, plan.duration
+  S.fanStep, S.fanBatches, S.fanPerBatch, S.postDuration = plan.step, plan.requested, plan.perBatch, plan.duration
 
   Fan.plan = plan
   Fan.pending = nil
@@ -449,15 +369,16 @@ local function markSold(p, soldTotal, now)
   if delta <= 0 then return false end
   p.sold = soldTotal
   p.soldAt = now
-  H.Store.Ledger({ t = now, key = p.key, itemID = p.itemID, qty = delta, unit = p.unit, kind = "sale" })
   H.Printf("sold %d x %s at %s", delta, p.name or p.key, H.Money(p.unit))
   return true
 end
 
 -- Every market's posts lose the sales once deduced from an auction
--- gone before its time, and the ledger its lines for them. A post that
--- was all inferred reads "ended", and its mail can still make it a
--- sale. Safe to run at every load: once purged, nothing is flagged.
+-- gone before its time. The ledger, while a saved file still has one,
+-- says how many units of a post were guessed; without it the post's
+-- sales all go. A post that was all inferred reads "ended", and its
+-- mail can still make it a sale. Safe to run at every load: once
+-- purged, nothing is flagged.
 function Fan.PurgeInferred(db)
   if type(db) ~= "table" then return 0 end
   local ledger = db.ledger or {}
@@ -481,9 +402,6 @@ function Fan.PurgeInferred(db)
         n = n + 1
       end
     end
-  end
-  for i = #ledger, 1, -1 do
-    if ledger[i].inferred then table.remove(ledger, i) end
   end
   return n
 end
@@ -792,8 +710,9 @@ function Fan.PostStatus(p)
   return p.status
 end
 
+-- A batch: pending, posting, posted or failed.
 function Fan.BatchStatus(b)
-  if b.post and b.post.status ~= "pending" then return Fan.PostStatus(b.post) end
+  if b.status == "active" then return "posted" end
   return b.status
 end
 
@@ -859,10 +778,10 @@ end
 
 function Fan.Describe()
   local plan = Fan.plan
-  if not plan then H.Print("no fan planned; /hound fan <link> [per batch] [step %] [batches] [bell] [above|below]") return end
-  H.Printf("fan for %s (%s): %d batches of %d, %s %s, center %s (%s), %s to %s",
-    plan.name, plan.isCommodity and "commodity" or "item", #plan.batches, plan.perBatch, plan.shape, plan.spread,
-    H.Money(plan.center), plan.centerSrc, H.Money(plan.low or 0), H.Money(plan.high or 0))
+  if not plan then H.Print("no fan planned; /hound fan <link> [per batch] [step %] [batches] [start price]") return end
+  H.Printf("fan for %s (%s): %d batches of %d from %s (%s), %s apart, up to %s",
+    plan.name, plan.isCommodity and "commodity" or "item", #plan.batches, plan.perBatch,
+    H.Money(plan.low or plan.start), plan.startSrc, H.Pct(plan.step), H.Money(plan.high or 0))
   for _, b in ipairs(plan.batches) do
     H.Printf("  %d. %d at %s  %s%s", b.i, b.qty, H.Money(b.unit), Fan.BatchStatus(b), b.belowVendor and "  (under vendor)" or "")
   end

@@ -6,9 +6,9 @@
 -- lost. The house counts those 15 minutes itself, whichever addon
 -- asked, and says nothing when it refuses: a request that gets no
 -- answer is given up on, auto scan waits before asking again, and an
--- answer that lands late is still read. The Buy tab's own paging and
--- searches live in Throttle.lua and Depth.lua; the readers at the end
--- turn any search answer into listings for them.
+-- answer that lands late is still read. The Deals view's paging and
+-- searches go through Throttle.lua; the readers at the end turn any
+-- search answer into listings for it.
 local ADDON, H = ...
 
 local Scan = {}

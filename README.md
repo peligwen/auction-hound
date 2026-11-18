@@ -36,37 +36,25 @@ launch is listed at its head.
   The list keeps Blizzard's order, its own columns and its own place;
   Hound's figures are its own frames laid over the rows (see Taint),
   and nothing sits above the headers. Hovering a row adds Hound's
-  reading to the row's own tooltip. The minimum a deal clears is a
-  percentage off the reference, and copper a unit under it, whichever
-  is more, set on the Deals view or with `/hound discount`. A
-  three-copper item at half price is fifty percent off and still not
-  worth the click; with the copper minimum at 5s it reads amber, not
-  green, while a 20s item at half price stays. The row's tooltip names
-  the minimum that held it back. Once the Deals view's Depth has read
-  an item's listings, its Buy tab row shows them too: the note ends in
-  the units at the floor ("12.3g x40"), and the tooltip shows the
-  ladder, the units at or under the limit, the next price step and the
-  value of the listings. The Buy tab itself never sends a search. The
-  ladder's own value, the cheapest slice of its units, caps the
-  reference when it sits under history, the way the latest scan does:
-  a floor the market has moved to reads as the price before the next
-  scan, the note showing the listings' value, while a stray under the
-  rest is too few units to move it and still reads as a deal. Not while
-  supply is scarce, when the few cheap units left are the deals. The reference is
-  the market price from the scan's history, or the value at the latest
-  scan when that is lower, never the listings on screen, and the figure
-  is the floor's percentage under it: a floor that has filled in at a
-  new low is the price from the next scan on, a stray under the rest
-  is still a deal, and an item never scanned reads "no reference". A
-  floor the scans have kept seeing at its price for an hour or more
-  has been passed over by every buyer since: it reads amber, under the
-  reference but not a deal, and the row's tooltip says how long it has
-  been on offer and over how many scans, or that it is new since the
-  last scan. The hour is the `sat` setting; a floor under the vendor
-  price is a deal however long it sat. A row meets its history by item
-  ID whatever item level the house gives it; only gear keeps its level
-  and suffix. History older than the two weeks the market value spans
-  still counts: the 30-day mean, else the last scan. The usual
+  reading to the row's own tooltip: the reference and where it comes
+  from, the floor and the units listed, and what has cleared. The
+  minimum a deal clears is a percentage off the reference, and copper
+  a unit under it, whichever is more, set on the Deals view or with
+  `/hound discount`. A three-copper item at half price is fifty
+  percent off and still not worth the click; with the copper minimum
+  at 5s it reads amber, not green, while a 20s item at half price
+  stays. The row's tooltip names the minimum that held it back. The
+  reference is the market price from the scan's history, or the value
+  at the latest scan when that is lower, never the listings on screen,
+  and the figure is the floor's percentage under it: a floor that has
+  filled in at a new low is the price from the next scan on, a stray
+  under the rest is still a deal, and an item never scanned reads "no
+  reference", or "vendor" with its floor under the vendor price. A
+  floor is judged by its price alone, however long it has been on
+  offer. A row meets its history by item ID whatever item level the
+  house gives it; only gear keeps its level and suffix. History older
+  than the two weeks the market value spans still counts, as the value
+  at the last scan. The Buy tab never sends a search. The usual
   category tree, search box and filters do the narrowing; clicking a
   row buys through Blizzard's frames as always. Sorting by discount
   and the filters live on the Deals view: putting Blizzard's list in
@@ -80,26 +68,20 @@ launch is listed at its head.
   for every page of them while the view shows. Or, with the source set
   to "Last scan", every item the last full scan saw, at its floor then,
   with the house open or not; the search box then matches names. Each
-  row has the floor, the units, the reference ("~" for an estimate,
-  "v" for the vendor price), the discount in the Buy tab's colors,
-  what a unit saves, the units at or under the deal limit once Depth
-  has read them, and how long the floor has been on offer. It sorts by
-  discount, deepest first, and any header sorts by its column. The
-  filters: the minimum discount and copper, deals only (on by
-  default), history only, hide mine, the dearest floor shown, the
+  row has the floor, the units, the reference ("v" for the vendor
+  price), the discount in the Buy tab's colors and what a unit saves.
+  It sorts by discount, deepest first, and any header sorts by its
+  column. The filters: the minimum discount and copper, deals only (on
+  by default), history only, hide mine, the dearest floor shown, the
   lowest quality and the item class; quality and class go to the house
-  with Hound's own search too. Tick "Depth" and each row on screen gets
-  one search of its own, one at a time through the house's throttle; a
-  ladder is kept while the row still shows the same floor and count.
-  Double-click a row to buy it through Hound's own confirm: the units
-  of a commodity at or under the deal limit, less your own, or the
-  cheapest auction of an item that is not yours. When Depth has not
-  read the row, one search goes out first, Depth on or off, and the
-  confirm says it is reading the listings. A commodity's confirm has a
-  units box and a "Get price" button that asks the house for its
-  price on them, then "Buy"; with the listings already read the
-  double-click asks for the price itself. An item's is "Buy" at its
-  buyout. Nothing on the list or in the confirm is Blizzard's.
+  with Hound's own search too. Double-click a row to buy it through
+  Hound's own confirm: one search reads its listings, the confirm
+  saying so meanwhile, and it offers the units of a commodity at or
+  under the deal limit, less your own, or the cheapest auction of an
+  item that is not yours. A commodity's confirm has a units box and a
+  "Get price" button that asks the house for its price on them, then
+  "Buy". An item's is "Buy" at its buyout. Nothing on the list or in
+  the confirm is Blizzard's.
 - **Auctions tab.** What each of your auctions brings in, at the right
   end of its name on Blizzard's list: buyout times units for an
   auction still up; a sold auction waiting in the mail already shows
@@ -109,57 +91,35 @@ launch is listed at its head.
   included. The deposit is noted whenever an auction is posted, from
   the Fan view or from Blizzard's own Sell tab, and shows in the
   History view too.
-- **Listing ladder.** Clicking a Buy tab row opens Blizzard's buy frame
-  for that item, and Hound reads the listings there: an info block with
-  the reference, how many units sit at or under the deal limit and
-  what they cost, the floor and the next price step, and the value of
-  these listings alone. The listings' own value caps the reference
-  there the same way, and the block says so. On the commodity list
-  each units figure takes the verdict's color, green for a deal and
-  amber under reference; on the item list each auction's discount sits
-  at the right end of its row. A floor the scans have seen on offer
-  past the sat hours reads amber on both, and the block says how long.
-  A floor far under the next step is flagged in blue as low in the
-  list, reference or not. Double-click a listing to buy it: an item is
+- **Quick buyout.** Clicking a Buy tab row opens Blizzard's buy frame
+  for that item. Double-click a listing there to buy it: an item is
   bought out on the spot, and a commodity row asks the house for a
   price on every unit up to it, less your own, and Hound's own confirm
-  opens under the cursor with the total, for one more click.
+  opens under the cursor with the total, for one more click. Hound
+  draws nothing on those frames.
 - **History.** Every auction of yours the addon has seen, with what
   became of it: active, sold, ended, expired or cancelled, units and
-  gold. Fan
-  batches and auctions posted from Blizzard's own Sell tab alike; the
-  owned list is read once per visit and anything new is adopted. Every
-  purchase of yours too, commodity or item, with the units and what
-  you paid, under its own filter; the summary line sums sales and
-  purchases over thirty days.
+  gold. Fan batches and auctions posted from Blizzard's own Sell tab
+  alike; the owned list is read once per visit and anything new is
+  adopted. Every purchase of yours too, commodity or item, with the
+  units and what you paid, under its own filter; the summary line sums
+  sales and purchases over thirty days.
 - **Auto scan.** A checkbox beside the scan timer starts a full scan
   whenever the house allows one, every fifteen minutes while you stand
   at the auctioneer. A full scan another addon asks for is read too,
   auto scan or not: the house hands the list to every addon, and its
   fifteen minutes count for all of them.
-- **Priors.** When history is thin, vendor price, crafted cost and value
-  as a crafting input stand in as the reference. That is what makes the
-  Buy tab usable in launch week. An item whose price has settled well
-  under its crafted cost reads as a deal for as long as its history
-  stays thin, so the crafted cost and input value can be turned off:
-  untick "estimates" on the Hound tab, or `/hound estimates off`, and
-  the reference is history alone, thin or old, plus the vendor price.
-  The Item view still shows what an item costs to make either way.
-- **Connections.** Smelting, leather, hides and bolts, with input cost,
-  output value, spread per craft and gold per hour at your labor rate.
-- **Fan.** Post one item as a series of batches at spaced prices: x
-  units per batch, z batches, y percent apart. Scans only show what
-  sellers ask; the one sure sign of what buyers pay is a sale of your
-  own, so each batch is a probe. Linear spacing puts the batches at even
-  steps. Bell spacing keeps the same range but places them at normal
-  quantiles, so most sit near the center where the clearing price most
-  likely is, with a few out at the tails. A step of zero posts every
-  batch at the same price, which is how to re-list and get back to the
-  front of the queue at that price. One click posts one batch. Every
-  money column in Hound's tables shows the exact figure down to the
-  copper wherever the column has room; only a figure too wide for its
-  column drops the copper, then rounds.
-- **Own sales.** Every batch is tracked, and a sale is counted from
+- **Fan.** Post one item as a series of batches at a price interval:
+  a start price, a step in percent, how many batches and how many
+  units in each. The first batch goes up at the start price and each
+  next one a step of it dearer: from 1g at 5%, 1g, 1g 5s, 1g 10s. The
+  start price is the item's floor until you type one. A step of zero
+  posts every batch at the same price, which is how to re-list and get
+  back to the front of the queue at that price. One click posts one
+  batch. Every money column in Hound's tables shows the exact figure
+  down to the copper wherever the column has room; only a figure too
+  wide for its column drops the copper, then rounds.
+- **Own sales.** Every auction is tracked, and a sale is counted from
   one thing only: its seller invoice in the mailbox, which names the
   item, the units and the price. Open the mailbox with the addon loaded
   for sales to count. Your auction list says when an auction is off the
@@ -170,35 +130,33 @@ launch is listed at its head.
   its time, and those were as often expiries: they are taken out of
   the saved history when the addon loads, saying so once in chat. The
   result is a sold / unsold bracket per item, shown in the Item view,
-  the tooltip and `/hound stats`, and the next fan centers on the best
-  price buyers actually paid.
+  the tooltip and `/hound stats`.
 - **Tooltips.** One line by default: the latest floor seen, with its
   age when that is more than two hours: "AH floor 5s 89c". The floor is
   the latest full scan's, or the one the house has shown since, on a Buy
   tab row or a commodity search, whichever is newer: a price that has
-  dropped since the scan reads as it is now. On a stack
-  the stack's price follows in brackets ("AH floor 5s 89c (17s 67c)"),
-  to read against the game's sell price, which is the whole stack's.
-  Hold Shift for the rest: market value, the three-day mean, units
-  listed, trend and the units cleared a day at what price (or the units
-  moved estimate where no fills have been seen), plus your own sold /
-  unsold line. The vendor price is left to the game's own line. A
-  tooltip the client refreshes while it is up, a bag slot or a house
-  row, follows Shift as it goes down and up; a link clicked in chat
-  always shows the rest. Junk gets no Hound lines: the vendor is where
-  it goes. A Buy tab row's tooltip and the Item view carry the
-  cleared line too, and the Item view the three-day mean.
+  dropped since the scan reads as it is now. On a stack the stack's
+  price follows in brackets ("AH floor 5s 89c (17s 67c)"), to read
+  against the game's sell price, which is the whole stack's. Hold
+  Shift for the rest: market value, units listed, trend and the units
+  cleared a day at what price, plus your own sold / unsold line. The
+  vendor price is left to the game's own line. A tooltip the client
+  refreshes while it is up, a bag slot or a house row, follows Shift
+  as it goes down and up; a link clicked in chat always shows the
+  rest. Junk gets no Hound lines: the vendor is where it goes. A Buy
+  tab row's tooltip and the Item view carry the cleared line too.
 - **Bag overlay.** With the bags or the bank open, hold Shift: every
   slot shows what its stack is worth, at the latest floor seen, as the
-  tooltip reads it, on a dark strip, or at the vendor's price on a blue strip when the
-  vendor pays more than the house would after its cut. The figure is
-  one coin, in the game's gold, silver or copper with its coin icon
-  (1.2 gold, 12 gold, 45 silver; the coin's letter with plain money
-  set). Junk and anything soulbound show the vendor's price alone; a
-  slot with neither shows nothing. Letting go takes it down, and it
-  stays out of combat. Blizzard's own bags and bank only: a bag addon
-  that replaces them gets no figures. `/hound overlay` says what it can see
-  right now, and `/hound overlay off` turns it off.
+  tooltip reads it, on a dark strip, or at the vendor's price on a
+  blue strip when the vendor pays more than the house would after its
+  cut. The figure is one coin, in the game's gold, silver or copper
+  with its coin icon (1.2 gold, 12 gold, 45 silver; the coin's letter
+  with plain money set). Junk and anything soulbound show the vendor's
+  price alone; a slot with neither shows nothing. Letting go takes it
+  down, and it stays out of combat. Blizzard's own bags and bank only:
+  a bag addon that replaces them gets no figures. `/hound overlay`
+  says what it can see right now, and `/hound overlay off` turns it
+  off.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
   does. Hound adds a header naming the Merchant's Favor the crate pays
@@ -208,13 +166,12 @@ launch is listed at its head.
   crate (herbs, ore, textiles, curiosities) pays 5 a tier, 5, 10 and
   15, and a worked one (fabrics, ingots, parts) twice that. No guide
   has the Artisan tier yet, so an Artisan crate's header says its favor
-  is not known. A good the last scan saw fewer of than
-  the bundle takes says so ("only 6 listed", "none listed") and is
-  passed over for the green. A good with no history is priced by what
-  it costs to make, marked "~", while estimates are on; otherwise the
-  line reads "no price". The header says how old the scan is.
-  `/hound crate <link>` prints the same lines in chat. All thirty
-  crates are covered, their bundles kept as data by crate ID.
+  is not known. A good the last scan saw fewer of than the bundle
+  takes says so ("only 6 listed", "none listed") and is passed over
+  for the green. A good with no history reads "no price". The header
+  says how old the scan is. `/hound crate <link>` prints the same
+  lines in chat. All thirty crates are covered, their bundles kept as
+  data by crate ID.
 - **Craftsman's Writs.** A writ asks for one crafted item, a Lesser
   Wizard's Robe say, and the item may be bought as well as made. Hound
   adds two lines to the writ's tooltip: its rank and the reputation it
@@ -231,18 +188,26 @@ launch is listed at its head.
   reward and what a gold buys of it: "10 favor" and "4.2/g", "75 rep"
   and "30/g". The gold is the row's floor and the cheapest fill
   together, the bundle a crate's tooltip shows in green or the item a
-  writ asks for, priced the same way. A fill priced by what it costs
-  to make, or one the last scan saw too few of, marks the rate "~".
-  The row's tooltip gives the rate and the sum, crate plus fill,
-  before the usual reference and floor lines. A crate whose favor is
-  not known yet, or whose fill has no price, reads like any other row.
+  writ asks for, priced the same way. A fill the last scan saw too few
+  of marks the rate "~". The row's tooltip gives the rate and the sum,
+  crate plus fill, before the usual reference and floor lines. A crate
+  whose favor is not known yet, or whose fill has no price, reads like
+  any other row.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
-  a window) with four views. Markets lists every item with history. Item is one item in depth: stats, the daily
-  graph, anchors, connections and your own sales, reached by
+  a window) with five views. Markets lists every item with history.
+  Deals is the buy list above. Item is one item in depth: stats, the
+  daily graph, the vendor price and your own sales, reached by
   double-clicking a row elsewhere or typing a name, id or link into its
   find box. Fan plans and posts batches. History lists your auctions
   and their outcomes. Sortable tables, a bar graph of daily value with
   floor and volume, sparklines per row.
+
+Taken out in 0.7, to keep the addon slim: crafted-cost and
+input-value estimates and the recipe connections behind them, the
+confidence score, the units-moved estimate, the ledger, the three-day
+and thirty-day means and the swing, Depth on the Deals view, the
+listings block on Blizzard's buy frames, the "sat" rule, and the
+fan's bell spacing, spreads and centering on past sales.
 
 Deferred on purpose: guild sync, the neutral auction house, disenchant
 tables.
@@ -354,9 +319,9 @@ below are still the real test. What did change around the addon:
 4. **Tooltips.** Open, and changed. Hover a scanned item in your
    bags: one Hound line, "AH floor". Changed: it carries its age once
    that is past two hours ("AH floor 3.2h ago"), not a day. Hold Shift
-   with the tooltip up: the rest appears (market, 3 day, listed and trend, yours; the
-   vendor price is the game's own line, not Hound's), and goes again
-   when Shift is let go. Click the item's link in chat:
+   with the tooltip up: the rest appears (market, listed and trend,
+   yours; the vendor price is the game's own line, not Hound's), and
+   goes again when Shift is let go. Click the item's link in chat:
    that tooltip shows the rest without Shift. Hover a gray item: no
    Hound lines. Hover something never scanned: no lines, no error.
    Report a tooltip that does not follow Shift while it is up, saying
@@ -379,11 +344,10 @@ below are still the real test. What did change around the addon:
    `AuctionHound/UI/Browse.lua` are the widths to change. Hover a row:
    its usual tooltip should end in a "Hound on the Buy tab" part with
    the reference and the floor. Clicking a row still opens the buy
-   frame. Any item the scan has seen must show a reference, estimates
-   on or off; if a row says "no reference" for an item in the Markets
-   view, `/hound debug buy 5` prints the first rows with the item
-   level the house gave, the history key, and whether history is
-   stored under it. Changed again: the strip above the headers is gone,
+   frame. Any item the scan has seen must show a reference; if a row
+   says "no reference" for an item in the Markets view, `/hound debug
+   buy 5` prints the first rows with the item level the house gave,
+   the history key, and whether history is stored under it. Changed again: the strip above the headers is gone,
    and the list should sit exactly where it does without the addon.
    `/hound discount 60` and the colors move at once; `/hound discount
    25 5s` and cheap rows at "-50%" turn from green to amber, their
@@ -397,20 +361,26 @@ below are still the real test. What did change around the addon:
 7. **Item view.** Open, and new: with nothing picked it now explains
    itself. Type part of a name in its find box and press Enter; then
    shift-click a link into the box.
-8. **Fan, commodity.** Open. Open the Fan tab, pick a cheap commodity
-   from your bags, and post one batch (`/hound fan [Copper Ore] 5 5 2`
-   then `/hound post` works too). The plan line names it a `commodity`.
+8. **Fan, commodity.** Open, and simplified. Open the Fan tab and pick
+   a cheap commodity from your bags: the start box fills in with its
+   floor, and the plan below lists the batches, the first at the start
+   price and each next one a step dearer. Change the start, step,
+   batches or per batch: the plan follows at once. Post one batch
+   (`/hound fan [Copper Ore] 5 5 2 1g20s` then `/hound post` works
+   too: per batch, step %, batches, start). The plan line names it a
+   `commodity`.
    The chat line after posting should name the batch. If posting fails
    with a hardware-event error, bind a key to a macro with `/hound
    post` and post from that.
 9. **Fan, item.** Open. Do the same with a green from your bags. The
    plan line names it an `item`, and each batch posts one unit.
-10. **Fan, flat.** Open. A step of `0` posts every batch at the center
+10. **Fan, flat.** Open. A step of `0` posts every batch at the start
     price. Post two batches of the same commodity that way and confirm
     the Blizzard Auctions tab shows two separate auctions at one price.
-11. **Your posts.** Open. Open the Blizzard Auctions tab, then the Fan
-    view: the batches show as active in the "Your posts" table. Cancel
-    one from the Blizzard tab; it should flip to cancelled.
+11. **Your posts.** Open. Open the Blizzard Auctions tab, then the
+    History view: the batches show as active. Cancel one from the
+    Blizzard tab; it should flip to cancelled. The Fan view no longer
+    lists your posts; its plan table says which batches are posted.
 12. **Sales.** Open, and changed: the mail is now the only sale. Sell
     something. Until you open the mailbox, the History view shows it as
     active, then "ended" once the house's list calls it sold; no "sold"
@@ -453,37 +423,14 @@ below are still the real test. What did change around the addon:
     the deposit for anything posted while the addon was loaded (and
     saying so when it was not), and what is left. Clicking the row
     selects it as without the addon.
-17. **Listing ladder.** Open. Click a commodity row on the Buy
-    tab: under the Buy button a four-line block should name the
-    reference, the units at or under the limit, the floor and next
-    step, and the value of the listings; the units figures in the list
-    should turn green for deals and amber under reference, and white
-    again for a row over the reference after scrolling. Click a
-    non-commodity row: the block sits between the item header and the
-    auction list, and each auction's discount sits at the right end of
-    its row, the list's own columns untouched. Report if the block
-    overlaps the Buy button or the item header, or if the list's
-    headers sit under the block.
-18. **Depth.** Open, and moved to the Deals view. There, tick
-    "Depth": the status should say "reading depth" and, row by row from
-    the top, the "Deal units" column should fill. Hover a row for the
-    ladder in its tooltip. Scroll: rows coming into view are read, and
-    rows scrolled away are not. Back on the Buy tab, the rows read show
-    "xN" in their notes, and no search goes out from there. While it
-    reads, click a Buy tab row: the buy frame must still fill with that
-    item's listings (a query dropped by the throttle is sent again),
-    and type a new search: the results must still arrive. A row for an
-    item never scanned stays "no reference" once its depth is read.
-    Report if any click leaves an empty buy frame, or if the status
-    stops changing while rows on screen still lack their deal units.
-19. **Estimates.** Open, and new. Find a Buy tab row whose note starts
-    with "~" (an estimate; the row's tooltip names it). Untick
-    "estimates" beside "auto scan" on the Hound tab: the row should
-    lose the "~" and read its own thin history, or "no reference", at
-    once, with its color following, and no scan or search in between.
-    With Depth on, hover the row: the ladder should name history, not
-    the estimate. `/hound estimates on` brings them back and the box
-    follows. Report if the box overlaps the status line.
+17. **Listing ladder.** Taken out in 0.7: Hound no longer draws on
+    Blizzard's buy frames. Click a Buy tab row: the buy frame should
+    look exactly as it does without the addon.
+18. **Depth.** Taken out in 0.7. The Deals view should search nothing
+    for its rows on its own; only a double-click to buy sends one.
+19. **Estimates.** Taken out in 0.7. An item with history is judged
+    against it, thin or old; one with none reads "no reference", or
+    "vendor" under the vendor price. No "~" on a Buy tab row.
 20. **Purchases.** Open, and new. Buy a commodity through the house's
     own dialog and an item through its Buyout button. Chat should say
     "bought N x item for X" each time, and the History view should
@@ -519,6 +466,14 @@ below are still the real test. What did change around the addon:
     double-click and the purchase from the Buy click, both hardware
     events). New: the confirm has a units box; change it and the
     button reads "Get price" again, a click asking the house anew.
+    Fixed in 0.7, reported on live: a second double-click on the
+    commodity list, after a purchase say, offered a strange, high
+    number of units. The row's auction was gone from the house's
+    listings, and the count ran on to every unit listed. It now stops
+    at the row's price, and the item is the row's own. Double-click a
+    row, buy, then double-click another: the units must be those up to
+    that row. Report a count that is still more than the rows above
+    and including the one clicked.
 22. **Latest scan.** Open, and new. Find an item whose price has
     fallen and stayed down, with plenty of units at the new low. Its
     Buy tab row should read grey or amber at that price, and the row's
@@ -526,20 +481,9 @@ below are still the real test. What did change around the addon:
     two-week value. A stray unit far under the rest of its listings
     should still read green. Report a row that reads green for a floor
     the whole market sits at.
-23. **Sat.** Open, and new. With auto scan on, find a green row and
-    leave it. If nobody buys it, after an hour of scans it should turn
-    amber, the row's tooltip saying "on offer 1.0h over N scans: not a
-    deal", and clicking it should show the same on the buy frame.
-    `/hound sat 0` should turn it green again at once, `/hound sat 1`
-    amber. Report a row that stays green past the hour, or one that
-    turns amber while the scans have not seen its floor.
-24. **Wall.** Open, and new. With Depth on, find a row whose floor most
-    of its units sit at, well under history. Once its depth is read
-    the figures should show the listings' value as the reference and no
-    discount, and the tooltip's Hound part should say "these listings,
-    under history". A row with one cheap unit under a wall at the old
-    price should stay green. Report a wall that stays green with its
-    depth read, or a stray that goes grey.
+23. **Sat.** Taken out in 0.7: a floor is judged by its price alone,
+    however long it has been on offer.
+24. **Wall.** Taken out in 0.7, with Depth.
 25. **Fills.** Open, and new. With auto scan on, leave the house open
     for two scans. The second scan's chat line should end in "N units
     cleared since the last" when anything sold in between, and `/hound
@@ -668,9 +612,8 @@ below are still the real test. What did change around the addon:
     less your own. Click "Get price": the house's quote fills in and
     the button reads "Buy"; a click buys, and chat says "buying" then
     "bought". Change the units box before buying: the button goes back
-    to "Get price" and the quote is asked for again. With Depth on and
-    the row read, the double-click should go straight to the quote.
-    Double-click an item (gear, a bag): "Buy <item>" at the cheapest
+    to "Get price" and the quote is asked for again. Every double-click
+    reads the row's listings afresh. Double-click an item (gear, a bag): "Buy <item>" at the cheapest
     auction's buyout not yours; one click bids it. Report if the house
     complains about a hardware event at any step, if the units are not
     the deal's, or if the confirm buys something other than it says.
@@ -755,15 +698,12 @@ left in a field of Blizzard's.
 /hound key <link>      the history key for a link
 /hound crate <link>    price the bundles that fill a Waylaid Crate, as its tooltip does
 /hound writ <link>     price the item a Craftsman's Writ asks for, as its tooltip does
-/hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center] [12h|24h|48h]
+/hound fan <link> [per batch] [step %] [batches] [start price] [12h|24h|48h]
                        plan a fan for an item in your bags; alone, show the plan
 /hound post            post the next batch of the fan (bind it to a key)
-/hound labor <g/h>     your time, used for gold per hour
 /hound cut <pct>       auction house cut, default 5
 /hound discount [pct] [money]  the minimum a deal clears: a percentage off the reference, default 25,
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
-/hound sat <hours>     a floor on offer this long is no longer a deal, default 1; 0 judges by price alone
-/hound estimates on|off  crafted cost and value as an input as the reference while history is thin, default on
 /hound overlay [on|off]  hold Shift with the bags or bank open to see what each slot is worth, default on;
                        alone, what it sees in the bags right now
 /hound overlay test    the figures up for 10 seconds without Shift, and how they are drawn
@@ -774,14 +714,13 @@ left in a field of Blizzard's.
                        market's name, drop that market whole
 ```
 
-A fan by example: `/hound fan [Copper Ore] 10 5 5 bell` posts five
-batches of ten, five percent apart, bunched toward the center. Center
-defaults to the best price you sold the item for in the last two weeks,
-else the market value; `above` or `below` puts the center at the cheap
-or the dear end instead of the middle. A step of `0` puts every batch at
-the center price. Then `/hound post` five times, or click Post in the
-Fan view. Blizzard requires a hardware event for each auction, so
-batches never post on their own.
+A fan by example: `/hound fan [Copper Ore] 10 5 5 1g` plans five
+batches of ten, the first at 1g and each next one 5% of that dearer:
+1g, 1g 5s, 1g 10s, 1g 15s, 1g 20s. Without a start price the fan
+starts at the item's floor. A step of `0` puts every batch at the start
+price. Then `/hound post` five times, or click Post in the Fan view.
+Blizzard requires a hardware event for each auction, so batches never
+post on their own.
 
 ## How the pieces fit
 
@@ -792,16 +731,12 @@ Scan.lua     ReplicateItems (full), Hound's or another addon's; fills between sc
              the floors the house shows between them; any search answer as listings
 Throttle.lua one queue for throttled messages; Blizzard's dropped queries sent again
 Store.lua    per-market history, compact strings, async flush
-Market.lua   value from listings, ladder, stats, confidence
-Priors.lua   vendor, crafted cost, value as input, connections economics
-Reference.lua the reference: history when deep enough, the two-week value or the
-             latest scan's, whichever is lower; else a prior, else older history
-Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict;
-             what a crate or writ pays a gold of its floor and fill
-Ladder.lua   one item's listings read against the reference: deal depth, next step, strays
-Depth.lua    the ladder behind each Deals view row on screen, one search each, on demand;
-             a row about to be bought first
-Fan.lua      fan plans (linear or bell), posting, own sales from the mail
+Market.lua   value from listings, stats, and what your own posts sold
+Reference.lua the reference: the two-week value or the latest scan's, whichever
+             is lower; else older history
+Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdict,
+             the deal limit; what a crate or writ pays a gold of its floor and fill
+Fan.lua      fan plans at a price interval, posting, own sales from the mail
 Buy.lua      purchases noted from the house's calls, for the History view
 Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
 Writ.lua     the item a Craftsman's Writ asks for, priced the same way
@@ -809,12 +744,13 @@ Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              House.lua: how Hound sits on the house's lists without
              writing on them; the Buy tab figures, the Deals view
-             (Deals.lua), the buy frames' ladder block and colors,
-             Hound's own buy confirm (Confirm.lua), the Auctions tab
-             total; the Shift overlay on the bags and bank (Bags.lua)
-Data/        conversion recipes with classic item ids; the Waylaid
-             Crates, the favor each pays and the bundles that fill
-             them; the Craftsman's Writs and the item each asks for
+             (Deals.lua), the double-click on the buy frames
+             (QuickBuy.lua), Hound's own buy confirm (Confirm.lua), the
+             Auctions tab total; the Shift overlay on the bags and bank
+             (Bags.lua)
+Data/        the Waylaid Crates, the favor each pays and the bundles
+             that fill them; the Craftsman's Writs and the item each
+             asks for
 ```
 
 History is scoped by region, realm and faction: `US-ClassicBetaPvP2-Horde`
@@ -826,15 +762,11 @@ read by the same rule, whatever item level it carries. Your
 own posts live in the same market record, as plain tables, for 30 days
 after they resolve.
 
-### Units moved, and cleared
+### Cleared
 
-Blizzard exposes no sales feed. The moved estimate is the quantity that
-vanished between two scans no more than eight hours apart, which is a
-lower bound since new listings offset it. It is labelled as an estimate
-everywhere and treated as the weakest input.
-
-Cleared is the better read of the same thing. A scan keeps its ladders,
-price by price, and the next scan within four hours counts the units
+Blizzard exposes no sales feed. Cleared is the read of what sold
+between scans. A scan keeps its ladders, price by price, and the next
+scan within four hours counts the units
 gone from each price. The house gives every listing a time-left band,
 and a band's floor says how long the listing had for sure: units in a
 band that could have run out over the gap are taken off the count
@@ -845,8 +777,7 @@ other, which auto scan does. The stats carry the units cleared a day
 over the last week and the mean price they went for over the last
 three days; the scan's chat line reports the units cleared since the
 scan before. This is the one input that says what buyers pay rather
-than what sellers ask, and the reference will lean on it as it fills
-in.
+than what sellers ask.
 
 ## Tests
 
@@ -868,8 +799,8 @@ run fails on any of them. `test/run.lua` runs the full scan, auto scan,
 reference, tooltip with and without Shift, the bag overlay, slash
 command, the Buy tab figures and the rows' tooltips, the Deals view's
 rows, filters, sort, paging, search and sources, buying from it through
-the confirm's stages, depth on demand through a modelled throttle,
-listing ladder, Auctions tab total, deposit notes,
+the confirm's stages, a modelled throttle, the deal limit, the fan's
+plan and view, Auctions tab total, deposit notes,
 auction adoption and history, purchases and the quick buyout, the
 Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
 tab, a full scan the house does
@@ -884,7 +815,6 @@ the gold cap overflows, is enforced the same way.
 
 - Guild sync over addon messages, with distributed full scans
 - Neutral auction house as a second market and cross-faction spreads
-- Disenchant tables as a third prior
 - Deals view: saved filter sets, and a column for what a crate or writ
   pays a gold
 - Watchlists: items to flag on the Buy tab whatever the discount
@@ -892,5 +822,3 @@ the gold cap overflows, is enforced the same way.
 - Waylaid Crates: read a partly filled crate's tooltip and price only
   what is still missing; the Artisan tier's favor once a turn-in has
   been read
-- Craftsman's Writs: the recipes behind the 150 items, so a writ whose
-  item is not on the house shows what it costs to make

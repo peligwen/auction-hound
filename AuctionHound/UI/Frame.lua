@@ -63,7 +63,6 @@ UI.StatusLine = statusLine
 function UI.UpdateStatus()
   if statusText then statusText:SetText(statusLine()) end
   if UI.autoScanBox then UI.autoScanBox:SetChecked(H.Settings().autoScan and true or false) end
-  if UI.estimatesBox then UI.estimatesBox:SetChecked(H.Settings().estimates and true or false) end
 end
 
 ------------------------------------------------------------------------
@@ -92,10 +91,9 @@ local function buildMarketsView(parent)
     { key = "market", title = "Market", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.st.market end, desc = true },
     { key = "min", title = "Floor", width = 72, align = "RIGHT", kind = "money", value = function(r) return r.st.floor end, desc = true },
     { key = "qty", title = "Listed", width = 54, align = "RIGHT", kind = "int", value = function(r) return r.st.qty end, desc = true },
-    { key = "moved", title = "~/day", width = 50, align = "RIGHT", kind = "int", value = function(r) return r.st.moved end, desc = true },
+    { key = "cleared", title = "Cleared", width = 54, align = "RIGHT", kind = "int", value = function(r) return r.st.cleared and H.Round(r.st.cleared) end, desc = true },
     { key = "trend", title = "Trend", width = 54, align = "RIGHT", kind = "spct", value = function(r) return r.st.trend end, desc = true,
       color = function(r, raw) if not raw then return 0.6, 0.6, 0.6 end if raw > 0.05 then return 0.4, 0.9, 0.4 end if raw < -0.05 then return 0.9, 0.4, 0.4 end return 1, 1, 1 end },
-    { key = "stab", title = "Swing", width = 50, align = "RIGHT", kind = "pct", value = function(r) return r.st.stab end },
     { key = "days", title = "Days", width = 42, align = "RIGHT", kind = "int", value = function(r) return r.st.days end, desc = true },
     { key = "spark", title = "30 days", width = 100, kind = "spark", points = 30, value = function(r) return r.spark end },
   }
@@ -210,59 +208,18 @@ local function buildItemView(parent)
 
   local graph = UI.CreateBarGraph(v, { title = "daily market value, floor inside, listed units below" })
   graph:SetPoint("TOPLEFT", statsLeft, "BOTTOMLEFT", 0, -6)
-  graph:SetPoint("RIGHT", v, "RIGHT", 0, 0)
-  graph:SetHeight(150)
-
-  local connTitle = UI.Text(v, "GameFontNormalSmall", "Connections", "LEFT")
-  connTitle:SetPoint("TOPLEFT", graph, "BOTTOMLEFT", 0, -8)
-
-  local cols = {
-    { key = "recipe", title = "Recipe", width = 170, value = function(r) return r.label end },
-    { key = "dir", title = "", width = 74, value = function(r) return r.dir end,
-      color = function() return 0.7, 0.7, 0.7 end },
-    { key = "inputs", title = "Inputs", width = 80, align = "RIGHT", kind = "money", value = function(r) return r.e.inputCost end },
-    { key = "output", title = "Output", width = 80, align = "RIGHT", kind = "money", value = function(r) return r.e.revenue end },
-    { key = "spread", title = "Spread", width = 80, align = "RIGHT", kind = "money", value = function(r) return r.e.spread end, desc = true,
-      color = function(r, raw) if not raw then return 0.6, 0.6, 0.6 end if raw > 0 then return 0.4, 0.9, 0.4 end return 0.9, 0.4, 0.4 end },
-    { key = "gph", title = "g/h", width = 60, align = "RIGHT", value = function(r) return r.e.perHour end,
-      text = function(r, raw) if not raw then return "-" end return string.format("%d", math.floor(raw / 10000)) end },
-    { key = "skill", title = "Skill", width = 50, align = "RIGHT", value = function(r) return r.e.recipe.skill end,
-      text = function(r, raw) return string.format("%s %d", string.sub(r.e.recipe.prof, 1, 4), raw or 0) end },
-  }
-  local conn = UI.CreateTable(v, cols, {
-    sortKey = "spread", sortDesc = true,
-    onDouble = function(row) UI.ShowItem(tostring(row.otherID)) end,
-    tooltip = function(row, frame)
-      if not GameTooltip then return end
-      GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(row.label)
-      for _, part in ipairs(row.e.parts) do
-        GameTooltip:AddDoubleLine(string.format("%d x %s", part.qty, H.ItemName(part.id)),
-          part.price and (H.Money(part.price * part.qty) .. " (" .. (part.src or "?") .. ")") or "unpriced", 1, 1, 1, 1, 1, 1)
-      end
-      GameTooltip:AddDoubleLine(string.format("%d x %s", row.e.recipe.outQty, H.ItemName(row.e.recipe.out)),
-        row.e.outMV and H.Money(row.e.outMV * row.e.recipe.outQty) or "unpriced", 1, 0.82, 0, 1, 1, 1)
-      if row.e.laborCost then
-        GameTooltip:AddDoubleLine("labor per craft", H.Money(row.e.laborCost), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)
-      end
-      if row.e.recipe.note then GameTooltip:AddLine(row.e.recipe.note, 0.6, 0.6, 0.6) end
-      GameTooltip:Show()
-    end,
-  })
-  conn:SetPoint("TOPLEFT", connTitle, "BOTTOMLEFT", 0, -2)
-  conn:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+  graph:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
 
   -- With no item chosen the view says what it is for.
   function v:Refresh()
     if self.key then self:Show_(self.key) return end
     icon:SetTexture(134400)
     name:SetText("Item")
-    keyText:SetText(self.err or "one item's history, anchors and connections  |  " .. H.marketKey)
+    keyText:SetText(self.err or "one item's history  |  " .. H.marketKey)
     self.err = nil
     statsLeft:SetText("Pick an item: double-click a row in Markets, pick one in the Fan tab's bag list, or type part of a name, an item id or a link in the find box and press Enter.")
-    statsRight:SetText("Shows market value, floor, 3 day mean, trend, units moved, the daily graph, vendor and crafting anchors, what it is made from and what it makes, and what you sold it for.")
+    statsRight:SetText("Shows market value, floor, trend, units cleared, the daily graph, the vendor price, and what you sold it for.")
     graph:SetSeries({})
-    conn:SetData({})
   end
 
   function v:Show_(key)
@@ -275,38 +232,21 @@ local function buildItemView(parent)
     local rec = H.Store.Get(key)
     local st = rec and H.Market.Stats(rec) or nil
     if st and st.market then
-      local demand = H.Market.ClearedLine(st) or string.format("moved ~%s a day", st.moved and tostring(H.Round(st.moved)) or "?")
-      statsLeft:SetText(string.format("market %s   floor %s   3 day %s\nlisted %d   %s   trend %s\nswing %s   %d scans over %d days   last %s",
-        H.Money(st.market), H.Money(st.floor or 0), H.Money(st.avg3 or 0),
-        st.qty or 0, demand, H.Pct(st.trend, true),
-        H.Pct(st.stab), st.samples, st.days, H.Ago(st.age)))
+      local demand = H.Market.ClearedLine(st) or "none seen to clear yet"
+      statsLeft:SetText(string.format("market %s   floor %s   trend %s\nlisted %d   %s\n%d scans over %d days   last %s",
+        H.Money(st.market), H.Money(st.floor or 0), H.Pct(st.trend, true),
+        st.qty or 0, demand, st.samples, st.days, H.Ago(st.age)))
       graph:SetSeries(UI.SeriesFor(rec))
     else
       statsLeft:SetText("no history for this item yet")
       graph:SetSeries({})
     end
     local right = {}
-    local vendor = H.Priors.VendorSell(itemID)
-    if vendor then table.insert(right, "vendor " .. H.Money(vendor)) end
-    local cost, recipe = H.Priors.CraftCost(itemID)
-    if cost then table.insert(right, string.format("costs %s to make (%s)", H.Money(cost), recipe.name)) end
-    local makes, r2 = H.Priors.MakesValue(itemID)
-    if makes then table.insert(right, string.format("worth %s as an input (%s)", H.Money(makes), r2.name)) end
-    if #right == 0 then table.insert(right, "no vendor or conversion anchors") end
+    local vendor = H.VendorSell(itemID)
+    table.insert(right, vendor and ("vendor " .. H.Money(vendor)) or "no vendor price")
     local cl = H.Market.Clearing(H.Store.Posts(key))
     if cl then table.insert(right, "yours: " .. H.Fan.ClearingLine(cl)) end
     statsRight:SetText(table.concat(right, "\n"))
-
-    local rows = {}
-    local c = H.Priors.Connections(itemID)
-    for _, e in ipairs(c.madeFrom) do
-      local other = e.recipe.inputs[1] and e.recipe.inputs[1][1]
-      table.insert(rows, { key = "from" .. e.recipe.out .. "_" .. tostring(other), label = e.recipe.name, dir = "made from", e = e, otherID = other })
-    end
-    for _, e in ipairs(c.makes) do
-      table.insert(rows, { key = "to" .. e.recipe.out, label = e.recipe.name, dir = "makes", e = e, otherID = e.recipe.out })
-    end
-    conn:SetData(rows)
   end
 
   return v
@@ -340,19 +280,21 @@ end
 function UI.SeriesFor(rec)
   local out = {}
   for _, p in ipairs(H.Market.DailySeries(rec, 30)) do
-    table.insert(out, { label = H.DayLabel(p.day), y = p.mv, y2 = p.min, vol = p.qty, moved = p.moved, s = p.s })
+    table.insert(out, { label = H.DayLabel(p.day), y = p.mv, y2 = p.min, vol = p.qty, cleared = p.cleared, s = p.s })
   end
   return out
 end
 
 ------------------------------------------------------------------------
--- Fan view: post one item as a ladder of batches and watch what sells
+-- Fan view: one item from the bags, posted as batches at a price
+-- interval. The start price, the step, the batches and the units in
+-- each make the plan; one click posts one batch.
 ------------------------------------------------------------------------
 local function statusColor(text)
   if not text then return 0.6, 0.6, 0.6 end
   if string.find(text, "sold", 1, true) then return 0.4, 0.9, 0.4 end
   if string.find(text, "expired", 1, true) or text == "failed" then return 0.9, 0.4, 0.4 end
-  if text == "active" or text == "posting" then return 1, 1, 1 end
+  if text == "active" or text == "posted" or text == "posting" then return 1, 1, 1 end
   if text == "bought" then return 0.45, 0.85, 1.0 end
   return 0.6, 0.6, 0.6
 end
@@ -362,26 +304,23 @@ local function buildFanView(parent)
   v:SetAllPoints()
   local Fan = H.Fan
 
-  local function itemTooltip(row, frame)
-    if not GameTooltip then return end
-    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-    GameTooltip:SetItemByID(row.itemID)
-    GameTooltip:Show()
-  end
-
   -- left: what is in the bags
   local bagsTitle = UI.Text(v, "GameFontNormalSmall", "In bags", "LEFT")
   bagsTitle:SetPoint("TOPLEFT", v, "TOPLEFT", 4, -5)
   local bagCols = {
     { key = "item", title = "Item", width = 156, kind = "item", value = function(r) return r.name end },
     { key = "count", title = "Units", width = 42, align = "RIGHT", kind = "int", value = function(r) return r.count end, desc = true },
-    { key = "anchor", title = "Center", width = 64, align = "RIGHT", kind = "money", value = function(r) return r.anchor end, desc = true,
-      color = function(r) if r.anchorSrc == "sold" then return 0.4, 0.9, 0.4 end if r.anchor then return 1, 1, 1 end return 0.6, 0.6, 0.6 end },
+    { key = "floor", title = "Floor", width = 64, align = "RIGHT", kind = "money", value = function(r) return r.floor end, desc = true },
   }
   local bags = UI.CreateTable(v, bagCols, {
-    sortKey = "anchor", sortDesc = true,
+    sortKey = "floor", sortDesc = true,
     onSelect = function(row) v:Select(row.key) end,
-    tooltip = itemTooltip,
+    tooltip = function(row, frame)
+      if not GameTooltip then return end
+      GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+      GameTooltip:SetItemByID(row.itemID)
+      GameTooltip:Show()
+    end,
   })
   bags:SetPoint("TOPLEFT", bagsTitle, "BOTTOMLEFT", -4, -2)
   bags:SetPoint("BOTTOMLEFT", v, "BOTTOMLEFT", 0, 0)
@@ -398,64 +337,50 @@ local function buildFanView(parent)
   icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
   local name = UI.Text(right, "GameFontNormal", "pick an item from your bags", "LEFT")
   name:SetPoint("LEFT", icon, "RIGHT", 6, 0)
-  local checkBtn = UI.Button(right, "Check Sales", 90, 22, function()
-    if not Fan.RefreshOwned(true) then H.Print("open the auction house to check your auctions") end
-  end)
-  checkBtn:SetPoint("TOPRIGHT", right, "TOPRIGHT", 0, 0)
   local sub = UI.Text(right, "GameFontDisableSmall", "", "LEFT")
   sub:SetPoint("TOPLEFT", icon, "BOTTOMLEFT", 0, -3)
   sub:SetPoint("RIGHT", right, "RIGHT", 0, 0)
 
-  -- controls
+  -- the plan's five figures, on one row
   local function changed() if not v.loading then v:Replan() end end
-  local function field(label, width, prev, gap)
+  local function field(label, width, prev)
     local l = UI.Text(right, "GameFontDisableSmall", label, "LEFT")
     if prev then
-      l:SetPoint("LEFT", prev, "RIGHT", gap or 10, 0)
+      l:SetPoint("LEFT", prev, "RIGHT", 10, 0)
     else
       l:SetPoint("TOPLEFT", sub, "BOTTOMLEFT", 0, -10)
     end
     local box = UI.EditBox(right, width, changed)
-    box:SetPoint("LEFT", l, "RIGHT", 10, 0)
+    box:SetPoint("LEFT", l, "RIGHT", 8, 0)
     box.label = l
     return box
   end
-  local perBatch = field("per batch", 34)
-  local step = field("step %", 34, perBatch)
-  local batches = field("batches", 34, step)
-  local shape = UI.CycleButton(right, 56, Fan.SHAPES, changed)
-  shape:SetPoint("LEFT", batches, "RIGHT", 12, 0)
-  local spread = UI.CycleButton(right, 58, Fan.SPREADS, changed)
-  spread:SetPoint("LEFT", shape, "RIGHT", 4, 0)
+  local start = field("start", 76)
+  local step = field("step %", 34, start)
+  local batches = field("batches", 30, step)
+  local perBatch = field("per batch", 34, batches)
   local duration = UI.CycleButton(right, 42, { "12h", "24h", "48h" }, changed)
-  duration:SetPoint("LEFT", spread, "RIGHT", 4, 0)
+  duration:SetPoint("LEFT", perBatch, "RIGHT", 8, 0)
+  v.start, v.step, v.batches, v.perBatch, v.duration = start, step, batches, perBatch, duration
 
-  local centerLabel = UI.Text(right, "GameFontDisableSmall", "center", "LEFT")
-  centerLabel:SetPoint("TOPLEFT", perBatch.label, "BOTTOMLEFT", 0, -12)
-  local center = UI.EditBox(right, 90, changed)
-  center:SetPoint("LEFT", centerLabel, "RIGHT", 10, 0)
-  local centerHint = UI.Text(right, "GameFontDisableSmall", "", "LEFT")
-  centerHint:SetPoint("LEFT", center, "RIGHT", 8, 0)
-  centerHint:SetPoint("RIGHT", right, "RIGHT", 0, 0)
+  local summary = UI.Text(right, "GameFontDisableSmall", "", "LEFT")
+  summary:SetPoint("TOPLEFT", start.label, "BOTTOMLEFT", 0, -10)
+  summary:SetPoint("RIGHT", right, "RIGHT", 0, 0)
 
-  -- the plan
   local planCols = {
     { key = "i", title = "#", width = 26, align = "RIGHT", value = function(r) return r.b.i end },
-    { key = "unit", title = "Unit", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.b.unit end,
+    { key = "unit", title = "Unit", width = 84, align = "RIGHT", kind = "money", value = function(r) return r.b.unit end,
       color = function(r) if r.b.belowVendor then return 0.9, 0.4, 0.4 end return 1, 1, 1 end },
     { key = "qty", title = "Units", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.b.qty end },
-    { key = "gross", title = "Gross", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.b.unit * r.b.qty end },
-    { key = "net", title = "Net", width = 74, align = "RIGHT", kind = "money",
-      value = function(r) return H.Round(r.b.unit * r.b.qty * (1 - H.Settings().cut) - (r.b.deposit or 0)) end },
-    { key = "dep", title = "Deposit", width = 62, align = "RIGHT", kind = "money", value = function(r) return r.b.deposit end },
-    { key = "status", title = "Status", width = 110, value = function(r) return Fan.BatchStatus(r.b) end,
+    { key = "dep", title = "Deposit", width = 70, align = "RIGHT", kind = "money", value = function(r) return r.b.deposit end },
+    { key = "status", title = "Status", width = 80, value = function(r) return Fan.BatchStatus(r.b) end,
       color = function(r, raw) return statusColor(raw) end },
   }
   local planTbl = UI.CreateTable(right, planCols, { sortKey = "i" })
   v.planTbl = planTbl
-  planTbl:SetPoint("TOPLEFT", centerLabel, "BOTTOMLEFT", -4, -8)
+  planTbl:SetPoint("TOPLEFT", summary, "BOTTOMLEFT", -4, -6)
   planTbl:SetPoint("RIGHT", right, "RIGHT", 0, 0)
-  planTbl:SetHeight(18 + 7 * 16)
+  planTbl:SetHeight(18 + 10 * 16)
 
   local postBtn = UI.Button(right, "Post", 110, 22, function() Fan.PostNext() end)
   postBtn:SetPoint("TOPLEFT", planTbl, "BOTTOMLEFT", 0, -6)
@@ -464,46 +389,29 @@ local function buildFanView(parent)
   local planInfo = UI.Text(right, "GameFontDisableSmall", "", "LEFT")
   planInfo:SetPoint("LEFT", resetBtn, "RIGHT", 10, 0)
   planInfo:SetPoint("RIGHT", right, "RIGHT", 0, 0)
-
-  -- past posts for the item
-  local postsTitle = UI.Text(right, "GameFontNormalSmall", "Your posts", "LEFT")
-  postsTitle:SetPoint("TOPLEFT", postBtn, "BOTTOMLEFT", 4, -8)
-  local postCols = {
-    { key = "t", title = "When", width = 70, value = function(r) return r.p.t end, desc = true,
-      text = function(r, raw) return H.Ago(H.Now() - raw) end },
-    { key = "unit", title = "Unit", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.p.unit end },
-    { key = "qty", title = "Units", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.p.qty end },
-    { key = "sold", title = "Sold", width = 44, align = "RIGHT", kind = "int", value = function(r) return r.p.sold or 0 end,
-      color = function(r, raw) if raw and raw > 0 then return 0.4, 0.9, 0.4 end return 0.6, 0.6, 0.6 end },
-    { key = "status", title = "Status", width = 110, value = function(r) return Fan.PostStatus(r.p) end,
-      color = function(r, raw) return statusColor(raw) end },
-  }
-  local postsTbl = UI.CreateTable(right, postCols, { sortKey = "t", sortDesc = true })
-  postsTbl:SetPoint("TOPLEFT", postsTitle, "BOTTOMLEFT", -4, -2)
-  postsTbl:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", 0, 0)
+  v.postBtn = postBtn
 
   local function setBoxes(o)
     v.loading = true
-    perBatch:SetText(tostring(o.perBatch))
+    start:SetText(o.start and (string.gsub(H.MoneyExact(o.start), " ", "")) or "")
     step:SetText(tostring(H.Round(o.step * 1000) / 10))
     batches:SetText(tostring(o.batches))
-    shape:SetValue(o.shape)
-    spread:SetValue(o.spread)
+    perBatch:SetText(tostring(o.perBatch))
     duration:SetValue(({ "12h", "24h", "48h" })[o.duration] or "48h")
-    center:SetText(o.centerText or "")
     v.loading = false
   end
 
   function v:RebuildBags()
     local rows = {}
     for key, e in pairs(Fan.Bags()) do
-      local anchor, src = Fan.Anchor(key, e.itemID)
-      table.insert(rows, { key = key, itemID = e.itemID, name = H.ItemName(e.itemID), count = e.count, anchor = anchor, anchorSrc = src })
+      table.insert(rows, { key = key, itemID = e.itemID, name = H.ItemName(e.itemID), count = e.count, floor = Fan.DefaultPrice(key) })
     end
     bags:SetData(rows)
     self.bagsAt = H.Now()
   end
 
+  -- A new item starts at its floor, with the last plan's step, batches
+  -- and units.
   function v:Select(key)
     if Fan.InProgress() and Fan.plan.key ~= key then
       self.err = "a fan is in progress; reset it before planning another"
@@ -512,7 +420,7 @@ local function buildFanView(parent)
     end
     self.key = key
     local S = H.Settings()
-    setBoxes({ perBatch = S.fanPerBatch, step = S.fanStep, batches = S.fanBatches, shape = S.fanShape, spread = S.fanSpread, duration = S.postDuration })
+    setBoxes({ start = Fan.DefaultPrice(key), step = S.fanStep, batches = S.fanBatches, perBatch = S.fanPerBatch, duration = S.postDuration })
     self:Replan()
   end
 
@@ -525,35 +433,32 @@ local function buildFanView(parent)
     end
     local o = {
       key = self.key,
+      start = H.ParseMoney(start:GetText()),
       perBatch = tonumber(perBatch:GetText()),
       batches = tonumber(batches:GetText()),
-      shape = shape:GetValue(),
-      spread = spread:GetValue(),
       duration = ({ ["12h"] = 1, ["24h"] = 2, ["48h"] = 3 })[duration:GetValue()],
-      center = H.ParseMoney(center:GetText()),
     }
     local stepPct = tonumber(step:GetText())
     if stepPct then o.step = stepPct / 100 end
-    local _, err = Fan.Setup(o)
+    local plan, err = Fan.Setup(o)
+    if plan then self.shown = plan.id end
     self.err = err
     self:Refresh()
   end
 
   function v:Refresh()
     local plan = Fan.plan
-    if plan and plan.key ~= self.key then
-      -- planned elsewhere, for example from chat: show it
-      self.key = plan.key
-      setBoxes({ perBatch = plan.perBatch, step = plan.step, batches = plan.requested, shape = plan.shape, spread = plan.spread,
-        duration = plan.duration, centerText = plan.centerSrc == "set" and H.PlainMoney(plan.center) or "" })
+    if plan and plan.id ~= self.shown then
+      -- planned elsewhere, from chat say: its figures fill the boxes
+      self.key, self.shown = plan.key, plan.id
+      setBoxes({ start = plan.start, step = plan.step, batches = plan.requested, perBatch = plan.perBatch, duration = plan.duration })
     end
     if not self.key then
       icon:SetTexture(134400)
       name:SetText("pick an item from your bags")
       sub:SetText("")
-      centerHint:SetText("")
+      summary:SetText("")
       planTbl:SetData({})
-      postsTbl:SetData({})
       postBtn:SetText("Post")
       planInfo:SetText(self.err or "")
       return
@@ -561,15 +466,12 @@ local function buildFanView(parent)
     local itemID = H.ItemIDFromKey(self.key)
     icon:SetTexture(H.ItemIcon(itemID) or 134400)
     name:SetText(H.ColoredName(itemID))
-    local count = Fan.BagCount(self.key)
-    local cl = H.Market.Clearing(H.Store.Posts(self.key))
-    local anchor, src = Fan.Anchor(self.key, itemID)
-    sub:SetText(string.format("%d in bags  |  %s  |  center %s (%s)", count, Fan.ClearingLine(cl),
-      anchor and H.Money(anchor) or "-", src))
+    local floor = Fan.DefaultPrice(self.key)
+    sub:SetText(string.format("%d in bags  |  floor %s", Fan.BagCount(self.key), floor and H.Money(floor) or "not scanned"))
     if plan and plan.key == self.key then
-      centerHint:SetText(string.format("%s from %s  |  %s to %s  |  %d units, %s gross, %s net%s",
-        H.Money(plan.center), plan.centerSrc, H.Money(plan.low or 0), H.Money(plan.high or 0),
-        plan.units, H.Money(plan.gross), H.Money(plan.net), plan.short and "  |  short on units" or ""))
+      summary:SetText(string.format("%s to %s  |  %d units, %s gross, %s net%s",
+        H.Money(plan.low or 0), H.Money(plan.high or 0), plan.units, H.Money(plan.gross), H.Money(plan.net),
+        plan.short and "  |  short on units" or ""))
       local rows = {}
       for i, b in ipairs(plan.batches) do table.insert(rows, { key = "b" .. i, b = b }) end
       planTbl:SetData(rows)
@@ -583,13 +485,10 @@ local function buildFanView(parent)
         postBtn:SetText(n > 0 and "Fan complete" or "Nothing to post")
       end
     else
-      centerHint:SetText("")
+      summary:SetText("")
       planTbl:SetData({})
       postBtn:SetText("Post")
     end
-    local prows = {}
-    for _, p in ipairs(H.Store.Posts(self.key)) do table.insert(prows, { key = "p" .. tostring(p.id), p = p }) end
-    postsTbl:SetData(prows)
     planInfo:SetText(self.err or (H.atAH and "" or "open the auction house to post"))
   end
 
@@ -767,19 +666,8 @@ function UI.EnsurePanel()
   autoBox:SetPoint("RIGHT", autoBox.label, "LEFT", -1, 0)
   UI.autoScanBox = autoBox
 
-  -- estimates sits to its left: whether crafted cost and value as an
-  -- input stand in for the reference while an item's history is thin
-  local estBox = UI.CheckButton(header, "estimates", function(checked)
-    H.Settings().estimates = checked and true or false
-    H.Events:Fire("SETTINGS_CHANGED", "estimates")
-  end)
-  estBox.label:ClearAllPoints()
-  estBox.label:SetPoint("RIGHT", autoBox, "LEFT", -10, 0)
-  estBox:SetPoint("RIGHT", estBox.label, "LEFT", -1, 0)
-  UI.estimatesBox = estBox
-
   statusText = UI.Text(panel, "GameFontDisableSmall", "", "RIGHT")
-  statusText:SetPoint("RIGHT", estBox, "LEFT", -10, 0)
+  statusText:SetPoint("RIGHT", autoBox, "LEFT", -10, 0)
   statusText:SetPoint("LEFT", header, "TOPLEFT", x + 6, -11)
 
   local line = UI.Divider(panel)

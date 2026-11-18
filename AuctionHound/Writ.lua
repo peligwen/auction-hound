@@ -61,12 +61,11 @@ function Writ.Lines(r)
   if r.qty > 1 then left = string.format("  %d %s", r.qty, r.name) end
   local right, color = "no price", C.none
   if r.unit then
-    local mark = r.src == "crafted" and "~" or ""
-    if r.qty > 1 then left = left .. string.format(", %s%s each", mark, H.Money(r.unit)) end
+    if r.qty > 1 then left = left .. string.format(", %s each", H.Money(r.unit)) end
     if r.listed then
       left = left .. (r.listed > 0 and string.format(", |cffd9cc73only %d listed|r", r.listed) or ", |cffd9cc73none listed|r")
     end
-    right, color = mark .. H.Money(r.total), C.price
+    right, color = H.Money(r.total), C.price
   end
   return {
     { string.format("|cffe6b800Hound|r %s writ, %d reputation", r.rank, r.rep), age, C.none },

@@ -1,9 +1,9 @@
 -- Buy.lua: what you bought at the house.
 --
 -- Scans show what sellers ask and your own sales show what buyers pay;
--- what you paid is the third column of the ledger. Every purchase that
--- goes through the house's API is noted, from Blizzard's buy frames or
--- the double-click on their lists (UI/Ladder.lua): a commodity
+-- this is what you paid. Every purchase that goes through the house's
+-- API is noted, from Blizzard's buy frames, the double-click on their
+-- lists (UI/QuickBuy.lua) or the Deals view: a commodity
 -- from its quote and confirm, an item from the bid placed at its
 -- buyout. The History view lists them beside your own auctions.
 local ADDON, H = ...
@@ -25,7 +25,6 @@ local function record(b, now)
   b.status = "bought"
   b.name = b.name or H.ItemName(b.itemID)
   H.Store.AddBuy(b)
-  H.Store.Ledger({ t = now, key = b.key, itemID = b.itemID, qty = b.qty, unit = b.unit, kind = "buy" })
   if b.qty > 1 then
     H.Printf("bought %d x %s for %s (%s each)", b.qty, b.name, H.Money(b.total), H.Money(b.unit))
   else

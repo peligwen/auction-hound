@@ -7,7 +7,6 @@
 -- Record layout (decoded):
 --   days  = { [dayIndex] = { mv, min, qty, n, s } }   daily aggregates
 --   pts   = { { t, mv, min, qty, n }, ... }           recent scan points
---   moved = { [dayIndex] = units }                    consumed-units proxy
 --   fills = { [dayIndex] = { u = units, v = value } } units gone to buyers between
 --                                                     scans, and what they went for
 --   seen  = { t, min }                                the floor the house showed
@@ -31,7 +30,7 @@ local FORMAT = "1"
 -- number a double holds exactly, up to 2^53. Every field here is
 -- already rounded, so the string reads the same.
 local function encode(rec)
-  local days, pts, moved, fills = {}, {}, {}, {}
+  local days, pts, fills = {}, {}, {}
   local order = {}
   for d in pairs(rec.days) do table.insert(order, d) end
   table.sort(order)
@@ -43,31 +42,26 @@ local function encode(rec)
     table.insert(pts, string.format("%.0f:%.0f:%.0f:%.0f:%.0f", math.floor(p.t / 60), p.mv, p.min, p.qty, p.n))
   end
   order = {}
-  for d in pairs(rec.moved) do table.insert(order, d) end
-  table.sort(order)
-  for _, d in ipairs(order) do
-    table.insert(moved, string.format("%.0f:%.0f", d, rec.moved[d]))
-  end
-  order = {}
   for d in pairs(rec.fills or {}) do table.insert(order, d) end
   table.sort(order)
   for _, d in ipairs(order) do
     local f = rec.fills[d]
     table.insert(fills, string.format("%.0f:%.0f:%.0f", d, f.u, f.v))
   end
-  local out = FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#M" .. table.concat(moved, ",") .. "#F" .. table.concat(fills, ",")
+  local out = FORMAT .. "#D" .. table.concat(days, ",") .. "#P" .. table.concat(pts, ",") .. "#F" .. table.concat(fills, ",")
   if rec.seen then
     out = out .. string.format("#S%.0f:%.0f", math.floor(rec.seen.t / 60), rec.seen.min)
   end
   return out
 end
 
+-- A record saved before the units-moved estimate was dropped carries a
+-- "#M" section, which is passed over and gone at the next save.
 local function decode(str)
-  local rec = { days = {}, pts = {}, moved = {}, fills = {} }
+  local rec = { days = {}, pts = {}, fills = {} }
   if type(str) ~= "string" then return rec end
   local daysStr = string.match(str, "#D([^#]*)") or ""
   local ptsStr = string.match(str, "#P([^#]*)") or ""
-  local movedStr = string.match(str, "#M([^#]*)") or ""
   local fillsStr = string.match(str, "#F([^#]*)") or ""
   local seenT, seenMin = string.match(str, "#S(%d+):(%d+)")
   if seenT then rec.seen = { t = tonumber(seenT) * 60, min = tonumber(seenMin) } end
@@ -84,11 +78,6 @@ local function decode(str)
     if tmin then
       table.insert(rec.pts, { t = tmin * 60, mv = tonumber(mv) or 0, min = tonumber(min) or 0, qty = tonumber(qty) or 0, n = tonumber(n) or 0 })
     end
-  end
-  for entry in string.gmatch(movedStr, "[^,]+") do
-    local d, units = strsplit(":", entry)
-    d = tonumber(d)
-    if d then rec.moved[d] = tonumber(units) or 0 end
   end
   for entry in string.gmatch(fillsStr, "[^,]+") do
     local d, u, v = strsplit(":", entry)
@@ -138,7 +127,7 @@ end
 function Store.GetOrCreate(key)
   local rec = Store.Get(key)
   if rec then return rec end
-  rec = { days = {}, pts = {}, moved = {}, fills = {} }
+  rec = { days = {}, pts = {}, fills = {} }
   cache[key] = rec
   dirty[key] = true
   local m = market()
@@ -236,14 +225,6 @@ function Store.AddScanSample(key, t, listings)
     rec.days[day] = { mv = mv, min = min, qty = qty, n = n, s = 1 }
   end
 
-  -- consumed-units proxy: quantity that vanished since a recent scan.
-  -- A lower bound, since new listings offset it; gaps over eight hours
-  -- are ignored because expiries start to dominate.
-  local prev = rec.pts[#rec.pts]
-  if prev and t - prev.t <= 8 * 3600 and t > prev.t and prev.qty > qty then
-    rec.moved[day] = (rec.moved[day] or 0) + (prev.qty - qty)
-  end
-
   table.insert(rec.pts, { t = t, mv = mv, min = min, qty = qty, n = n })
   if rec.seen and rec.seen.t <= t then rec.seen = nil end
   local keepPoints = S.keepPoints or 120
@@ -253,9 +234,6 @@ function Store.AddScanSample(key, t, listings)
   local cutoff = day - keepDays
   for d in pairs(rec.days) do
     if d < cutoff then rec.days[d] = nil end
-  end
-  for d in pairs(rec.moved) do
-    if d < cutoff then rec.moved[d] = nil end
   end
   rec.fills = rec.fills or {}
   for d in pairs(rec.fills) do
@@ -356,6 +334,18 @@ function Store.FlushAsync()
   if next(dirty) then flushFrame:Show() end
 end
 
+-- The units-moved estimate is gone: its section comes out of every
+-- record saved with one, in every market. Run once, by H.InitDB.
+function Store.DropMoved(db)
+  for _, m in pairs(type(db) == "table" and db.markets or {}) do
+    for key, str in pairs(m.items or {}) do
+      if type(str) == "string" and string.find(str, "#M", 1, true) then
+        m.items[key] = (string.gsub(str, "#M[^#]*", ""))
+      end
+    end
+  end
+end
+
 function Store.LogScan(entry)
   local m = market()
   if not m then return end
@@ -382,12 +372,6 @@ function Store.Wipe()
   cache = {}
   dirty = {}
   byItem, byItemOf = nil, nil
-end
-
-function Store.Ledger(entry)
-  if not H.db then return end
-  table.insert(H.db.ledger, entry)
-  while #H.db.ledger > 500 do table.remove(H.db.ledger, 1) end
 end
 
 ------------------------------------------------------------------------

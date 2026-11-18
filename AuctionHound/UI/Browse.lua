@@ -1,15 +1,14 @@
 -- UI/Browse.lua: Hound's reading of each row on the Buy tab.
 --
 -- Each row of Blizzard's browse list gets Hound's figures at the right
--- end of its name: the reference, and the units at the floor once the
--- Deals view's Depth has read them, on the left; the discount off the
--- reference on the right, green for a deal, amber under the reference,
--- grey above. The figures are Hound's own frame on the name cell
--- (UI/House.lua has why nothing of Blizzard's is written), and the
--- name gives them room. Hovering a row adds Hound's lines to the row's
--- own tooltip. The list keeps Blizzard's order and layout: the minimum,
--- the filters, the order by discount and Depth are the Deals view's
--- (UI/Deals.lua), which reads the same results.
+-- end of its name: the reference on the left, the discount off it on
+-- the right, green for a deal, amber under the reference, grey above.
+-- The figures are Hound's own frame on the name cell (UI/House.lua has
+-- why nothing of Blizzard's is written), and the name gives them room.
+-- Hovering a row adds Hound's lines to the row's own tooltip. The list
+-- keeps Blizzard's order and layout: the minimum, the filters and the
+-- order by discount are the Deals view's (UI/Deals.lua), which reads
+-- the same results.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -39,9 +38,7 @@ local function build(cell)
 end
 
 function B.Paint(o, rowData)
-  local e = H.Browse.Evaluate(rowData)
-  local L = e and H.Settings().browseDepth and H.Depth.Get(rowData) or nil
-  local note, figure, color = H.Browse.CellText(e, L)
+  local note, figure, color = H.Browse.CellText(H.Browse.Evaluate(rowData))
   o.Sub:SetText(note)
   o.Text:SetText(figure)
   o.Text:SetTextColor(color[1], color[2], color[3])
@@ -80,11 +77,9 @@ end
 
 ------------------------------------------------------------------------
 -- The row's tooltip: what the figures stand on. The Deals view's rows
--- carry the same lines under their own title; asking says the list
--- asks for the listings of its rows, as the Deals view does with Depth
--- on and the Buy tab never does.
+-- carry the same lines under their own title.
 ------------------------------------------------------------------------
-function B.ReadingLines(tooltip, rowData, title, asking)
+function B.ReadingLines(tooltip, rowData, title)
   local e = H.Browse.Evaluate(rowData)
   if not e or e.qty == 0 then return end
   tooltip:AddLine(" ")
@@ -96,21 +91,9 @@ function B.ReadingLines(tooltip, rowData, title, asking)
       tooltip:AddLine(line, v, v, v, true)
     end
   end
-  local depthOn = H.Settings().browseDepth
-  local L = depthOn and H.Depth.Get(rowData) or nil
   local cleared = H.Market.ClearedLine(e.st)
-  if L then
-    for _, line in ipairs(H.Ladder.Lines(L)) do
-      tooltip:AddLine(line, 0.8, 0.8, 0.8, true)
-    end
-    if cleared then tooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
-    return
-  end
   if e.ref then
     tooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
-    if string.sub(e.refSrc or "", 1, 6) == "prior:" then
-      tooltip:AddLine("untick estimates on the Hound tab to judge by history alone", 0.6, 0.6, 0.6, true)
-    end
   else
     tooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
   end
@@ -120,13 +103,6 @@ function B.ReadingLines(tooltip, rowData, title, asking)
       H.Pct(e.disc), H.MoneyExact(e.saving), H.MoneyExact(H.Settings().minSaving or 0)), 0.85, 0.80, 0.45, true)
   end
   if cleared then tooltip:AddLine(cleared, 0.8, 0.8, 0.8, true) end
-  if depthOn and H.Depth.Failed(rowData) then
-    tooltip:AddLine("the house answered with no listings; asked again in a minute", 0.6, 0.6, 0.6, true)
-  elseif depthOn and asking then
-    tooltip:AddLine("reading the listings", 0.6, 0.6, 0.6)
-  elseif not depthOn then
-    tooltip:AddLine("tick Depth on the Hound tab's Deals view for the units at the floor and the next step", 0.6, 0.6, 0.6, true)
-  end
 end
 
 function B.TooltipLines(tooltip, rowData)
@@ -134,9 +110,6 @@ function B.TooltipLines(tooltip, rowData)
 end
 
 House.OnTooltip("browse", B.TooltipLines)
-
--- A ladder the Deals view's Depth read repaints the figures here too.
-H.Events:On("DEPTH_UPDATED", function() B.Repaint() end)
 
 ------------------------------------------------------------------------
 -- Install once the Blizzard frame exists: the hooks on the name cells,

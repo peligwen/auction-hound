@@ -11,20 +11,15 @@ local Crate = {}
 H.Crate = Crate
 
 -- One unit of a good, as the house prices it: the market value its own
--- tooltip shows, or history older than the two weeks that value spans
--- (the 30-day mean, else the last scan it was seen in). With neither,
--- and estimates on, what it costs to make. Returns the price, where it
--- came from ("market" or "crafted") and the stats, or nil. The item a
--- writ asks for is priced here too (Writ.lua), gear included.
+-- tooltip shows, or for history older than the two weeks that value
+-- spans, the value at the last scan it was seen in. Returns the price,
+-- where it came from ("market") and the stats, or nil. The item a writ
+-- asks for is priced here too (Writ.lua), gear included.
 function Crate.UnitPrice(itemID)
   local rec = H.Store.Plain(itemID)
   local st = rec and H.Market.Stats(rec) or nil
-  local price = st and (st.market or st.hist or st.recent)
+  local price = st and (st.market or st.recent)
   if price and price > 0 then return price, "market", st end
-  if H.Settings().estimates then
-    local cost = H.Priors.CraftCost(itemID)
-    if cost and cost > 0 then return cost, "crafted", st end
-  end
   return nil, nil, st
 end
 
@@ -101,8 +96,7 @@ end
 -- The lines a tooltip or the chat shows for a crate: a header with the
 -- favor it pays, then one line per bundle with the units and the price
 -- of one on the left and the bundle's total on the right. Each is
--- { left, right, color }. An estimate carries a "~", the way the Buy
--- tab marks one.
+-- { left, right, color }.
 ------------------------------------------------------------------------
 Crate.COLORS = {
   best = { 0.30, 0.85, 0.30 },
@@ -129,12 +123,11 @@ function Crate.Lines(r)
     local left = string.format("  %d %s", e.qty, e.name)
     local right, color = "no price", Crate.COLORS.none
     if e.unit then
-      local mark = e.src == "crafted" and "~" or ""
-      left = left .. string.format(", %s%s each", mark, H.Money(e.unit))
+      left = left .. string.format(", %s each", H.Money(e.unit))
       if e.listed then
         left = left .. (e.listed > 0 and string.format(", |cffd9cc73only %d listed|r", e.listed) or ", |cffd9cc73none listed|r")
       end
-      right = mark .. H.Money(e.total)
+      right = H.Money(e.total)
       color = i == r.best and Crate.COLORS.best or Crate.COLORS.price
     end
     lines[#lines + 1] = { left, right, color }

@@ -64,64 +64,6 @@ function Market.ValueFromListings(listings)
 end
 
 ------------------------------------------------------------------------
--- Price ladder: cumulative units at each price step, cheapest first.
--- Answers "how many units sit within X% of the floor".
-------------------------------------------------------------------------
-function Market.Ladder(listings)
-  local sorted = {}
-  for _, l in ipairs(listings) do table.insert(sorted, l) end
-  table.sort(sorted, function(a, b) return a.p < b.p end)
-  local out, cum = {}, 0
-  for _, l in ipairs(sorted) do
-    cum = cum + l.q
-    if #out > 0 and out[#out].p == l.p then
-      out[#out].cum = cum
-      out[#out].q = out[#out].q + l.q
-    else
-      table.insert(out, { p = l.p, q = l.q, cum = cum })
-    end
-  end
-  return out
-end
-
-function Market.UnitsWithin(ladder, pct)
-  if #ladder == 0 then return 0 end
-  local limit = ladder[1].p * (1 + pct)
-  local units = 0
-  for _, step in ipairs(ladder) do
-    if step.p <= limit then units = step.cum else break end
-  end
-  return units
-end
-
-------------------------------------------------------------------------
--- How long a floor has been on offer, as the scans saw it: the run of
--- latest scan points whose floor is this price, within a small
--- tolerance for a copper's undercut. Returns the seconds since the
--- first point of the run and the number of points; 0 and 0 when the
--- latest scan had a different floor, so this one is new since it; nil
--- without a record or points. A floor the scans have kept seeing has
--- been passed over by every buyer in between.
-------------------------------------------------------------------------
-Market.FLOOR_TOL = 0.02
-
-function Market.FloorAge(rec, floor, now)
-  if not rec or not floor or floor <= 0 or #rec.pts == 0 then return nil end
-  now = now or H.Now()
-  local first, n = nil, 0
-  for i = #rec.pts, 1, -1 do
-    local p = rec.pts[i]
-    if p.min and math.abs(p.min - floor) <= floor * Market.FLOOR_TOL then
-      first, n = p, n + 1
-    else
-      break
-    end
-  end
-  if not first then return 0, 0 end
-  return math.max(0, now - first.t), n
-end
-
-------------------------------------------------------------------------
 -- Stats over a stored record.
 --
 --   market  decay-weighted mean of daily values over the last 14 days
@@ -130,15 +72,9 @@ end
 --   floor   the latest floor seen: the latest scan's, or one the house
 --           has shown since on the Buy tab or a search (Store.NoteFloor)
 --   floorAt, floorAge   when that floor was seen, and how long ago
---   hist    plain mean of daily values over 30 days, for history older
---           than the two weeks the market value spans
---   avg3    plain mean of daily values over the last three days, today
---           included: what the tooltip and the Item view show
 --   trend   recent versus the previous week's mean, as a fraction
---   stab    coefficient of variation of daily values over 14 days
 --   qty     units listed at the latest scan
 --   listed  decay-weighted mean of the units listed, over 14 days
---   moved   estimated units consumed per day over the last week
 --   cleared units seen to go to buyers between scans, per day over
 --           the last week, when any were
 --   clearing the mean price they went for over the last three days
@@ -163,9 +99,6 @@ function Market.Stats(rec, now)
 
   local st = { day = today, days = 0, samples = 0 }
   local wsum, sum = 0, 0
-  local histSum, histN = 0, 0
-  local avgSum, avgN = 0, 0
-  local vals14 = {}
   local weekSum, weekN = 0, 0
   local listedSum = 0
 
@@ -175,18 +108,11 @@ function Market.Stats(rec, now)
       local age = today - d
       st.days = st.days + 1
       st.samples = st.samples + b.s
-      histSum = histSum + b.mv
-      histN = histN + 1
-      if age <= 2 then
-        avgSum = avgSum + b.mv
-        avgN = avgN + 1
-      end
       if age <= 13 then
         local w = 0.5 ^ (age / 3.5)
         sum = sum + b.mv * w
         wsum = wsum + w
         listedSum = listedSum + (b.qty or 0) * w
-        table.insert(vals14, b.mv)
       end
       if age >= 1 and age <= 7 then
         weekSum = weekSum + b.mv
@@ -199,8 +125,6 @@ function Market.Stats(rec, now)
     st.market = H.Round(sum / wsum)
     st.listed = listedSum / wsum
   end
-  if histN > 0 then st.hist = H.Round(histSum / histN) end
-  if avgN > 0 then st.avg3 = H.Round(avgSum / avgN) end
 
   local last = rec.pts[#rec.pts]
   if last then
@@ -220,20 +144,6 @@ function Market.Stats(rec, now)
     local weekMean = weekSum / weekN
     if weekMean > 0 then st.trend = st.recent / weekMean - 1 end
   end
-
-  if #vals14 >= 3 then
-    local mean = H.Mean(vals14)
-    if mean and mean > 0 then st.stab = H.StdDev(vals14, mean) / mean end
-  end
-
-  local movedSum, movedDays = 0, 0
-  for d = today - 7, today do
-    if rec.days[d] then
-      movedDays = movedDays + 1
-      movedSum = movedSum + (rec.moved[d] or 0)
-    end
-  end
-  if movedDays >= 2 then st.moved = movedSum / movedDays end
 
   local fillDays, fillUnits, fillUnits3, fillValue3 = 0, 0, 0, 0
   for d = today - 6, today do
@@ -272,14 +182,6 @@ Market.SCARCE = 0.25
 function Market.Scarce(st, units)
   if not st or not st.listed or st.listed <= 0 or not units then return false end
   return units < Market.SCARCE * st.listed
-end
-
--- 0..1 confidence in the market value, from history depth alone.
-function Market.Confidence(st)
-  if not st or not st.market then return 0 end
-  local d = math.min(1, st.days / 7)
-  local s = math.min(1, st.samples / 12)
-  return 0.6 * d + 0.4 * s
 end
 
 ------------------------------------------------------------------------
@@ -333,7 +235,7 @@ function Market.DailySeries(rec, numDays, now)
     local b = rec.days[d]
     if b then
       local f = rec.fills and rec.fills[d]
-      table.insert(out, { day = d, mv = b.mv, min = b.min, qty = b.qty, s = b.s, moved = rec.moved[d], cleared = f and f.u or nil })
+      table.insert(out, { day = d, mv = b.mv, min = b.min, qty = b.qty, s = b.s, cleared = f and f.u or nil })
     else
       table.insert(out, { day = d })
     end

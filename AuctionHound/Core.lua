@@ -5,9 +5,7 @@ H.DEFAULTS = {
   cut = 0.05,            -- auction house cut on the faction AH
   minDiscount = 0.25,    -- a floor this far under reference counts as a deal
   minSaving = 0,         -- and at least this many copper a unit under it; 0 is no such floor
-  satHours = 1,          -- a floor the scans have seen at its price this long is no longer a deal; 0 judges by price alone
   autoScan = false,      -- start a full scan whenever one is allowed at the AH
-  browseDepth = false,   -- Deals view: search each row on screen for the units at its floor
   dealsSource = "house", -- Deals view: "house", the house's search results; "scan", the last full scan
   dealsOnly = true,      -- Deals view: only the rows that are deals
   dealsHistory = false,  -- Deals view: only rows judged against market history
@@ -15,20 +13,20 @@ H.DEFAULTS = {
   dealsQuality = 0,      -- Deals view: the lowest quality shown; 0 shows all
   dealsClass = -1,       -- Deals view: the item class shown; -1 shows all
   dealsMaxPrice = 0,     -- Deals view: the dearest floor shown, copper a unit; 0 for no cap
-  estimates = true,      -- crafted cost and value as an input stand in for the reference while history is thin
-  laborPerHour = 50,     -- gold per hour, used for conversion profit per hour
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
   overlay = true,        -- hold Shift with the bags or bank open: each slot's worth, at the house or the vendor
   keepDays = 90,         -- daily history retention
   keepPoints = 120,      -- scan-level points kept per item
   fanPerBatch = 5,       -- units per batch when fanning a listing
-  fanStep = 0.05,        -- price gap between batches, fraction of the center
+  fanStep = 0.05,        -- price gap between batches, fraction of the start price
   fanBatches = 5,        -- batches per fan
-  fanShape = "linear",   -- linear | bell
-  fanSpread = "around",  -- around | above | below the center
   postDuration = 3,      -- 1 = 12h, 2 = 24h, 3 = 48h
 }
+
+-- Settings and saved data of features since taken out: dropped from
+-- the saved file the first time this version loads.
+H.RETIRED_SETTINGS = { "estimates", "laborPerHour", "satHours", "browseDepth", "fanShape", "fanSpread" }
 
 H.atAH = false
 
@@ -58,9 +56,9 @@ function H.InitDB()
   for k, v in pairs(H.DEFAULTS) do
     if db.settings[k] == nil then db.settings[k] = v end
   end
+  for _, k in ipairs(H.RETIRED_SETTINGS) do db.settings[k] = nil end
   db.markets = db.markets or {}
   db.names = db.names or {}
-  db.ledger = db.ledger or {}
   db.lastFull = db.lastFull or 0
   H.marketKey = H.MarketKey()
   db.markets[H.marketKey] = db.markets[H.marketKey] or { items = {}, scans = {} }
@@ -71,6 +69,12 @@ function H.InitDB()
   if purged > 0 then
     H.Printf("%d auction%s once counted as sold for leaving the house early no longer count; only a sale's mail does",
       purged, purged == 1 and "" or "s")
+  end
+  -- the ledger was written and never read; the purge above was its last use
+  db.ledger = nil
+  if (db.version or 1) < 2 then
+    if H.Store then H.Store.DropMoved(db) end
+    db.version = 2
   end
   return db
 end
@@ -132,13 +136,11 @@ commands.help = function()
   H.Print("  /hound key <link>           show the history key for a link")
   H.Print("  /hound crate <link or id>   price the bundles that fill a Waylaid Crate")
   H.Print("  /hound writ <link or id>    price the item a Craftsman's Writ asks for")
-  H.Print("  /hound fan <link> [per batch] [step %] [batches] [bell|linear] [around|above|below] [center, e.g. 1g20s] [12h|24h|48h]")
+  H.Print("  /hound fan <link> [per batch] [step %] [batches] [start price, e.g. 1g20s] [12h|24h|48h]")
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
-  H.Print("  /hound labor <gold per hour> / cut <percent>")
+  H.Print("  /hound cut <percent>        the house's cut, default 5")
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
-  H.Print("  /hound sat <hours>          a floor on offer this long is no longer a deal; 0 judges by price alone")
-  H.Print("  /hound estimates on|off     crafted cost and value as an input as the reference while history is thin")
   H.Print("  /hound overlay [on|off|test]  hold Shift with the bags or bank open to see what each slot is worth")
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
@@ -154,7 +156,7 @@ commands.fan = function(rest)
     id = tonumber(string.match(rest, "^%s*(%d+)"))
     if id then link = "item:" .. id end
   end
-  if not link then H.Print("usage: /hound fan <item link or id> [per batch] [step %] [batches] [bell] [above|below] [center]") return end
+  if not link then H.Print("usage: /hound fan <item link or id> [per batch] [step %] [batches] [start price] [12h|24h|48h]") return end
   local tail
   if id then
     tail = string.gsub(rest, "^%s*%d+", "", 1)
@@ -168,11 +170,7 @@ commands.fan = function(rest)
   for tok in string.gmatch(tail, "%S+") do
     local l = string.lower(tok)
     local hours = string.match(l, "^(%d+)h$")
-    if l == "bell" or l == "linear" then
-      o.shape = l
-    elseif l == "around" or l == "above" or l == "below" then
-      o.spread = l
-    elseif hours then
+    if hours then
       local h = tonumber(hours)
       o.duration = h <= 12 and 1 or (h <= 24 and 2 or 3)
     elseif string.match(l, "^[%d%.]+%%$") then
@@ -180,7 +178,7 @@ commands.fan = function(rest)
     elseif tonumber(l) then
       table.insert(nums, tonumber(l))
     elseif string.match(l, "^[%d%.]+[gsc]") then
-      o.center = H.ParseMoney(l)
+      o.start = H.ParseMoney(l)
     end
   end
   if nums[1] then o.perBatch = nums[1] end
@@ -211,11 +209,10 @@ commands.stats = function(rest)
   H.Printf("%s [%s]", H.ItemName(H.ItemIDFromKey(key)), key)
   if rec then
     local st = H.Market.Stats(rec)
-    H.Printf("  market %s  floor %s (%s)  3d %s  listed %s  trend %s  stability %s",
-      H.Money(st.market or 0), H.Money(st.floor or 0), H.Ago(st.floorAge), H.Money(st.avg3 or 0),
-      tostring(st.qty or 0), H.Pct(st.trend, true), H.Pct(st.stab))
-    H.Printf("  %d days, %d scans, last %s, moved ~%s/day",
-      st.days, st.samples, H.Ago(st.age), st.moved and H.Round(st.moved) or "?")
+    H.Printf("  market %s  floor %s (%s)  listed %s  trend %s",
+      H.Money(st.market or 0), H.Money(st.floor or 0), H.Ago(st.floorAge),
+      tostring(st.qty or 0), H.Pct(st.trend, true))
+    H.Printf("  %d days, %d scans, last %s", st.days, st.samples, H.Ago(st.age))
     local cleared = H.Market.ClearedLine(st)
     if cleared then H.Printf("  %s (units gone between scans before they could expire)", cleared) end
   end
@@ -245,13 +242,6 @@ commands.writ = function(rest)
   id = id or (link and tonumber(string.match(link, "item:(%d+)")))
   if not id then H.Print("usage: /hound writ <writ link or id>") return end
   H.Writ.Describe(id)
-end
-
-commands.labor = function(rest)
-  local v = tonumber(rest)
-  if not v then H.Printf("labor is %d gold per hour", H.Settings().laborPerHour) return end
-  H.Settings().laborPerHour = v
-  H.Printf("labor set to %d gold per hour", v)
 end
 
 commands.cut = function(rest)
@@ -296,48 +286,6 @@ commands.discount = function(rest)
     H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
   else
     H.Printf("minimum discount is %s", minimumLine(S))
-  end
-end
-
--- Sat: a floor the scans have seen at the same price for this long
--- has been passed over by every buyer since, so it is under the
--- reference but no longer a deal. Zero judges by price alone.
-commands.sat = function(rest)
-  local S = H.Settings()
-  local v = tonumber(rest)
-  if v then
-    S.satHours = math.max(0, v)
-    H.Events:Fire("SETTINGS_CHANGED", "satHours")
-  elseif rest and rest ~= "" then
-    H.Print("usage: /hound sat <hours>")
-    return
-  end
-  if (S.satHours or 0) > 0 then
-    H.Printf("a floor on offer for %s hours or more is no longer a deal", tostring(S.satHours))
-  else
-    H.Print("sat is off: floors are judged by price alone")
-  end
-end
-
--- Estimates: with history thin, the crafted cost or the value as an
--- input stands in for the reference. An item whose own price has
--- settled under its crafted cost reads as a deal forever that way, so
--- they can be turned off: the reference is then history, thin or not,
--- or the vendor price.
-commands.estimates = function(rest)
-  local S = H.Settings()
-  local v = string.lower(rest or "")
-  if v == "on" or v == "off" then
-    S.estimates = v == "on"
-    H.Events:Fire("SETTINGS_CHANGED", "estimates")
-  elseif v ~= "" then
-    H.Print("usage: /hound estimates on|off")
-    return
-  end
-  if S.estimates then
-    H.Print("estimates are on: crafted cost and value as an input stand in for the reference while history is thin")
-  else
-    H.Print("estimates are off: the reference is history or the vendor price, or nothing")
   end
 end
 

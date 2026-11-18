@@ -2,7 +2,7 @@
 --
 -- The house answers one throttled message at a time. Sending another
 -- before the ready event drops it on the floor with no retry, so
--- everything Hound sends from the Buy tab goes through this queue,
+-- everything Hound sends from the Deals view goes through this queue,
 -- which sends the next message only when the system says it is ready.
 --
 -- Blizzard's own frames send their queries straight away. While one of
@@ -42,12 +42,6 @@ function T.Send(fn)
   end
   table.insert(T.queue, fn)
   return false
-end
-
-function T.Cancel(fn)
-  for i = #T.queue, 1, -1 do
-    if T.queue[i] == fn then table.remove(T.queue, i) end
-  end
 end
 
 function T.Clear()

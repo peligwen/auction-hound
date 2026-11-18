@@ -6,12 +6,11 @@
 -- An item's own lines are one by default, the latest floor seen, at
 -- the last scan or on the house since; on a stack the stack's price
 -- follows in brackets, to read against the game's sell price, which is
--- the stack's. Shift held
--- shows the rest: the market value, the three-day mean, the trend,
--- what has cleared and your own sales. The vendor price is left to the
--- game's own line. A tooltip the client refreshes while it is up, a
--- bag slot or a house row, follows Shift as it goes down and up; a
--- link clicked in chat stays up to be read, so it always shows the
+-- the stack's. Shift held shows the rest: the market value, the
+-- trend, what has cleared and your own sales. The vendor price is left
+-- to the game's own line. A tooltip the client refreshes while it is
+-- up, a bag slot or a house row, follows Shift as it goes down and up;
+-- a link clicked in chat stays up to be read, so it always shows the
 -- rest. Junk gets no Hound lines at all: the vendor is where it goes.
 local ADDON, H = ...
 
@@ -75,15 +74,10 @@ local function addLines(tooltip, itemID, link)
   if st then
     floorLine(tooltip, st)
     tooltip:AddDoubleLine("  market", H.Money(st.market), 0.8, 0.8, 0.8, 1, 1, 1)
-    if st.avg3 then
-      tooltip:AddDoubleLine("  3 day", H.Money(st.avg3), 0.8, 0.8, 0.8, 1, 1, 1)
-    end
     local parts = { string.format("%d listed", st.qty or 0) }
     if st.trend then table.insert(parts, "trend " .. H.Pct(st.trend, true)) end
     if st.cleared then
       table.insert(parts, string.format("cleared ~%d/day%s", H.Round(st.cleared), st.clearing and (" at ~" .. H.MoneyShort(st.clearing)) or ""))
-    elseif st.moved then
-      table.insert(parts, string.format("~%d/day", H.Round(st.moved)))
     end
     table.insert(parts, string.format("%d scans", st.samples))
     tooltip:AddDoubleLine("  " .. table.concat(parts, ", "), H.Ago(st.age), 0.6, 0.6, 0.6, 0.6, 0.6, 0.6)

@@ -134,9 +134,6 @@ eq(H.CommodityStatusAt(ItemLocation:CreateFromBagAndSlot(4, 1)), nil, "empty slo
 eq(H.MaxStack(2770), 20, "max stack from item info")
 eq(H.MaxStack(9999), nil, "max stack unknown until cached")
 eq(H.DayLabel(H.DayIndex(Stub.now)), os.date("%m/%d", H.DayIndex(Stub.now) * 86400 + 43200), "day label")
-eq(H.Span(2700), "45m", "short span in minutes")
-eq(H.Span(5400), "1.5h", "short span in hours")
-eq(H.Span(3 * 86400), "3d", "short span in days")
 
 ------------------------------------------------------------------------
 -- Market value
@@ -163,11 +160,6 @@ do
   for i = 1, 20 do table.insert(list, { p = 100 + i * 5, q = 5 }) end
   local mv4 = M.ValueFromListings(list)
   check(mv4 >= 105 and mv4 <= 125, "gentle ladder value in the cheap slice: " .. tostring(mv4))
-
-  local ladder = M.Ladder({ { p = 10, q = 5 }, { p = 10, q = 5 }, { p = 11, q = 10 }, { p = 50, q = 100 } })
-  eq(#ladder, 3, "ladder merges equal prices")
-  eq(ladder[1].q, 10, "ladder merged quantity")
-  eq(M.UnitsWithin(ladder, 0.1), 20, "units within 10% of floor")
 end
 
 ------------------------------------------------------------------------
@@ -189,18 +181,32 @@ do
   eq(#rec.pts, 60, "sixty scan points kept")
   local lastDay = H.DayIndex(day0 + 19 * 86400)
   eq(rec.days[lastDay].s, 3, "three samples on the last day")
-  eq(rec.moved[lastDay], 80, "moved proxy counts vanished units")
+  eq(rec.moved, nil, "no units-moved estimate is kept")
 
   local encoded = Store.Encode(rec)
   local back = Store.Decode(encoded)
   eq(#back.pts, 60, "roundtrip points")
   eq(back.days[lastDay].mv, rec.days[lastDay].mv, "roundtrip mv")
-  eq(back.moved[lastDay], 80, "roundtrip moved")
+  check(not string.find(encoded, "#M", 1, true), "nothing saved for units moved")
   rec.fills[lastDay] = { u = 12, v = 1440 }
   back = Store.Decode(Store.Encode(rec))
   eq(back.fills[lastDay] and back.fills[lastDay].u, 12, "roundtrip fills")
   eq(back.fills[lastDay] and back.fills[lastDay].v, 1440, "roundtrip fill value")
   check(next(Store.Decode("1#D#P#M").fills) == nil, "an old record decodes with empty fills")
+  -- a record saved with the old units-moved section reads the same
+  local old = Store.Decode("1#D100:50:40:9:2:1#P6000:50:40:9:2#M100:7#F100:3:120")
+  eq(old.days[100] and old.days[100].mv, 50, "an old record's days read past its moved section")
+  eq(old.fills[100] and old.fills[100].u, 3, "and its fills")
+  eq(old.moved, nil, "and its moved section is passed over")
+  -- and the section comes out of every saved record, every market's
+  local saved = { markets = {
+    A = { items = { ["1"] = "1#D100:50:40:9:2:1#P#M100:7#F", ["2"] = "1#D#P#F" } },
+    B = { items = { ["3"] = "1#D#P#M5:1,6:2#F7:1:1" } },
+  } }
+  Store.DropMoved(saved)
+  eq(saved.markets.A.items["1"], "1#D100:50:40:9:2:1#P#F", "the moved section is cut from a saved record")
+  eq(saved.markets.A.items["2"], "1#D#P#F", "a record without one is left as it is")
+  eq(saved.markets.B.items["3"], "1#D#P#F7:1:1", "in another market too")
   rec.fills[lastDay] = nil
   check(not string.find(encoded, "|", 1, true), "encoding has no pipe characters")
 
@@ -218,20 +224,12 @@ do
   local st = M.Stats(rec2, Stub.now)
   check(st.market and st.market > 100, "stats market: " .. tostring(st.market))
   eq(st.days, 21, "stats days counted")
-  check(st.hist and st.hist < st.market, "30 day mean below recent in a rising market")
-  do
-    local today, sum, n = H.DayIndex(Stub.now), 0, 0
-    for d = today - 2, today do
-      if rec2.days[d] then sum, n = sum + rec2.days[d].mv, n + 1 end
-    end
-    check(n > 0, "the last three days hold history")
-    eq(st.avg3, H.Round(sum / n), "3 day mean is the plain mean of the last three days")
-    check(st.avg3 > st.hist, "3 day mean above the 30 day mean in a rising market")
-  end
   check(st.trend and st.trend > 0, "rising trend: " .. tostring(st.trend))
-  check(st.stab and st.stab < 0.2, "stability: " .. tostring(st.stab))
-  check(st.moved and st.moved > 0, "moved per day: " .. tostring(st.moved))
-  near(M.Confidence(st), 1, 0.01, "full confidence with deep history")
+  eq(st.hist, nil, "no 30 day mean")
+  eq(st.avg3, nil, "no 3 day mean")
+  eq(st.stab, nil, "no swing")
+  eq(st.moved, nil, "no units-moved estimate")
+  eq(M.Confidence, nil, "no confidence score")
   local series = M.DailySeries(rec2, 30, Stub.now)
   eq(#series, 30, "thirty day series")
   eq(series[30].day, H.DayIndex(Stub.now), "series ends today")
@@ -305,62 +303,30 @@ do
 end
 
 ------------------------------------------------------------------------
--- Priors and conversions
+-- The reference: market history, else the last scan's value; nothing
+-- stands in for it but the vendor price (Browse.lua)
 ------------------------------------------------------------------------
-local P = H.Priors
 do
   Store.AddScanSample("2840", Stub.now, { { p = 300, q = 100 } })      -- copper bar 3s
   Store.AddScanSample("2771", Stub.now, { { p = 250, q = 100 } })      -- tin ore
   Store.AddScanSample("2841", Stub.now, { { p = 400, q = 100 } })      -- bronze bar 4s
   Store.AddScanSample("2318", Stub.now, { { p = 90, q = 100 } })       -- light leather
-  local cost, recipe = P.CraftCost(2840)
-  eq(cost, (P.MarketValue(2770)), "copper bar craft cost equals ore market value")
-  eq(recipe.name, "Smelt Copper", "copper bar recipe")
-  local tinCost = P.CraftCost(3576)
-  eq(tinCost, 250, "tin bar from tin ore market")
-  local bronzeCost = P.CraftCost(2841)
-  eq(bronzeCost, 275, "bronze bar cost is half of copper plus tin bars")
-  local makes, r = P.MakesValue(2770)
-  -- copper ore as input to copper bar at 300 less 5% cut = 285
-  eq(makes, 285, "copper ore value as smelting input")
-  local scrapValue = P.MakesValue(2934)
-  eq(scrapValue, 29, "scrap value is a third of light leather after cut")
-  local est, src = P.Estimate(2934)
-  eq(est, 29, "estimate for scraps falls back to conversion value")
-  eq(src, "value as an input", "estimate source label")
-  local floor, fsrc = P.Floor(7777)
-  eq(floor, 5000, "vendor floor")
-  eq(fsrc, "vendor", "vendor floor source")
-  local conn = P.Connections(2840)
-  eq(#conn.madeFrom, 1, "copper bar made from one recipe")
-  eq(#conn.makes, 1, "copper bar feeds bronze")
-  check(conn.makes[1].spread ~= nil, "bronze spread computed")
-  check(conn.makes[1].perHour ~= nil, "bronze gold per hour computed")
-  -- salt and coal are vendor priced, by the ids the game gives them:
-  -- 4340 is gray dye, and the cured medium and heavy hides are 4233 and
-  -- 4236, where 4237 is a leather belt
-  local hidePrice, hsrc = P.InputPrice(4289)
-  eq(hidePrice, 50, "salt priced from vendor table")
-  eq(hsrc, "vendor", "salt source")
-  eq((P.InputPrice(3857)), 500, "coal priced from vendor table")
-  eq(P.InputPrice(4340), nil, "gray dye is no salt")
-  local made = {}
-  for _, rcp in ipairs(H.Conversions) do made[rcp.name] = rcp.out end
-  eq(made["Cured Medium Hide"], 4233, "cured medium hide by its own id")
-  eq(made["Cured Heavy Hide"], 4236, "cured heavy hide by its own id")
-  -- a cured hide is its raw hide and the salt, and steel its iron and coal
   Store.AddScanSample("4232", Stub.now, { { p = 800, q = 50 } })       -- medium hide 8s
   Store.AddScanSample("4235", Stub.now, { { p = 1500, q = 50 } })      -- heavy hide 15s
   Store.AddScanSample("3575", Stub.now, { { p = 1200, q = 50 } })      -- iron bar 12s
-  eq((P.CraftCost(4233)), 850, "cured medium hide costs its hide and one salt")
-  eq((P.CraftCost(4236)), 1650, "cured heavy hide costs its hide and three salt")
-  eq((P.CraftCost(3859)), 1700, "steel costs its iron bar and the coal")
-  -- no recipe makes its own input
-  for _, rcp in ipairs(H.Conversions) do
-    for _, inp in ipairs(rcp.inputs) do
-      check(inp[1] ~= rcp.out and inp[2] > 0, rcp.name .. " takes something other than itself")
-    end
-  end
+  local ref, src, st = H.Reference("2840")
+  eq(ref, 300, "one scan of history is the reference")
+  eq(src, "market", "from the market")
+  check(st and st.market == 300, "with its stats")
+  eq((H.Reference("3576")), nil, "an item never scanned has none, whatever it is made from")
+  eq(H.Priors, nil, "no crafted-cost or input-value estimates")
+  eq(H.Conversions, nil, "and no recipes")
+  -- history older than the two weeks the market value spans: the last scan
+  Store.AddScanSample("90090", Stub.now - 20 * 86400, { { p = 700, q = 10 } })
+  ref, src = H.Reference("90090")
+  eq(ref, 700, "old history reads as its last scan's value")
+  eq(src, "market", "still history")
+  check(string.find(H.ReferenceSource(src, select(3, H.Reference("90090"))), "last scanned 20d ago", 1, true), "and says how old")
 end
 
 ------------------------------------------------------------------------
@@ -530,20 +496,19 @@ do
   Store.AddScanSample("15001:20:-14", Stub.now - 86400, { { p = 60000, q = 1 }, { p = 65000, q = 1 } })
   Store.AddScanSample("15001:20:-14", Stub.now, { { p = 60000, q = 1 }, { p = 65000, q = 1 } })
 
-  -- the reference: deep history first, a prior when there is none
-  local ref, src, conf = H.Reference("2770", 2770)
+  -- the reference: history, or nothing
+  local ref, src = H.Reference("2770")
   eq(ref, 100, "copper ore reference is its market value")
   eq(src, "market", "and comes from history")
-  check(conf >= 0.3, "with confidence")
-  ref, src = H.Reference("2934", 2934)
-  eq(src, "prior:value as an input", "scraps priced from a prior")
-  ref, src = H.Reference("424242", 424242)
+  ref, src = H.Reference("2934")
+  eq(ref, nil, "scraps, never scanned, have none, whatever they make")
+  ref, src = H.Reference("424242")
   eq(ref, nil, "nothing known, no reference")
 
   -- bronze fell from 10s to 5s and stayed: the two-week value still
   -- carries last week, but the latest scan has the whole market at 5s,
   -- and that is the reference
-  local stB = select(4, H.Reference("2841", 2841))
+  local stB = select(3, H.Reference("2841", 2841))
   check(stB.market > 500, "bronze's two-week value still carries last week: " .. tostring(stB.market))
   eq((H.Reference("2841", 2841)), 500, "a settled drop is the reference from the next scan on")
   check(string.find(H.ReferenceSource("market", stB), "the last scan, under the two-week", 1, true),
@@ -561,7 +526,7 @@ do
   Store.AddScanSample("90031", Stub.now, { { p = 60, q = 1 }, { p = 100, q = 200 } })
   eq((H.Reference("90030", 90030)), 60, "a wall at a new low is the reference")
   eq((H.Reference("90031", 90031)), 100, "a stray under the rest leaves the reference alone")
-  check(string.find(H.ReferenceSource("market", select(4, H.Reference("90031", 90031))), "market, ", 1, true),
+  check(string.find(H.ReferenceSource("market", select(3, H.Reference("90031", 90031))), "market, ", 1, true),
     "a reference the latest scan agrees with reads as market")
 end
 
@@ -570,11 +535,6 @@ end
 ------------------------------------------------------------------------
 local F = H.Fan
 do
-  near(F.NormalQuantile(0.5), 0, 1e-9, "normal quantile at the median")
-  near(F.NormalQuantile(0.975), 1.959964, 1e-5, "normal quantile at 97.5%")
-  near(F.NormalQuantile(0.1), -1.281552, 1e-5, "normal quantile at 10%")
-  near(F.NormalQuantile(0.01), -2.326348, 1e-5, "normal quantile in the tail")
-
   eq(H.ParseMoney("1g 20s 5c"), 12005, "parse money long form")
   eq(H.ParseMoney("1.5g"), 15000, "parse money decimal gold")
   eq(H.ParseMoney("45s"), 4500, "parse money silver")
@@ -582,53 +542,37 @@ do
   eq(H.ParseMoney(""), nil, "parse money empty")
   eq(H.ParseMoney("abc"), nil, "parse money junk")
 
-  local lin = F.Plan({ center = 1000, step = 0.05, batches = 5, perBatch = 10, shape = "linear" })
-  eq(#lin.batches, 5, "linear plan has five batches")
-  eq(lin.batches[1].unit, 900, "linear low end")
-  eq(lin.batches[2].unit, 950, "linear even step")
-  eq(lin.batches[3].unit, 1000, "linear center")
-  eq(lin.batches[5].unit, 1100, "linear high end")
-  eq(lin.units, 50, "linear units")
-  eq(lin.gross, 50000, "linear gross")
-  eq(lin.net, 47500, "linear net after the cut")
-  eq(lin.low, 900, "plan low")
-  eq(lin.high, 1100, "plan high")
+  -- batches at a price interval: the start, then a step of the start
+  -- price each
+  local lin = F.Plan({ start = 1000, step = 0.05, batches = 5, perBatch = 10 })
+  eq(#lin.batches, 5, "five batches")
+  eq(lin.batches[1].unit, 1000, "the first at the start price")
+  eq(lin.batches[2].unit, 1050, "the next a step up")
+  eq(lin.batches[3].unit, 1100, "and the next")
+  eq(lin.batches[5].unit, 1200, "the last four steps up")
+  eq(lin.units, 50, "units")
+  eq(lin.gross, 55000, "gross")
+  eq(lin.net, 52250, "net after the cut")
+  eq(lin.low, 1000, "plan low")
+  eq(lin.high, 1200, "plan high")
+  eq(F.NormalQuantile, nil, "no bell spacing")
+  eq(F.SHAPES, nil, "no shapes")
+  eq(F.SPREADS, nil, "and no spreads")
 
-  local bell = F.Plan({ center = 1000, step = 0.05, batches = 5, perBatch = 10, shape = "bell" })
-  eq(#bell.batches, 5, "bell plan has five batches")
-  eq(bell.batches[1].unit, 900, "bell keeps the low end")
-  eq(bell.batches[3].unit, 1000, "bell keeps the center")
-  eq(bell.batches[5].unit, 1100, "bell keeps the high end")
-  check(bell.batches[2].unit > lin.batches[2].unit, "bell pulls the second batch toward the center")
-  check(bell.batches[4].unit < lin.batches[4].unit, "bell pulls the fourth batch toward the center")
-  check(bell.batches[3].unit - bell.batches[2].unit < bell.batches[2].unit - bell.batches[1].unit, "bell gaps narrow toward the center")
-  local seven = F.Plan({ center = 10000, step = 0.05, batches = 7, perBatch = 1, shape = "bell" })
-  check(seven.batches[4].unit - seven.batches[3].unit < seven.batches[2].unit - seven.batches[1].unit, "bell of seven bunches in the middle")
-  eq(seven.batches[1].unit, 8500, "bell of seven spans the linear range")
-  local three = F.Plan({ center = 1000, step = 0.05, batches = 3, perBatch = 1, shape = "bell" })
-  eq(three.batches[2].unit, 1000, "bell of three is centered")
-
-  local above = F.Plan({ center = 1000, step = 0.05, batches = 4, perBatch = 10, spread = "above" })
-  eq(above.batches[1].unit, 1000, "above starts at the center")
-  eq(above.batches[4].unit, 1150, "above ends three steps up")
-  local below = F.Plan({ center = 1000, step = 0.05, batches = 4, perBatch = 10, spread = "below" })
-  eq(below.batches[4].unit, 1000, "below ends at the center")
-  eq(below.batches[1].unit, 850, "below starts three steps down")
-
-  local flat = F.Plan({ center = 1000, step = 0, batches = 3, perBatch = 10, shape = "bell" })
+  local flat = F.Plan({ start = 1000, step = 0, batches = 3, perBatch = 10 })
   eq(#flat.batches, 3, "zero step keeps every batch")
-  eq(flat.batches[1].unit, 1000, "zero step first batch at the center")
-  eq(flat.batches[2].unit, 1000, "zero step second batch at the center")
-  eq(flat.batches[3].unit, 1000, "zero step third batch at the center")
+  eq(flat.batches[1].unit, 1000, "zero step first batch at the start")
+  eq(flat.batches[2].unit, 1000, "zero step second batch at the start")
+  eq(flat.batches[3].unit, 1000, "zero step third batch at the start")
   eq(flat.low, flat.high, "zero step has no range")
-  local neg = F.Plan({ center = 1000, step = -0.05, batches = 3, perBatch = 10 })
+  local neg = F.Plan({ start = 1000, step = -0.05, batches = 3, perBatch = 10 })
   eq(neg.batches[3].unit, 1000, "negative step reads as zero")
 
-  local one = F.Plan({ center = 1000, step = 0.05, batches = 1, perBatch = 10 })
+  local one = F.Plan({ start = 1000, step = 0.05, batches = 1, perBatch = 10 })
   eq(#one.batches, 1, "single batch")
-  eq(one.batches[1].unit, 1000, "single batch at the center")
+  eq(one.batches[1].unit, 1000, "single batch at the start")
 
-  local tiny = F.Plan({ center = 3, step = 0.05, batches = 5, perBatch = 1 })
+  local tiny = F.Plan({ start = 3, step = 0.05, batches = 5, perBatch = 1 })
   local distinct, seen = true, {}
   for _, b in ipairs(tiny.batches) do
     if seen[b.unit] or b.unit < 1 then distinct = false end
@@ -636,16 +580,16 @@ do
   end
   check(distinct, "tiny prices stay distinct and positive")
 
-  local short = F.Plan({ center = 1000, step = 0.05, batches = 5, perBatch = 10, avail = 25 })
+  local short = F.Plan({ start = 1000, step = 0.05, batches = 5, perBatch = 10, avail = 25 })
   eq(#short.batches, 3, "short plan drops empty batches")
   eq(short.batches[3].qty, 5, "short plan trims the last batch")
   check(short.short, "short plan flagged")
   eq(short.units, 25, "short plan units")
   check(not lin.short, "full plan not flagged short")
 
-  local vend = F.Plan({ center = 1000, step = 0.1, batches = 5, perBatch = 1, vendor = 850 })
-  check(vend.batches[1].belowVendor, "cheapest batch under vendor flagged")
-  check(not vend.batches[3].belowVendor, "center batch not flagged")
+  local vend = F.Plan({ start = 800, step = 0.1, batches = 5, perBatch = 1, vendor = 850 })
+  check(vend.batches[1].belowVendor, "a batch under vendor is flagged")
+  check(not vend.batches[3].belowVendor, "one over it is not")
 end
 
 ------------------------------------------------------------------------
@@ -664,21 +608,21 @@ do
   eq(bags["15001:20:-14"].count, 2, "bracers keyed by variant")
   eq(F.BagCount("2771"), 0, "nothing of tin ore")
 
-  local anchor, src = F.Anchor("2770", 2770)
-  eq(src, "market", "anchor from market history")
-  check(anchor and anchor > 0, "anchor value")
-  local _, nsrc = F.Anchor("424242", 424242)
-  eq(nsrc, "none", "no anchor without history")
+  local floorOre = H.Market.Stats(H.Store.Get("2770")).floor
+  eq(F.DefaultPrice("2770"), floorOre, "a fan starts at the item's floor")
+  eq(F.DefaultPrice("424242"), nil, "no start without history")
+  eq(F.Anchor, nil, "and none from past sales")
   local noPlan, noWhy = F.Setup({ key = "424242" })
   eq(noPlan, nil, "no plan without a price")
-  check(string.find(noWhy or "", "center"), "asks for a center price")
+  check(string.find(noWhy or "", "start price"), "asks for a start price: " .. tostring(noWhy))
 
   eq(H.atAH, true, "still at the auction house")
-  local plan, err = F.Setup({ key = "2770", perBatch = 10, step = 0.10, batches = 5, shape = "linear", spread = "around" })
+  local plan, err = F.Setup({ key = "2770", perBatch = 10, step = 0.10, batches = 5 })
   check(plan ~= nil, "fan set up: " .. tostring(err))
   eq(#plan.batches, 5, "five batches planned")
   eq(plan.units, 50, "fifty units planned")
-  eq(plan.centerSrc, "market", "plan centered on market")
+  eq(plan.startSrc, "floor", "plan starts at the floor")
+  eq(plan.batches[1].unit, floorOre, "the first batch at it")
   eq(plan.isCommodity, true, "copper is a commodity")
   eq(plan.batches[1].deposit, 30, "deposit from the client")
   eq(H.Settings().fanBatches, 5, "batches remembered")
@@ -701,7 +645,7 @@ do
   check(F.InProgress(), "fan in progress between batches")
   eq(plan.batches[1].post.status, "active", "post active")
   check(plan.batches[1].post.auctionID ~= nil, "post has an auction id")
-  eq(F.BatchStatus(plan.batches[1]), "active", "batch status reads active")
+  eq(F.BatchStatus(plan.batches[1]), "posted", "batch status reads posted")
   eq(F.BatchStatus(plan.batches[2]), "pending", "next batch pending")
   for _ = 2, 5 do
     eq(F.PostNext(), true, "batch posts")
@@ -716,10 +660,11 @@ do
   check(type(AuctionHoundDB.markets[H.marketKey].posts) == "table", "posts live in the market record")
 
   -- items post one per slot
-  local p2, err2 = F.Setup({ key = "15001:20:-14", perBatch = 1, step = 0.1, batches = 2, center = 50000 })
+  local p2, err2 = F.Setup({ key = "15001:20:-14", perBatch = 1, step = 0.1, batches = 2, start = 50000 })
   check(p2 ~= nil, "item fan set up: " .. tostring(err2))
   eq(p2.isCommodity, false, "bracers are items")
-  eq(p2.centerSrc, "set", "center given")
+  eq(p2.startSrc, "set", "start given")
+  eq(p2.batches[2].unit, 55000, "the second a step up")
   eq(F.PostNext(), true, "first bracers post")
   Stub.Advance(1)
   eq(F.PostNext(), true, "second bracers post")
@@ -730,7 +675,7 @@ do
   eq(Stub.BagCount(15001), 0, "no bracers left")
 
   -- running out of stock
-  local p3 = F.Setup({ key = "7777", perBatch = 5, step = 0.1, batches = 3, center = 10000 })
+  local p3 = F.Setup({ key = "7777", perBatch = 5, step = 0.1, batches = 3, start = 10000 })
   eq(#p3.batches, 1, "plan trimmed to what is on hand")
   check(p3.short, "short flagged")
   Stub.SetBag(2, 1, nil)
@@ -743,14 +688,13 @@ do
   local a1, a2, a3, a4, a5 = posts[1].auctionID, posts[2].auctionID, posts[3].auctionID, posts[4].auctionID, posts[5].auctionID
   Stub.Owned(a1).status = Enum.AuctionStatus.Sold
   Stub.Owned(a2).quantity = 4
-  local ledgerBefore = #AuctionHoundDB.ledger
+  eq(AuctionHoundDB.ledger, nil, "no ledger is kept")
   Stub.printed = {}
   check(F.Reconcile(Stub.ah.owned, Stub.now) > 0, "reconcile reports changes")
   eq(posts[1].status, "ended", "an auction the list calls sold has ended")
   eq(posts[1].sold or 0, 0, "and sold nothing until its mail says so")
   eq(posts[2].sold or 0, 0, "fewer units on the list is no sale either")
   eq(posts[2].status, "active", "the shrunk auction is still up")
-  eq(#AuctionHoundDB.ledger, ledgerBefore, "no sale in the ledger")
   check(not string.find(table.concat(Stub.printed, "\n"), "sold", 1, true), "and none in chat: " .. table.concat(Stub.printed, " | "))
   eq(F.PostStatus(posts[1]), "ended", "ended status text")
   eq(F.Reconcile(Stub.ah.owned, Stub.now), 0, "repeat reconcile is quiet")
@@ -785,8 +729,6 @@ do
   check(string.find(line, "10 listed", 1, true), "clearing line mentions listed")
   eq(F.ClearingLine(nil), "no sales recorded", "clearing line without data")
   eq(H.Market.Clearing({}, Stub.now), nil, "clearing of nothing is nil")
-  local _, a0s = F.Anchor("2770", 2770, Stub.now)
-  check(a0s ~= "sold", "with no sale mail the fan does not center on a sale: " .. tostring(a0s))
 
   -- mail: the one record of a sale. It sells the auctions the list
   -- called sold or saw go, a part of one still up, and one that read
@@ -812,12 +754,9 @@ do
   eq(F.PostStatus(posts[2]), "sold 6/10", "partial status text")
   eq(posts[4].status, "sold", "mail turns an expiry into a sale")
   eq(posts[4].sold, 10, "corrected sale counts all units")
-  eq(#AuctionHoundDB.ledger, ledgerBefore + 4, "four sales in the ledger")
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "sale", "ledger kind is sale")
   eq(#Stub.printed, 4, "each said once in chat")
   eq(F.ScanMail(Stub.now), 4, "rescanning the same mail changes nothing")
   eq(posts[2].sold, 6, "no double counting from mail")
-  eq(#AuctionHoundDB.ledger, ledgerBefore + 4, "nor in the ledger")
   Stub.mail = {}
   posts[2].name = "Copper Ore"
   cl = H.Market.Clearing(posts, Stub.now)
@@ -825,9 +764,6 @@ do
   eq(cl.unsoldUnits, 0, "nothing unsold after mail")
   eq(cl.soldMin, posts[1].unit, "clearing sold min")
   eq(cl.soldMax, posts[4].unit, "clearing sold max")
-  local a2v, a2s = F.Anchor("2770", 2770, Stub.now)
-  eq(a2s, "sold", "anchor now follows sales")
-  eq(a2v, posts[4].unit, "anchor is the best sold price")
 
   -- opening the auction house checks on open posts
   local q = Stub.ah.ownedQueries
@@ -842,7 +778,7 @@ do
 
   -- no reply from the auction house, then the auction turns out to exist
   Stub.SetBag(3, 1, 2771, 40)
-  local p4 = F.Setup({ key = "2771", perBatch = 10, step = 0.05, batches = 2, center = 1000 })
+  local p4 = F.Setup({ key = "2771", perBatch = 10, step = 0.05, batches = 2, start = 1000 })
   local realPost = C_AuctionHouse.PostCommodity
   C_AuctionHouse.PostCommodity = function() end
   eq(F.PostNext(), true, "post with no reply starts")
@@ -878,7 +814,7 @@ do
 
   -- a paged owned list never counts a missing auction as gone
   Stub.SetBag(3, 2, 2771, 40)
-  local p5 = F.Setup({ key = "2771", perBatch = 10, step = 0.05, batches = 3, center = 1000 })
+  local p5 = F.Setup({ key = "2771", perBatch = 10, step = 0.05, batches = 3, start = 1000 })
   for _ = 1, 3 do eq(F.PostNext(), true, "paged test batch posts") Stub.Advance(1) end
   local paged = H.Store.Posts("2771")
   local lastPost = paged[#paged]
@@ -926,7 +862,7 @@ do
   Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
   eq(#GameTooltip.lines, 1, "the tooltip is one line by default: " .. table.concat(GameTooltip.lines, " | "))
   eq(GameTooltip.lines[1], "|cffe6b800AH|r floor | " .. H.Money(oreSt.min), "and that line is the latest floor")
-  -- Shift held: the rest, the three-day mean among it
+  -- Shift held: the rest
   Stub.shift = true
   GameTooltip.lines = {}
   Stub.tooltipHandler(GameTooltip, { id = 2770, hyperlink = oreLink })
@@ -934,7 +870,7 @@ do
   check(#GameTooltip.lines >= 5, "Shift adds the rest: " .. table.concat(GameTooltip.lines, " | "))
   eq(GameTooltip.lines[2], "|cffe6b800AH|r floor | " .. H.Money(oreSt.min), "the floor still heads it")
   check(string.find(full, "  market | " .. H.Money(oreSt.market), 1, true), "tooltip has the market line")
-  check(string.find(full, "  3 day | " .. H.Money(oreSt.avg3), 1, true), "tooltip has the 3 day mean")
+  check(not string.find(full, "3 day", 1, true), "no 3 day mean")
   check(not string.find(full, "30 day", 1, true), "and no 30 day line")
   check(not string.find(full, "vendor", 1, true), "no vendor line: the game's tooltip has its own")
   check(string.find(full, "listed", 1, true), "tooltip says how many are listed")
@@ -1279,22 +1215,22 @@ do
   SlashCmdList.HOUND("fan")
   check(string.find(Stub.printed[#Stub.printed] or "", "no fan planned"), "fan command without a plan")
   Stub.SetBag(0, 1, 2770, 40)
-  SlashCmdList.HOUND("fan 2770 8 4 3 bell above 2s")
+  SlashCmdList.HOUND("fan 2770 8 4 3 2s")
   check(H.Fan.plan ~= nil and H.Fan.plan.key == "2770", "fan command plans")
   eq(H.Fan.plan.perBatch, 8, "fan command per batch")
   near(H.Fan.plan.step, 0.04, 1e-9, "fan command step")
   eq(H.Fan.plan.requested, 3, "fan command batches")
-  eq(H.Fan.plan.shape, "bell", "fan command shape")
-  eq(H.Fan.plan.spread, "above", "fan command spread")
-  eq(H.Fan.plan.center, 200, "fan command center")
-  eq(H.Fan.plan.batches[1].unit, 200, "above fan starts at the center")
+  eq(H.Fan.plan.start, 200, "fan command start price")
+  eq(H.Fan.plan.batches[1].unit, 200, "the fan starts there")
+  eq(H.Fan.plan.batches[3].unit, 216, "and climbs a step of it each batch")
   SlashCmdList.HOUND("fan 2770 5 0 3")
   near(H.Fan.plan.step, 0, 1e-9, "fan command accepts a zero step")
   eq(H.Fan.plan.batches[1].unit, H.Fan.plan.batches[3].unit, "zero step fan is flat")
   SlashCmdList.HOUND("fan |cffffffff|Hitem:2770:0:0:0:0:0:0:0:60:0:0:0:0|h[Copper Ore]|h|r 5 5% 2 24h")
   eq(H.Fan.plan.duration, 2, "fan command duration")
   near(H.Fan.plan.step, 0.05, 1e-9, "fan command percent step")
-  eq(H.Fan.plan.centerSrc, "sold", "fan command centers on sales when it can")
+  eq(H.Fan.plan.startSrc, "floor", "fan command without a price starts at the floor")
+  eq(H.Fan.plan.start, H.Market.Stats(H.Store.Get("2770")).floor, "the item's latest floor")
   Stub.printed = {}
   SlashCmdList.HOUND("fan")
   check(#Stub.printed >= 3, "fan command describes the plan")
@@ -1316,7 +1252,7 @@ do
   check(#Stub.printed >= 3, "stats prints")
   Stub.printed = {}
   SlashCmdList.HOUND("labor 80")
-  eq(H.Settings().laborPerHour, 80, "labor setting")
+  eq(H.Settings().laborPerHour, nil, "no labor setting")
   SlashCmdList.HOUND("cut 5")
   near(H.Settings().cut, 0.05, 0.0001, "cut setting")
   SlashCmdList.HOUND("discount 30")
@@ -1357,13 +1293,38 @@ do
   ok, err = pcall(H.UI.ShowFan, "2770")
   check(ok, "fan view with an item: " .. tostring(err))
   check(H.Fan.plan ~= nil and H.Fan.plan.key == "2770", "fan view planned the item")
+  do
+    -- the view's five figures: the start box shows the floor it began
+    -- at, and a change to any of them plans again
+    local fv = H.UI.views.fan
+    local floorOre = H.Market.Stats(H.Store.Get("2770")).floor
+    eq(fv.start:GetText(), (string.gsub(H.MoneyExact(floorOre), " ", "")), "the start box shows the floor")
+    eq(H.Fan.plan.start, floorOre, "and the plan starts there")
+    fv.start:SetText("1s50c")
+    fv:Replan()
+    eq(H.Fan.plan.start, 150, "a typed start price plans again")
+    eq(H.Fan.plan.startSrc, "set", "as given")
+    fv.step:SetText("10")
+    fv.batches:SetText("4")
+    fv.perBatch:SetText("2")
+    fv:Replan()
+    eq(#H.Fan.plan.batches, 4, "four batches")
+    eq(H.Fan.plan.batches[4].unit, 195, "three steps of 10% of the start up")
+    eq(H.Fan.plan.batches[4].qty, 2, "two units in each")
+    fv.start:SetText("")
+    fv:Replan()
+    eq(H.Fan.plan.startSrc, "floor", "an empty start box starts at the floor")
+    check(fv.postBtn.text == "Post 1 / 4" or (fv.postBtn.GetText and fv.postBtn:GetText() == "Post 1 / 4"),
+      "the post button counts the batches")
+  end
   H.Fan.Reset()
   SlashCmdList.HOUND("fan 2770 3 5 3 3s")
-  eq(H.Fan.plan.center, 300, "chat plan has its center")
+  eq(H.Fan.plan.start, 300, "chat plan has its start price")
   ok, err = pcall(H.UI.ShowFan, "2770")
   check(ok, "fan view after a chat plan: " .. tostring(err))
-  eq(H.Fan.plan.center, 300, "showing the view keeps the chat plan")
-  eq(H.Fan.plan.centerSrc, "set", "showing the view keeps the given center")
+  eq(H.Fan.plan.start, 300, "showing the view keeps the chat plan")
+  eq(H.Fan.plan.startSrc, "set", "showing the view keeps the given start")
+  eq(H.UI.views.fan.start:GetText(), "3s", "and its start box shows it")
 
   -- the plan table shows each unit price to the copper
   local plan = H.UI.views.fan.planTbl
@@ -1905,13 +1866,16 @@ do
 end
 
 ------------------------------------------------------------------------
--- Sat: a floor the scans have kept seeing at its price for an hour or
--- more has been passed over; it is under the reference, not a deal
+-- A floor is judged by its price alone, however long it has been on
+-- offer; thin or old history is the reference, with nothing estimated
+-- in its place
 ------------------------------------------------------------------------
 do
   local Browse, S = H.Browse, H.Settings()
-  local br = AuctionHouseFrame.BrowseResultsFrame
-  eq(S.satHours, 1, "sat defaults to an hour")
+  local br, BUI = AuctionHouseFrame.BrowseResultsFrame, H.UI.Browse
+  eq(S.satHours, nil, "no sat setting")
+  eq(S.estimates, nil, "no estimates setting")
+  eq(H.Market.FloorAge, nil, "no floor age")
   Stub.DefineItem(90032, "Sitting Widget", { sell = 0, commodity = true })
   -- ten days at 1s, then three units at 50c that the last seven scans,
   -- over ninety minutes, all saw sitting under the rest at 1s
@@ -1922,30 +1886,13 @@ do
     Store.AddScanSample("90032", Stub.now - i * 900, { { p = 50, q = 3 }, { p = 100, q = 200 } })
   end
   Browse.Invalidate()
-  eq((H.Reference("90032", 90032)), 100, "three units at half price leave the reference at 1s")
-  local rec = Store.Get("90032")
-  local age, scans = H.Market.FloorAge(rec, 50)
-  eq(age, 6 * 900, "the floor has been on offer since the first of the seven scans")
-  eq(scans, 7, "over seven scans")
-  eq((H.Market.FloorAge(rec, 51)), 6 * 900, "a copper's undercut is the same floor")
-  age, scans = H.Market.FloorAge(rec, 40)
-  eq(age, 0, "a floor under it is new since the last scan")
-  eq(scans, 0, "seen by no scan")
-  eq(H.Market.FloorAge(nil, 50), nil, "no record, no age")
-
+  eq((H.Reference("90032")), 100, "three units at half price leave the reference at 1s")
   local sat = { itemKey = C_AuctionHouse.MakeItemKey(90032), minPrice = 50, totalQuantity = 203 }
-  local fresh = { itemKey = C_AuctionHouse.MakeItemKey(90032), minPrice = 40, totalQuantity = 203 }
   local e = Browse.Evaluate(sat)
   near(e.disc, 0.5, 0.01, "half off the reference")
-  check(e.sat and not e.deal, "but it has sat for ninety minutes: no deal")
-  eq(select(3, Browse.CellText(e)), Browse.COLORS.under, "amber, not green")
-  eq(select(2, Browse.CellText(e)), "-50%", "the figure still shows the discount")
-  check(string.find(Browse.FloorLine(e), "on offer 1.5h over 7 scans: not a deal", 1, true),
-    "the floor line says why: " .. Browse.FloorLine(e))
-  e = Browse.Evaluate(fresh)
-  check(e.new and e.deal and not e.sat, "a floor under it since the last scan is new, and a deal")
-  check(string.find(Browse.FloorLine(e), "new since the scan", 1, true), "and the floor line says so: " .. Browse.FloorLine(e))
+  check(e.deal, "a deal, however long the scans have seen it")
   eq(select(3, Browse.CellText(e)), Browse.COLORS.deal, "green")
+  eq(Browse.FloorLine(e), "floor " .. H.Money(50) .. ", 203 units listed", "the floor line is the price and the units")
 
   -- the cell tooltip on the Buy tab, with what has been seen to sell
   Store.AddFills("90032", Stub.now, 40, 40 * 100)
@@ -1953,141 +1900,60 @@ do
   Stub.ah.browse, Stub.ah.browseServed = { sat }, 1
   br:UpdateBrowseResults()
   local r = br.ItemList:Render()
-  eq(fig(r, 1).Text.color and fig(r, 1).Text.color[1], Browse.COLORS.under[1], "the cell is amber")
-  GameTooltip:ClearLines()
-  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "on offer", 1, true), "the tooltip says the floor has sat")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "cleared ~6 a day at", 1, true),
-    "and what has cleared, forty units over the week's seven scan days: " .. table.concat(GameTooltip.lines, " | "))
-  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
-
-  -- the buy frame's ladder reads the same age
-  local listings = { { p = 50, q = 3 }, { p = 100, q = 200 } }
-  local L = H.Ladder.Build(listings, "90032", 90032)
-  check(L.sat, "the ladder reads the floor's age")
-  eq(H.Ladder.Verdict(L, 50), "under", "a sitting floor is under, not a deal, on the buy frame")
-  check(string.find(H.Ladder.Lines(L)[2], "on offer", 1, true), "and its line says why: " .. H.Ladder.Lines(L)[2])
-
-  -- the hours are a setting
-  SlashCmdList.HOUND("sat 2")
-  eq(S.satHours, 2, "the sat command sets the hours")
-  check(Browse.Evaluate(sat).deal, "at two hours, ninety minutes is still a deal")
-  SlashCmdList.HOUND("sat 0")
-  check(string.find(Stub.printed[#Stub.printed], "sat is off", 1, true), "and says when it is off")
-  e = Browse.Evaluate(sat)
-  check(e.deal and not e.sat, "off: judged by price alone")
-  L = H.Ladder.Build(listings, "90032", 90032)
-  eq(H.Ladder.Verdict(L, 50), "deal", "on the buy frame too")
-  SlashCmdList.HOUND("sat 1")
-  check(not Browse.Evaluate(sat).deal, "and back")
-
-  -- a floor under the vendor price is a deal however long it sat
-  Stub.DefineItem(90033, "Sitting Vendor Widget", { sell = 1000, commodity = true })
-  for i = 6, 0, -1 do
-    Store.AddScanSample("90033", Stub.now - i * 900, { { p = 800, q = 2 }, { p = 1500, q = 50 } })
-  end
-  Browse.Invalidate()
-  e = Browse.Evaluate({ itemKey = C_AuctionHouse.MakeItemKey(90033), minPrice = 800, totalQuantity = 52 })
-  check(e.sat and e.vendorFlip and e.deal, "a vendor flip never sits")
-  L = H.Ladder.Build({ { p = 800, q = 2 }, { p = 1500, q = 50 } }, "90033", 90033)
-  eq(H.Ladder.Verdict(L, 800), "deal", "on the buy frame too")
-  check(not string.find(H.Ladder.Lines(L)[2], "not a deal", 1, true), "and the line does not say otherwise")
-end
-
-------------------------------------------------------------------------
--- Estimates off: the reference is history alone
-------------------------------------------------------------------------
-do
-  local Browse, S = H.Browse, H.Settings()
-  local br, BUI = AuctionHouseFrame.BrowseResultsFrame, H.UI.Browse
-  Stub.DefineItem(2319, "Medium Leather", { sell = 40, commodity = true })
-  -- light leather has ten days at 3s, so medium leather costs 12s to
-  -- make; its own price has settled at 7s, but one scan is too thin
-  -- to trust, so the crafted cost calls it a deal
-  Store.AddScanSample("2319", Stub.now, { { p = 700, q = 200 } })
-  Browse.Invalidate()
-  eq(S.estimates, true, "estimates on by default")
-  eq((P.CraftCost(2319)), 1200, "medium leather costs four light leather")
-  local ref, src, conf = H.Reference("2319", 2319)
-  eq(ref, 1200, "thin history: the crafted cost is the reference")
-  eq(src, "prior:crafted cost", "and says so")
-  local row = { itemKey = C_AuctionHouse.MakeItemKey(2319), minPrice = 700, totalQuantity = 40 }
-  local e = Browse.Evaluate(row)
-  check(e.deal and not e.history, "the settled price reads as a deal against the crafted cost")
-  eq(select(1, Browse.CellText(e)), "~" .. H.MoneyShort(1200), "the note marks the estimate")
-  eq(select(2, Browse.CellText(e)), "-42%", "and the discount off it")
-  Stub.ah.browse = { row }
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  local r = br.ItemList:Render()
   GameTooltip:ClearLines()
   ExecuteFrameScript(r.rowFrames[1], "OnEnter")
   local tip = table.concat(GameTooltip.lines, "\n")
-  check(string.find(tip, "estimate: crafted cost", 1, true), "tooltip names the estimate: " .. tip)
-  check(string.find(tip, "untick estimates", 1, true), "tooltip points at the toggle")
+  check(not string.find(tip, "on offer", 1, true), "the tooltip says nothing of how long: " .. tip)
+  check(not string.find(tip, "Depth", 1, true), "nor points at Depth")
+  check(string.find(tip, "cleared ~6 a day at", 1, true),
+    "and gives what has cleared, forty units over the week's seven scan days: " .. tip)
   ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
-  -- off by command: the row is judged by its own thin history
-  SlashCmdList.HOUND("estimates off")
-  eq(S.estimates, false, "command turns estimates off")
-  check(string.find(Stub.printed[#Stub.printed], "estimates are off", 1, true), "and says so")
-  eq(P.Estimate(2319), nil, "no estimate while off")
-  ref, src, conf = H.Reference("2319", 2319)
-  eq(ref, 700, "off: thin history is the reference")
+  -- the commands for what is gone fall through to the help
+  for _, cmd in ipairs({ "sat 2", "estimates off", "labor 80" }) do
+    Stub.printed = {}
+    SlashCmdList.HOUND(cmd)
+    eq(Stub.printed[1], H.PREFIX .. "commands:", "/hound " .. cmd .. " prints the help")
+  end
+  local help = table.concat(Stub.printed, "\n")
+  check(not string.find(help, "/hound sat", 1, true) and not string.find(help, "estimates", 1, true)
+    and not string.find(help, "labor", 1, true), "and the help names none of them")
+
+  -- one scan is history enough: the settled price is no deal against it
+  Stub.DefineItem(2319, "Medium Leather", { sell = 40, commodity = true })
+  Store.AddScanSample("2319", Stub.now, { { p = 700, q = 200 } })
+  Browse.Invalidate()
+  local ref, src = H.Reference("2319")
+  eq(ref, 700, "thin history is the reference")
   eq(src, "market", "and counts as history")
-  check(conf < 0.3, "with its low confidence")
+  local row = { itemKey = C_AuctionHouse.MakeItemKey(2319), minPrice = 700, totalQuantity = 40 }
   e = Browse.Evaluate(row)
   check(not e.deal and e.history, "the settled price is no deal against its own history")
   near(e.disc, 0, 1e-9, "the floor sits at reference")
-  eq(select(1, Browse.CellText(e)), H.MoneyShort(700), "the note loses the estimate mark")
-  r = br.ItemList:Render()
-  eq(fig(r, 1).Sub.text, H.MoneyShort(700), "the cell followed without a scan")
-  eq(H.Reference("2934", 2934), nil, "off: nothing scanned means no reference")
+  eq(select(1, Browse.CellText(e)), H.MoneyShort(700), "the note is the reference, no estimate mark")
   local leveledLeather = { itemKey = C_AuctionHouse.MakeItemKey(2319, 15), minPrice = 700, totalQuantity = 40 }
   e = Browse.Evaluate(leveledLeather)
-  check(e.history and e.ref == 700, "off: a row with an item level still finds its history")
+  check(e.history and e.ref == 700, "a row with an item level still finds its history")
+  eq(H.NoReferenceLine(), "no reference: nothing scanned, no vendor price", "the no-reference line")
+
   -- history older than the market value's two weeks still counts
   Stub.DefineItem(90010, "Old Widget", { sell = 0, commodity = true })
   Stub.DefineItem(90011, "Ancient Widget", { sell = 0, commodity = true })
   Store.AddScanSample("90010", Stub.now - 20 * 86400, { { p = 3000, q = 10 } })
   Store.AddScanSample("90011", Stub.now - 45 * 86400, { { p = 5000, q = 10 } })
-  ref, src, conf = H.Reference("90010", 90010)
-  eq(ref, 3000, "off: twenty-day-old history is the reference")
+  ref, src = H.Reference("90010")
+  eq(ref, 3000, "twenty-day-old history is the reference")
   eq(src, "market", "and counts as history")
-  eq(conf, 0, "with no confidence")
-  eq((H.Reference("90011", 90011)), 5000, "off: the last scan's value when nothing is within thirty days")
-  check(string.find(H.ReferenceSource(src, select(4, H.Reference("90010", 90010))), "last scanned 20d ago", 1, true),
-    "the source says how old: " .. H.ReferenceSource(src, select(4, H.Reference("90010", 90010))))
+  eq((H.Reference("90011")), 5000, "the last scan's value when nothing is within thirty days")
+  check(string.find(H.ReferenceSource(src, select(3, H.Reference("90010"))), "last scanned 20d ago", 1, true),
+    "the source says how old: " .. H.ReferenceSource(src, select(3, H.Reference("90010"))))
   Browse.Invalidate()
   e = Browse.Evaluate({ itemKey = C_AuctionHouse.MakeItemKey(90010), minPrice = 1500, totalQuantity = 5 })
   check(e.history and e.deal, "old history judges a Buy tab row")
   eq(select(1, Browse.CellText(e)), H.MoneyShort(3000), "and reads as history")
-  local _, asrc = H.Fan.Anchor("2934", 2934)
-  eq(asrc, "none", "off: the fan has no prior to center on")
-  check(string.find(H.NoReferenceLine(), "estimates are off", 1, true), "the no-reference line says why")
-  local cost = P.CraftCost(2319)
-  eq(cost, 1200, "the Item view still knows what it costs to make")
-  check(P.MakesValue(2318) ~= nil, "and what light leather is worth as an input")
-  ok, err = pcall(H.UI.ShowItem, "2319")
-  check(ok, "item view with estimates off: " .. tostring(err))
-
-  -- the box on the Hound tab follows the setting, and sets it
-  local box = H.UI.estimatesBox
-  check(box ~= nil, "estimates box exists")
-  eq(box.checked, false, "box followed the command")
-  box:SetChecked(true)
-  box.scripts.OnClick(box)
-  eq(S.estimates, true, "box turns estimates back on")
-  e = Browse.Evaluate(row)
-  check(e.deal and not e.history, "the crafted cost is the reference again")
-  SlashCmdList.HOUND("estimates")
-  check(string.find(Stub.printed[#Stub.printed], "estimates are on", 1, true), "the bare command reports the state")
-  SlashCmdList.HOUND("estimates sideways")
-  check(string.find(Stub.printed[#Stub.printed], "usage", 1, true), "anything else gets the usage")
-  eq(S.estimates, true, "and changes nothing")
-  local _, asrc2 = H.Fan.Anchor("2934", 2934)
-  eq(asrc2, "value as an input", "on: the fan centers on the prior again")
-  check(string.find(H.NoReferenceLine(), "crafting anchor", 1, true), "the no-reference line names the anchors again")
+  local ok, err = pcall(H.UI.ShowItem, "2319")
+  check(ok, "item view: " .. tostring(err))
+  eq(H.UI.estimatesBox, nil, "no estimates box on the Hound tab")
   Stub.ah.browse = {}
   C_AuctionHouse.SendBrowseQuery({})
   Stub.Advance(1) Stub.Pump()
@@ -2155,9 +2021,7 @@ do
     { auctionID = 8203, itemKey = C_AuctionHouse.MakeItemKey(2840), status = Enum.AuctionStatus.Sold, quantity = 3, buyoutAmount = 500, timeLeft = 2 },
   }
   local printed = #Stub.printed
-  local ledger = #AuctionHoundDB.ledger
   check(F.Reconcile(Stub.ah.owned, Stub.now) >= 2, "adoption counts as a change")
-  eq(#AuctionHoundDB.ledger, ledger, "adopting writes no sale")
   local posts = H.Store.Posts()
   eq(#posts, before + 2, "two auctions adopted, the bid-only one skipped")
   local adopted, soldOne
@@ -2234,167 +2098,65 @@ do
 end
 
 ------------------------------------------------------------------------
--- The listing ladder, deposit notes, and the Auctions tab cell
+-- The deal limit, the buy frames, deposit notes, and the Auctions tab
+-- cell
 ------------------------------------------------------------------------
 do
-  local Ladder = H.Ladder
-  local F = H.Fan
+  local F, Browse, House = H.Fan, H.Browse, H.UI.House
   H.atAH = true
   H.Settings().minDiscount = 0.25
-  H.Browse.Invalidate()
-  local refOre = H.Reference("2770", 2770)
+  Browse.Invalidate()
+  local refOre = H.Reference("2770")
   local function at(frac) return H.Round(refOre * frac) end
+  local function row(itemID, min, qty) return { itemKey = C_AuctionHouse.MakeItemKey(itemID), minPrice = min, totalQuantity = qty } end
+  eq(H.Ladder, nil, "no listing ladder")
+  eq(H.Depth, nil, "no Depth")
 
-  -- the ladder from listings
-  local L = Ladder.Build({ { p = at(0.4), q = 30 }, { p = at(0.45), q = 20 }, { p = at(1.0), q = 500, mine = true } }, "2770", 2770)
-  check(L ~= nil, "ladder built")
-  eq(#L.steps, 3, "three price steps")
-  eq(L.floor, at(0.4), "floor is the cheapest step")
-  eq(L.units, 550, "units summed")
-  eq(L.dealUnits, 50, "units at or under the limit")
-  eq(L.dealCost, at(0.4) * 30 + at(0.45) * 20, "cost of the deal units")
-  eq(L.mineUnits, 500, "own units counted")
-  check(not L.lowFloor, "a small step is not a low floor")
-  eq(Ladder.Verdict(L, at(0.4)), "deal", "floor is a deal")
-  eq(Ladder.Verdict(L, at(0.9)), "under", "under the reference but not a deal")
-  eq(Ladder.Verdict(L, at(1.0)), "over", "at the reference is over")
-  eq(Ladder.Color("deal", false), H.Browse.COLORS.deal, "deal color")
-  eq(Ladder.Color("over", false), nil, "over keeps Blizzard's color")
-  eq(Ladder.Off(L, at(0.5)), "-50%", "discount text for a listing")
-  local lines = Ladder.Lines(L)
-  eq(#lines, 4, "four lines")
-  check(string.find(lines[1], "^reference "), "line one names the reference: " .. lines[1])
-  check(string.find(lines[2], "50 units at or under", 1, true), "line two counts the deal: " .. lines[2])
-  check(string.find(lines[3], "next step", 1, true) and not string.find(lines[3], "low in the list", 1, true), "line three has the next step: " .. lines[3])
-  check(string.find(lines[4], "500 yours", 1, true), "line four counts yours: " .. lines[4])
-
-  -- a stray far under the rest
-  L = Ladder.Build({ { p = 100, q = 1 }, { p = 200, q = 10 } }, "2770", 2770)
-  check(L.lowFloor, "a floor half the next step is low")
-  eq(select(2, Ladder.Verdict(L, 100)), true, "the floor listing is flagged")
-  eq(select(2, Ladder.Verdict(L, 200)), false, "the next step is not")
-  eq(Ladder.Color("deal", true), Ladder.COLORS.low, "flagged listing takes the low color")
-  check(string.find(Ladder.Lines(L)[3], "low in the list", 1, true), "line three says so")
-
-  -- a wall: the listings' own value sits under history and caps the
-  -- reference, so a floor the market has moved to is no deal before
-  -- the next scan sees it; a stray under the rest leaves it alone
-  L = Ladder.Build({ { p = at(0.5), q = 400 }, { p = at(1.0), q = 100 } }, "2770", 2770)
-  check(L.capped and L.ref == at(0.5), "four hundred of five hundred units at half price set the reference")
-  eq(L.under, refOre, "under the history it would have been")
-  eq(Ladder.Verdict(L, at(0.5)), "over", "the wall's floor is at the reference, no deal")
-  eq(Ladder.Off(L, at(0.5)), "0%", "and reads as no discount")
-  check(string.find(Ladder.Lines(L)[1], "these listings, under history", 1, true), "line one says so: " .. Ladder.Lines(L)[1])
-  L = Ladder.Build({ { p = at(0.5), q = 3 }, { p = at(1.0), q = 497 } }, "2770", 2770)
-  check(not L.capped and L.ref == refOre, "three units at half price leave history as the reference")
-  eq(Ladder.Verdict(L, at(0.5)), "deal", "and are a deal")
-  -- scarce: with a fraction of the usual units listed, the few cheap
-  -- ones are the deals, not the price
-  check(H.Market.Scarce(select(4, H.Reference("2770", 2770)), 5), "five units of ore is scarce")
-  L = Ladder.Build({ { p = at(0.5), q = 5 } }, "2770", 2770)
-  check(not L.capped and L.ref == refOre, "five units alone at half price: history stays the reference")
-  eq(Ladder.Verdict(L, at(0.5)), "deal", "and they are a deal")
-
-  -- no reference, vendor reference, nothing
-  L = Ladder.Build({ { p = 500, q = 3 } }, "90001", 90001)
-  eq(L.ref, nil, "unknown item has no reference")
-  eq(Ladder.Verdict(L, 500), "none", "no verdict without a reference")
-  eq(Ladder.Off(L, 500), "", "no discount text without a reference")
-  check(string.find(Ladder.Lines(L)[1], "no reference", 1, true), "line one says there is no reference")
-  L = Ladder.Build({ { p = 100, q = 1 }, { p = 200, q = 10 }, { p = 210, q = 10 } }, "90001", 90001)
-  eq(L.ref, nil, "a stray floor is not a reference: only the market is")
-  eq(Ladder.Verdict(L, 100), "none", "so no verdict for it")
-  check(L.lowFloor, "it is still flagged low in the list")
-  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
-  eq(L.refSrc, "vendor", "vendor price stands in")
-  eq(L.limit, 999, "limit sits just under the vendor price")
-  eq(L.dealUnits, 3, "units under vendor are the deal")
-  -- the copper minimum moves the limit too, under vendor included
+  -- the price a deal sits at or under, for the Deals view's buy
+  near(Browse.Limit(Browse.Evaluate(row(2770, at(0.4), 550))), refOre * 0.75, 1e-6, "a quarter off the reference")
+  eq(Browse.Limit(Browse.Evaluate(row(90001, 500, 3))), nil, "no reference, no limit")
+  eq(Browse.Limit(Browse.Evaluate(row(90002, 800, 5))), 999, "a vendor flip's limit sits just under the vendor price")
   H.Settings().minSaving = 60
-  L = Ladder.Build({ { p = at(0.4), q = 30 }, { p = at(0.45), q = 20 }, { p = at(1.0), q = 500 } }, "2770", 2770)
-  eq(L.limit, at(0.4), "the copper minimum sets the limit when it bites first")
-  eq(L.dealUnits, 30, "only the floor clears it")
-  eq(Ladder.Verdict(L, at(0.45)), "under", "the next step is under, not a deal")
+  eq(Browse.Limit(Browse.Evaluate(row(2770, at(0.4), 550))), refOre - 60, "the copper minimum sets the limit when it bites first")
   H.Settings().minSaving = 300
-  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
-  eq(L.limit, 700, "under vendor still has to clear the copper minimum")
-  eq(L.dealUnits, 0, "two silver under vendor is short of three")
-  eq(Ladder.Verdict(L, 800), "under", "so the floor is under, not a deal")
-  check(string.find(Ladder.Lines(L)[2], "nothing at or under", 1, true), "line two says so: " .. Ladder.Lines(L)[2])
-  H.Settings().minSaving = 5000
-  L = Ladder.Build({ { p = 800, q = 3 }, { p = 1200, q = 2 } }, "90002", 90002)
-  eq(L.dealUnits, 0, "a minimum over the reference leaves no deal")
-  check(string.find(Ladder.Lines(L)[2], "no price here clears", 1, true), "and line two says why: " .. Ladder.Lines(L)[2])
+  eq(Browse.Limit(Browse.Evaluate(row(90002, 800, 5))), 700, "under vendor still has to clear the copper minimum")
   H.Settings().minSaving = 0
-  eq(Ladder.Build({}, "2770", 2770), nil, "no listings, no ladder")
-  eq(Ladder.Lines(nil)[1], "no listings loaded", "no ladder, one line")
 
-  -- the buy frames, and the house's confirm dialog for a commodity
+  -- the buy frames: nothing of Hound's drawn on them, a double-click
+  -- noted on their rows
   AuctionHouseFrame.CommoditiesBuyFrame = Stub.NewCommoditiesBuyFrame()
   AuctionHouseFrame.ItemBuyFrame = Stub.NewItemBuyFrame()
   AuctionHouseFrame.BuyDialog = Stub.NewBuyDialog(AuctionHouseFrame)
-  local LU = H.UI.Ladder
+  local QB = H.UI.QuickBuy
   ok, err = pcall(function() H.Events:Fire("AH_UI_LOADED") end)
   check(ok, "buy frame hooks: " .. tostring(err))
-  check(LU.installed and LU.block.commodity and LU.block.item, "info blocks built")
+  check(QB.installed, "the buy frames' double-click is set up")
+  eq(H.UI.Ladder, nil, "no listings block on the buy frames")
   local cf = AuctionHouseFrame.CommoditiesBuyFrame
   Stub.ah.currentSearch = { commodity = true, listings = { { at(0.4), 30 }, { at(0.45), 20 }, { at(2.0), 500 } } }
   cf:SetItemIDAndPrice(2770, at(0.4))
-  eq(LU.block.commodity.lines[1].text, "reading the listings", "block waits for results")
-  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2771)
-  eq(LU.current.commodity, nil, "another item's results are ignored")
+  eq(QB.commodityItemID, 2770, "the commodity frame's item is noted")
   Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
-  check(LU.current.commodity and LU.current.commodity.floor == at(0.4), "commodity ladder built from the results")
-  check(string.find(LU.block.commodity.lines[1].text, "^reference "), "block shows the reference")
   local r = cf.ItemList:Render()
   eq(#r.columns, 2, "commodity list keeps its two columns")
   local qtyCell = r.rows[1][2]
-  eq(qtyCell.Text.text, "30", "units cell still populated by Blizzard")
-  eq(qtyCell.Text.color and qtyCell.Text.color[2], H.Browse.COLORS.deal[2], "deal units colored green")
-  eq(r.rows[3][2].Text.color and r.rows[3][2].Text.color[3], 1, "units over reference read in Blizzard's white")
-  -- a cell reused for another row takes that row's color, white included
-  qtyCell:Populate(r.rowFrames[3].rowData)
-  eq(qtyCell.Text.color[2], 1, "a green cell reused for a row over the reference turns white again")
-  qtyCell:Populate(r.rowFrames[1].rowData)
-  -- a setting that moves the verdict recolors what is on screen, with
-  -- no redraw of the list
-  H.Settings().minDiscount = 0.7
-  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
-  eq(qtyCell.Text.color[1], H.Browse.COLORS.under[1], "sixty percent off reads amber at a 70% minimum, at once")
-  H.Settings().minDiscount = 0.25
-  H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
-  eq(qtyCell.Text.color[2], H.Browse.COLORS.deal[2], "and green again at 25%")
-  -- a sell list cell with another owner is left alone
-  local other = CreateFrame("Frame", nil, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
-  other:Init(CreateFrame("Frame"))
-  other:Populate({ unitPrice = at(0.4), quantity = 5 })
-  eq(other.Text.color, nil, "another list's cell untouched")
-
+  eq(qtyCell.Text.text, "30", "units cell populated by Blizzard")
+  eq(qtyCell.Text.color, nil, "in Blizzard's own color")
+  eq(House.overlays[qtyCell], nil, "with no frame of Hound's on it")
+  check(House.RowInfo(r.rowFrames[1]) ~= nil, "the row is noted for its double-click")
   local itf = AuctionHouseFrame.ItemBuyFrame
   local tinKey = C_AuctionHouse.MakeItemKey(2771)
-  local refTin = H.Reference("2771", 2771)
-  check(refTin and refTin > 0, "tin ore has a reference")
+  local refTin = H.Reference("2771")
   Stub.ah.currentSearch = { listings = { { H.Round(refTin * 0.4), 1 }, { H.Round(refTin * 1.1), 1 }, { nil, 1 } } }
   itf:SetItemKey(tinKey)
-  eq(LU.block.item.lines[1].text, "reading the auctions", "item block waits for results")
-  Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", C_AuctionHouse.MakeItemKey(2770))
-  eq(LU.current.item, nil, "another key's results are ignored")
   Stub.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", tinKey)
-  check(LU.current.item and LU.current.item.units == 2, "item ladder counts auctions with a buyout")
-  check(LU.current.item.lowFloor, "a stray auction far under the next is flagged")
   r = itf.ItemList:Render()
   eq(#r.columns, 5, "the auction list keeps Blizzard's five columns")
-  local off = LU.OffFor(r.rows[1][3])
-  check(off ~= nil and off:GetParent() == r.rows[1][3], "each auction's discount is Hound's own frame on its units cell")
-  check(not off:IsMouseEnabled(), "taking no mouse")
-  eq(off.Text.text, "-60%", "discount off the reference per auction")
-  eq(off.Text.color[3], Ladder.COLORS.low[3], "flagged auction colored")
-  eq(LU.OffFor(r.rows[2][3]).Text.text, "+10%", "premium shown as a premium")
-  eq(LU.OffFor(r.rows[3][3]).Text.text, "", "bid-only auction shows nothing")
+  eq(House.overlays[r.rows[1][3]], nil, "no discount of Hound's on an auction")
+  check(House.RowInfo(r.rowFrames[1]) ~= nil, "the auction's row is noted for its double-click")
   hover(r, "item buy frame")
-  local lp = itf.ItemList.points[#itf.ItemList.points]
-  eq(lp[5], -(14 + LU.BLOCK_HEIGHT + 4), "auction list starts below the block")
-  eq(itf.ItemList.Background.height, 414 - LU.BLOCK_HEIGHT - 4, "background shortened to match")
+  eq(itf.ItemList.Background.height, 300, "the auction list's background stays as Blizzard laid it out")
+  eq(#itf.ItemList.points, 0, "and the list is not moved")
 
   -- deposit notes: every post leaves one; an adopted auction takes it
   Stub.SetBag(0, 1, 2770, 40)
@@ -2459,7 +2221,7 @@ end
 -- view, and the double-click that makes them
 ------------------------------------------------------------------------
 do
-  local Buy, LU = H.Buy, H.UI.Ladder
+  local Buy, LU = H.Buy, H.UI.QuickBuy
   local cf, itf = AuctionHouseFrame.CommoditiesBuyFrame, AuctionHouseFrame.ItemBuyFrame
   H.atAH = true
   Stub.ah.purchases = {}
@@ -2483,7 +2245,6 @@ do
   check(b.commodity, "marked as a commodity")
   eq(Buy.commodity, nil, "nothing pending after")
   check(string.find(Stub.printed[#Stub.printed], "bought 50 x Copper Ore for " .. H.Money(4750), 1, true), "chat names the purchase: " .. Stub.printed[#Stub.printed])
-  eq(AuctionHoundDB.ledger[#AuctionHoundDB.ledger].kind, "buy", "purchase in the ledger")
   -- a purchase that fails leaves nothing
   C_AuctionHouse.StartCommoditiesPurchase(2770, 5)
   Stub.Advance(1) Stub.Pump()
@@ -2619,6 +2380,25 @@ do
   check(row.scripts.OnDoubleClick ~= nil, "commodity rows answer a double-click")
   eq(House.RowInfo(row).kind, "commodity", "Hound knows the row's list")
   eq(LU.UnitsUpTo(2770, row.rowData), 45, "units up to the row, less your own")
+  -- Reported on live: the second double-click offered strange, high
+  -- quantities. A row's auction can be gone from the results while the
+  -- row still shows it, after a purchase when the house reads the
+  -- listings again; counting on to the end offered every unit listed.
+  -- The row's price bounds it now.
+  local stale = { auctionID = 99999, unitPrice = 95, quantity = 20, itemID = 2770 }
+  eq(LU.UnitsUpTo(2770, stale), 45, "a row whose auction is gone counts up to its price, not every unit")
+  eq(LU.UnitsUpTo(2770, { auctionID = 99999, itemID = 2770 }), 0, "with no price either, it selects nothing")
+  eq(LU.UnitsUpTo(2770, { unitPrice = 90 }), 30, "a row known by its price alone")
+  eq(LU.UnitsUpTo(2770), 545, "with no row, every unit listed, less your own")
+  -- and the item is the row's own: the frame's last item can be another
+  cf:SetItemIDAndPrice(2771, 90)
+  local startedBefore = Stub.ah.started
+  check(LU.BuyCommodity(row.rowData), "a row of ore buys with the frame set to tin")
+  eq(Stub.ah.started and Stub.ah.started.itemID, 2770, "the house is asked about ore, the row's item")
+  eq(Stub.ah.started and Stub.ah.started.qty, 45, "for the units up to the row")
+  H.UI.Confirm.Close()
+  Stub.ah.started = startedBefore
+  cf:SetItemIDAndPrice(2770, 90)
   Stub.ah.commodityPrice[2770] = 95
   Stub.ah.buyClicks = 0
   UIParent:SetSize(1600, 900)
@@ -2697,138 +2477,45 @@ do
 end
 
 ------------------------------------------------------------------------
--- Depth on demand: one search per row on the Deals view's screen,
--- through the throttle; the Buy tab shows what it reads
+-- The throttle: Hound's searches go one at a time, and a query of
+-- Blizzard's that the house drops while one of Hound's is out is sent
+-- again. The Deals view sends nothing on its own for its rows.
 ------------------------------------------------------------------------
 do
-  local Depth, BUI, T, DV = H.Depth, H.UI.Browse, H.Throttle, H.UI.Deals
+  local T, DV = H.Throttle, H.UI.Deals
   local br = AuctionHouseFrame.BrowseResultsFrame
   local S = H.Settings()
   H.atAH = true
-  S.browseDepth = false
   H.Browse.Invalidate()
-  Depth.Clear()
-  local refOre = H.Reference("2770", 2770)
-  local refTin = H.Reference("2771", 2771)
+  local refOre = H.Reference("2770")
   local oreRow = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * 0.5), totalQuantity = 60 }
-  local tinRow = { itemKey = C_AuctionHouse.MakeItemKey(2771), minPrice = H.Round(refTin * 0.9), totalQuantity = 10 }
-  local emptyRow = { itemKey = C_AuctionHouse.MakeItemKey(2840), minPrice = 0, totalQuantity = 0 }
-  Stub.ah.searchResults["2770"] = { commodity = true, listings = { { oreRow.minPrice, 12 }, { H.Round(refOre * 0.55), 8 }, { H.Round(refOre * 1.1), 40 } } }
-  Stub.ah.searchResults["2771"] = { commodity = true, listings = { { tinRow.minPrice, 10 } } }
+  Stub.ah.searchResults["2770"] = { commodity = true, listings = { { oreRow.minPrice, 12 } } }
   Stub.ah.browsePageSize = 10
-  Stub.ah.browse = { oreRow, tinRow, emptyRow }
+  Stub.ah.browse = { oreRow }
   Stub.ah.throttleModel = true
   Stub.ah.ready = true
   Stub.ah.searchCalls, Stub.ah.dropped, T.replayed = 0, 0, 0
   S.dealsOnly = false
-  local dv = DV.view
-  local function dealsTip(i)
-    GameTooltip:ClearLines()
-    ExecuteFrameScript(dv.table.rows[i], "OnEnter")
-    local text = table.concat(GameTooltip.lines, "\n")
-    ExecuteFrameScript(dv.table.rows[i], "OnLeave")
-    return text
-  end
   br:Show()
   C_AuctionHouse.SendBrowseQuery({})
   Stub.Advance(1) Stub.Pump()
-  eq(Stub.ah.ready, true, "the model frees the house once the browse answers")
   showDeals()
-  eq(Stub.ah.ready, true, "and the view, coming up on a full set, asks for no page")
-
-  -- off: the figures read the row alone
+  for _ = 1, 3 do Stub.Advance(1) Stub.Pump() end
+  eq(Stub.ah.searchCalls, 0, "the Deals view searches nothing for its rows")
+  eq(DV.view.depth, nil, "and has no Depth box")
+  check(not string.find(DV.view.status.text, "depth", 1, true), "nor says anything of depth: " .. DV.view.status.text)
   local r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 0, "depth off: no searches")
-  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre), "depth off: the note is the reference alone")
   GameTooltip:ClearLines()
   ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "tick Depth on the Hound tab's Deals view", 1, true), "the Buy tab's tooltip points at the toggle")
-  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
-  eq(dv.table.rows[1].cells[7].text, "-", "the Deals view has no deal units without it")
-
-  -- on: the Deals view's rows on screen are searched one at a time,
-  -- top first; the Buy tab never asks
-  dv.depth:SetChecked(true)
-  dv.depth.scripts.OnClick(dv.depth)
-  eq(S.browseDepth, true, "depth toggle saved")
-  eq(Stub.ah.searchCalls, 1, "one search out for the first row")
-  eq(Stub.ah.lastSearchKey, "2770", "the first row's item searched")
-  check(Depth.Reading(), "reading while a search is out")
-  check(string.find(dv.status.text, "reading depth", 1, true), "status says so: " .. dv.status.text)
-  DV.Rebuild()
-  r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 1, "a second draw sends nothing more while one is out")
-  check(string.find(dealsTip(1), "reading the listings", 1, true), "the row's tooltip says it is reading")
-  Stub.Advance(1) Stub.Pump()
-  local L = Depth.Get(oreRow)
-  check(L ~= nil, "ore depth cached")
-  eq(L and L.floorUnits, 12, "twelve units at the floor")
-  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre) .. " x12", "the figures on screen follow when the depth lands, no redraw asked")
-  eq(Stub.ah.searchCalls, 2, "the next row searched once the house is ready")
-  eq(Stub.ah.lastSearchKey, "2771", "the second row's item searched")
-  Stub.Advance(1) Stub.Pump()
-  eq(Stub.ah.searchCalls, 2, "the empty row is never searched")
-  check(not Depth.Reading(), "reading done")
-  check(not string.find(dv.status.text, "reading depth", 1, true), "status settles: " .. dv.status.text)
-  eq(dv.table.rows[1].cells[7].text, "20", "the Deals view shows the units at or under the deal limit")
-  r = br.ItemList:Render()
-  eq(fig(r, 1).Sub.text, H.MoneyShort(refOre) .. " x12", "cell shows the units at the floor")
-  eq(fig(r, 2).Sub.text, H.MoneyShort(refTin) .. " x10", "second cell too")
-  eq(fig(r, 3).Sub.text, "", "empty row shows nothing")
-  hover(r, "buy tab with depth")
-
-  -- the tooltip carries the ladder
-  GameTooltip:ClearLines()
-  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  local tip = table.concat(GameTooltip.lines, "\n")
-  check(string.find(tip, "20 units at or under", 1, true), "tooltip has the deal line: " .. tip)
-  check(string.find(tip, "next step", 1, true), "tooltip has the step line")
+  check(not string.find(table.concat(GameTooltip.lines, "\n"), "Depth", 1, true), "the Buy tab's tooltip points at no Depth")
   ExecuteFrameScript(r.rowFrames[1], "OnLeave")
 
-  -- unchanged rows keep their depth across a new result set
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 2, "unchanged rows keep their depth")
-
-  -- a moved floor stales the depth, and the row is read again
-  oreRow.minPrice = oreRow.minPrice - 1
-  eq(Depth.Get(oreRow), nil, "a moved floor stales the depth")
-  DV.Rebuild()
-  eq(Stub.ah.searchCalls, 3, "the moved row is searched again")
-  Stub.Advance(1) Stub.Pump()
-  check(Depth.Get(oreRow) ~= nil, "and cached again")
-
-  -- the gate: nothing goes out while the view is down, the Buy tab
-  -- showing or not
-  tinRow.totalQuantity = 11
-  H.UI.ShowView("markets")
-  DV.Rebuild()
-  r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, 3, "no search while the view is down")
-  H.UI.ShowView("deals")
-  eq(Stub.ah.searchCalls, 4, "showing it sends the waiting search")
-  Stub.Advance(1) Stub.Pump()
-  tinRow.totalQuantity = 12
-  DV.Rebuild()
-  eq(Stub.ah.searchCalls, 5, "a row that moved is searched again")
-  Stub.Advance(1) Stub.Pump()
-
-  -- a full scan holds it, and its end lets it go
-  tinRow.totalQuantity = 13
-  H.Scan.state = "browsing"
-  DV.Rebuild()
-  eq(Stub.ah.searchCalls, 5, "no search during a scan")
-  H.Scan.state = "idle"
-  H.Events:Fire("SCAN_STATUS")
-  eq(Stub.ah.searchCalls, 6, "the search goes out once the scan is idle")
-  Stub.Advance(1) Stub.Pump()
-
-  -- Blizzard's own query while ours is out: dropped by the house, then
-  -- sent again by Hound once the house is ready
-  tinRow.totalQuantity = 14
-  DV.Rebuild()
-  eq(Stub.ah.searchCalls, 7, "a depth search is out")
+  -- Blizzard's own query while a buy's search is out: dropped by the
+  -- house, then sent again by Hound once the house is ready
+  local f
+  for _, fr in ipairs(DV.view.table.rows) do if fr.shown and fr.row and fr.row.raw == oreRow then f = fr end end
+  f.scripts.OnDoubleClick(f)
+  eq(Stub.ah.searchCalls, 1, "a buy's search is out")
   eq(Stub.ah.ready, false, "the house is busy with it")
   Stub.ah.lastSearchKey = nil
   C_AuctionHouse.SendSearchQuery(C_AuctionHouse.MakeItemKey(2840), {}, false)
@@ -2838,171 +2525,34 @@ do
   Stub.Advance(1) Stub.Pump()
   eq(T.replayed, 1, "hound sent the click's query again")
   eq(Stub.ah.lastSearchKey, "2840", "the click's query was served")
-  eq(Stub.ah.searchCalls, 8, "one more send, none of it ours")
   Stub.Advance(1) Stub.Pump()
   -- an old foreign query is not what a later drop is about
   Stub.ah.lastSearchKey = nil
   Stub.FireEvent("AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
   eq(T.replayed, 1, "a drop long after the query replays nothing")
 
-  -- an empty answer is remembered for a while, and the tooltip says so
-  Stub.ah.searchResults["2771"] = { commodity = true, listings = {} }
-  tinRow.totalQuantity = 15
-  DV.Rebuild()
-  Stub.Advance(1) Stub.Pump()
-  eq(Depth.Get(tinRow), nil, "an empty answer gives no ladder")
-  check(Depth.Failed(tinRow), "and is remembered as a failure")
-  local calls = Stub.ah.searchCalls
-  DV.Rebuild()
-  r = br.ItemList:Render()
-  eq(Stub.ah.searchCalls, calls, "not asked again straight away")
-  GameTooltip:ClearLines()
-  ExecuteFrameScript(r.rowFrames[2], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "no listings", 1, true), "tooltip says the house had nothing")
-  ExecuteFrameScript(r.rowFrames[2], "OnLeave")
-  Stub.ah.searchResults["2771"] = { commodity = true, listings = { { tinRow.minPrice, 10 } } }
-
-  -- a search the house never answers times out and frees the slot
-  tinRow.totalQuantity = 16
-  local realSearch = C_AuctionHouse.SendSearchQuery
-  C_AuctionHouse.SendSearchQuery = function() Stub.ah.ready = false end
-  DV.Rebuild()
-  check(Depth.inflight ~= nil, "silent search in flight")
-  Stub.Advance(Depth.TIMEOUT + 1) Stub.Pump()
-  check(Depth.inflight == nil, "silent search timed out")
-  eq(Depth.Get(tinRow), nil, "nothing cached for it")
-  C_AuctionHouse.SendSearchQuery = realSearch
-  Stub.ah.ready = true
-
-  -- a setting that moves the reference re-reads the ladders held from
-  -- their listings, without another search
-  local leatherRow = { itemKey = C_AuctionHouse.MakeItemKey(2319), minPrice = 700, totalQuantity = 40 }
-  Stub.ah.searchResults["2319"] = { commodity = true, listings = { { 700, 40 } } }
-  Stub.ah.browse = { oreRow, tinRow, leatherRow }
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  r = br.ItemList:Render()
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  local LL = Depth.Get(leatherRow)
-  check(LL ~= nil, "leather depth cached")
-  eq(LL and LL.refSrc, "prior:crafted cost", "its ladder is read against the crafted cost")
-  eq(LL and LL.dealUnits, 40, "and the floor counts as a deal")
-  calls = Stub.ah.searchCalls
-  eq(fig(r, 3).Sub.text, "~" .. H.MoneyShort(1200) .. " x40", "the figures read the estimate")
-  SlashCmdList.HOUND("estimates off")
-  LL = Depth.Get(leatherRow)
-  eq(LL and LL.refSrc, "market", "estimates off: the ladder is read against history")
-  eq(LL and LL.dealUnits, 0, "and nothing is a deal at its own price")
-  eq(Stub.ah.searchCalls, calls, "without another search")
-  eq(fig(r, 3).Sub.text, H.MoneyShort(700) .. " x40", "the figures on screen follow the re-read at once: history, with the units at the floor")
-  SlashCmdList.HOUND("estimates on")
-  eq(Depth.Get(leatherRow).refSrc, "prior:crafted cost", "and back on")
-  eq(Stub.ah.searchCalls, calls, "still no search")
-  -- the minimum discount moves the deal limit the same way
-  SlashCmdList.HOUND("discount 50")
-  eq(Depth.Get(leatherRow).dealUnits, 0, "a higher minimum re-reads the ladder: no deal at 42% off")
-  SlashCmdList.HOUND("discount 25")
-  eq(Depth.Get(leatherRow).dealUnits, 40, "and back")
-  eq(Stub.ah.searchCalls, calls, "none of it searched")
-  -- and the copper minimum: five silver a unit under is short of six
-  SlashCmdList.HOUND("discount 25 6s")
-  eq(Depth.Get(leatherRow).dealUnits, 0, "a copper minimum re-reads the ladder: 5s a unit under is short of 6s")
-  SlashCmdList.HOUND("discount 25 0c")
-  eq(Depth.Get(leatherRow).dealUnits, 40, "and back again")
-  eq(Stub.ah.searchCalls, calls, "still none of it searched")
-
-  -- the figures read the floor against the market alone: an unscanned
-  -- row stays without a reference once its depth is read, and a row
-  -- with an item level still meets its history
-  Stub.DefineItem(90020, "Unscanned Widget", { sell = 0, commodity = true })
-  SlashCmdList.HOUND("estimates off")
-  local strayRow = { itemKey = C_AuctionHouse.MakeItemKey(90020, 12), minPrice = 100, totalQuantity = 21 }
-  local leveledOre = { itemKey = C_AuctionHouse.MakeItemKey(2770, 10), minPrice = H.Round(refOre * 0.5), totalQuantity = 30 }
-  Stub.ah.searchResults["90020:12:0"] = { commodity = true, listings = { { 100, 1 }, { 200, 10 }, { 210, 10 } } }
-  Stub.ah.searchResults["2770:10:0"] = { commodity = true, listings = { { leveledOre.minPrice, 30 } } }
-  S.browseDepth = true
-  Stub.ah.browse = { strayRow, leveledOre }
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  r = br.ItemList:Render()
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  check(Depth.Get(strayRow) ~= nil, "the unscanned row's depth is read")
-  local se = H.Browse.Evaluate(strayRow)
-  check(se.ref == nil and not se.deal, "and it still has no reference")
-  r = br.ItemList:Render()
-  eq(fig(r, 1).Sub.text, "no reference", "its cell says so")
-  eq(fig(r, 1).Text.text, "", "with no figure")
-  local LO = Depth.Get(leveledOre)
-  eq(LO and LO.refSrc, "market", "the leveled ore's ladder is read against its history")
-  eq(fig(r, 2).Sub.text, H.MoneyShort(refOre) .. " x30", "its cell shows the market price")
-  eq(fig(r, 2).Text.text, "-50%", "and the floor's percentage under it")
-  eq(dv.status.text, "2 rows, 1 deal, 2 shown", "the count keeps the row under market as its one deal: " .. dv.status.text)
-  SlashCmdList.HOUND("estimates on")
-
-  -- a wall behind a row: with its depth read, the listings' value sits
-  -- under history and is the reference, so the row is no deal before
-  -- the next scan, the count drops it, and its tooltip says so
-  local wallRow = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 120 }
-  Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 100 }, { 300, 20 } } }
-  Stub.ah.browse = { wallRow }
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  local we = H.Browse.Evaluate(wallRow)
-  check(we.deal and not we.capped, "half price reads as a deal before the depth is read")
-  r = br.ItemList:Render()
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  local LW = Depth.Get(wallRow)
-  check(LW and LW.capped, "the depth finds the listings' value under history")
-  we = H.Browse.Evaluate(wallRow)
-  check(we.capped and not we.deal, "with the depth read, the row is no deal")
-  eq(we.ref, 150, "its reference is the listings' value")
-  eq(dv.status.text, "1 row, 0 deals, 1 shown", "and the count drops it: " .. dv.status.text)
-  r = br.ItemList:Render()
-  eq(fig(r, 1).Sub.text, H.MoneyShort(150) .. " x100", "the cell notes the listings' value and the units at the floor")
-  eq(fig(r, 1).Text.text, "0%", "no discount off it")
-  GameTooltip:ClearLines()
-  ExecuteFrameScript(r.rowFrames[1], "OnEnter")
-  check(string.find(table.concat(GameTooltip.lines, "\n"), "these listings, under history", 1, true), "the tooltip says the listings set the reference")
-  ExecuteFrameScript(r.rowFrames[1], "OnLeave")
-  -- a stray under the rest leaves history as the reference
-  local strayUnder = { itemKey = C_AuctionHouse.MakeItemKey(2318), minPrice = 150, totalQuantity = 121 }
-  Stub.ah.searchResults["2318"] = { commodity = true, listings = { { 150, 1 }, { 300, 120 } } }
-  Stub.ah.browse = { strayUnder }
-  C_AuctionHouse.SendBrowseQuery({})
-  Stub.Advance(1) Stub.Pump()
-  r = br.ItemList:Render()
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  check(Depth.Get(strayUnder) ~= nil and not Depth.Get(strayUnder).capped, "one unit at half price leaves history alone")
-  we = H.Browse.Evaluate(strayUnder)
-  check(we.deal and not we.capped and we.ref == 300, "and the row is a deal")
-  r = br.ItemList:Render()
-  eq(fig(r, 1).Text.text, "-50%", "its cell shows the discount off history")
-
   -- leaving the house forgets it all
   H.Events:Fire("AH_CLOSED")
-  eq(Depth.Get(oreRow), nil, "cache cleared on close")
   check(not T.Pending(), "queue cleared on close")
+  eq(DV.reading, nil, "and the buy's search")
   H.atAH = true
   Stub.ah.throttleModel = false
-  S.browseDepth = false
   S.dealsOnly = true
-  Depth.Clear()
   hideDeals()
 end
 
 ------------------------------------------------------------------------
 -- Buying from the Deals view: a double-click, through Hound's confirm.
--- A row whose listings are not read is searched first, Depth on or off;
--- a commodity's units are those at or under the deal limit, less your
--- own, and an item's the cheapest auction not your own.
+-- The row's listings are read with one search first; a commodity's
+-- units are those at or under the deal limit, less your own, and an
+-- item's the cheapest auction not your own.
 ------------------------------------------------------------------------
 do
-  local DV, C, S, Depth = H.UI.Deals, H.UI.Confirm, H.Settings(), H.Depth
+  local DV, C, S = H.UI.Deals, H.UI.Confirm, H.Settings()
   H.atAH = true
-  S.browseDepth, S.dealsOnly = false, false
+  S.dealsOnly = false
   S.minDiscount, S.minSaving = 0.25, 0
   H.Browse.Invalidate()
-  Depth.Clear()
   local refOre = H.Reference("2770", 2770)
   local oreRow = { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = H.Round(refOre * 0.5), totalQuantity = 60 }
   local bracers = { itemKey = C_AuctionHouse.MakeItemKey(15001, 20), minPrice = 40000, totalQuantity = 2 }
@@ -3021,7 +2571,7 @@ do
   end
   local function double(raw) local f = frameOf(raw) f.scripts.OnDoubleClick(f) end
 
-  -- a commodity whose listings are not read: one search, Depth off
+  -- a commodity: one search for its listings
   local calls = Stub.ah.searchCalls or 0
   local started = Stub.ah.started
   double(oreRow)
@@ -3030,7 +2580,7 @@ do
   eq(conf.total.text, "reading the listings", "while the listings are read")
   check(not conf.buy:IsEnabled(), "with nothing to press")
   check(not conf.units.shown, "nor a units box")
-  eq(Stub.ah.searchCalls, calls + 1, "one search for them, Depth off")
+  eq(Stub.ah.searchCalls, calls + 1, "one search for them")
   eq(Stub.ah.lastSearchKey, "2770", "for the row's item")
   Stub.Advance(1) Stub.Pump()
   local deal = 12 + 5
@@ -3102,26 +2652,32 @@ do
   check(not conf.shown and C.pending == nil, "nothing listed: the confirm goes")
   check(string.find(Stub.printed[#Stub.printed] or "", "no listings for Tin Ore", 1, true), "and chat says so")
 
-  -- with Depth on the listings are known: the double-click asks for the
-  -- price itself, and the buy is one click more
-  dv.depth:SetChecked(true)
-  dv.depth.scripts.OnClick(dv.depth)
-  for _ = 1, 4 do Stub.Advance(1) Stub.Pump() end
-  check(Depth.Listings(oreRow) ~= nil, "the ore's listings are read")
-  started = Stub.ah.started
+  -- every double-click reads the listings afresh
+  calls = Stub.ah.searchCalls
   double(oreRow)
-  check(Stub.ah.started ~= started and Stub.ah.started.qty == deal, "the double-click asks the house for a price at once")
-  eq(conf.total.text, "asking the house for a price", "and the confirm waits on it")
+  eq(Stub.ah.searchCalls, calls + 1, "a second buy searches again")
   Stub.Advance(1) Stub.Pump()
-  eq(conf.buy.text, "Buy", "one click left")
-  cancels = Stub.ah.cancelled or 0
+  eq(conf.title.text, "Buy " .. deal .. " x Copper Ore", "and offers the same units")
   conf.cancel:Click()
-  eq(Stub.ah.cancelled, cancels + 1, "Cancel calls it off")
+
+  -- a search the house never answers gives up, and says so
+  local realSearch = C_AuctionHouse.SendSearchQuery
+  C_AuctionHouse.SendSearchQuery = function() end
+  Stub.printed = {}
+  double(oreRow)
+  eq(conf.total.text, "reading the listings", "the confirm waits on the search")
+  Stub.Advance(DV.READ_TIMEOUT + 1) Stub.Pump()
+  check(not conf.shown and C.pending == nil, "no answer: the confirm goes")
+  check(string.find(Stub.printed[#Stub.printed] or "", "no answer from the house for Copper Ore", 1, true),
+    "and chat says so: " .. tostring(Stub.printed[#Stub.printed]))
+  eq(DV.reading, nil, "nothing left waiting")
+  C_AuctionHouse.SendSearchQuery = realSearch
 
   -- a commodity that is no deal now: the floor's units, said so
   S.minDiscount = 0.9
   H.Events:Fire("SETTINGS_CHANGED", "minDiscount")
   double(oreRow)
+  Stub.Advance(1) Stub.Pump()
   eq(conf.title.text, "Buy 12 x Copper Ore", "the floor's units")
   eq(conf.note.text, "none of these are a deal now", "and a word that they are no deal")
   conf.cancel:Click()
@@ -3135,9 +2691,8 @@ do
   check(not conf.shown, "no confirm away from the house")
   check(string.find(Stub.printed[#Stub.printed] or "", "open the auction house to buy", 1, true), "chat says why")
   H.atAH = true
-  S.browseDepth, S.dealsOnly = false, true
+  S.dealsOnly = true
   Stub.ah.purchases = {}
-  Depth.Clear()
   hideDeals()
 end
 
@@ -3296,7 +2851,7 @@ do
   eq(r.fill, 2, "and the fill to buy")
   eq(r.favor, 10, "the crate pays 10 favor")
   eq(r.scanAge, 0, "the scan is fresh")
-  eq((Crate.UnitPrice(2775)), (P.MarketValue(2775)), "a good is priced as its own tooltip prices it")
+  eq((Crate.UnitPrice(2775)), H.Market.Stats(Store.Get("2775")).market, "a good is priced as its own tooltip prices it")
 
   local lines = Crate.Lines(r)
   eq(#lines, 3, "a header and a line per bundle")
@@ -3371,46 +2926,31 @@ do
   eq(Crate.Listed(nil), 0, "and a good with no record has none listed")
 
   -- Expert Ingots: mithril, steel or gold bars. Only gold bars are on
-  -- the house; mithril and steel are priced by what they cost to make,
-  -- marked as estimates, and are not there to buy
+  -- the house; mithril and steel have no history, and nothing stands
+  -- in for it: what they cost to make is not a price
   Stub.DefineItem(248709, "Waylaid Crate: Expert Ingots", { stack = 1, commodity = false, quality = 2 })
   Stub.DefineItem(3860, "Mithril Bar", { sell = 400, commodity = true })
   Stub.DefineItem(3859, "Steel Bar", { sell = 60, commodity = true })
   Stub.DefineItem(3577, "Gold Bar", { sell = 600, commodity = true })
   Stub.now = Stub.now + 900
   scan(Stub.now, { ["3858"] = { 900, 300 }, ["3575"] = { 1200, 300 }, ["3577"] = { 5000, 100 }, ["2772"] = { 600, 500 } })
-  S.estimates = true
   r = Crate.Read(248709)
-  eq(r.priced, 3, "all three bundles priced")
-  eq(r.bundles[1].src, "crafted", "mithril bars by their crafted cost")
-  eq(r.bundles[1].unit, (P.CraftCost(3860)), "which is the ore's")
-  eq(r.bundles[2].unit, (P.MarketValue(3575)) + 500, "steel by its iron bar and the vendor's coal")
-  eq(r.bundles[2].total, 15 * ((P.MarketValue(3575)) + 500), "fifteen of them")
-  eq(r.bundles[3].src, "market", "gold bars from the house")
-  eq(r.bundles[1].listed, 0, "no mithril bar is listed")
-  eq(r.best, 3, "so gold bars are the fill the house can sell, dearer or not")
-  eq(r.fill, 3, "and the fill")
-  eq(r.favor, 30, "a worked expert crate pays 30")
-  lines = Crate.Lines(r)
-  eq(lines[2][1], "  20 Mithril Bar, ~" .. H.Money(r.bundles[1].unit) .. " each, |cffd9cc73none listed|r", "an estimate carries its mark")
-  eq(lines[2][2], "~" .. H.Money(r.bundles[1].total), "on the total too")
-  eq(lines[4][3], Crate.COLORS.best, "gold bars in green")
-  -- estimates off: history or nothing
-  S.estimates = false
-  r = Crate.Read(248709)
-  eq(r.priced, 1, "with estimates off only the gold bars have a price")
+  eq(r.priced, 1, "only the gold bars have a price")
   eq(r.bundles[1].unit, nil, "mithril bars have none")
+  eq(r.bundles[2].unit, nil, "nor steel, whatever its iron bar and coal cost")
+  eq(r.bundles[3].src, "market", "gold bars from the house")
   eq(r.best, nil, "and one price alone is not called the cheapest")
   eq(r.fill, 3, "but it is still the fill")
+  eq(r.favor, 30, "a worked expert crate pays 30")
   lines = Crate.Lines(r)
   eq(lines[2][1], "  20 Mithril Bar", "the bundle is still named")
   eq(lines[2][2], "no price", "and says it has no price")
   eq(lines[2][3], Crate.COLORS.none, "in grey")
   eq(lines[4][3], Crate.COLORS.price, "the one price in white")
-  S.estimates = true
+  check(not string.find(lines[4][1] .. lines[4][2], "~", 1, true), "with no estimate mark")
 
   -- history older than the two weeks the market value spans still
-  -- prices a good: the 30-day mean
+  -- prices a good: the last scan's value
   Stub.DefineItem(2776, "Gold Ore", { sell = 500, commodity = true })
   Store.AddScanSample("2776", Stub.now - 20 * 86400, { { p = 4000, q = 30 } })
   local unit, src = Crate.UnitPrice(2776)
@@ -3630,12 +3170,12 @@ do
   eq(r.listed, 120, "a hundred and twenty listed where two hundred are asked for")
   check(string.find(Writ.Lines(r)[2][1], "only 120 listed", 1, true), "the line says so: " .. Writ.Lines(r)[2][1])
 
-  -- an estimate carries its mark, as a crate's does
-  lines = Writ.Lines({ name = "Unstable Trigger", qty = 1, rank = "Expert", rep = 125, unit = 500, total = 500, src = "crafted", scanAge = 60 })
+  -- a price is the house's, with no estimate mark
+  lines = Writ.Lines({ name = "Unstable Trigger", qty = 1, rank = "Expert", rep = 125, unit = 500, total = 500, src = "market", scanAge = 60 })
   eq(lines[1][1], "|cffe6b800Hound|r Expert writ, 125 reputation", "an expert writ's header")
-  eq(lines[2][2], "~" .. H.Money(500), "an estimated price is marked")
-  lines = Writ.Lines({ name = "Crafted Solid Shot", qty = 200, rank = "Journeyman", rep = 75, unit = 5, total = 1000, src = "crafted", listed = 0, scanAge = 60 })
-  eq(lines[2][1], "  200 Crafted Solid Shot, ~" .. H.Money(5) .. " each, |cffd9cc73none listed|r", "on the price of each as well")
+  eq(lines[2][2], H.Money(500), "the price, unmarked")
+  lines = Writ.Lines({ name = "Crafted Solid Shot", qty = 200, rank = "Journeyman", rep = 75, unit = 5, total = 1000, src = "market", listed = 0, scanAge = 60 })
+  eq(lines[2][1], "  200 Crafted Solid Shot, " .. H.Money(5) .. " each, |cffd9cc73none listed|r", "none listed is said")
 
   -- an item the client has not loaded goes by the data's name and is
   -- asked for; never scanned, it has no price
@@ -3715,7 +3255,6 @@ do
   local robeKey = "5766:27:0"
   Stub.now = Stub.now + 900
   scan(Stub.now, { ["4359"] = { 50, 100 }, ["4361"] = { 200, 100 }, ["4371"] = { 1000, 20 }, [robeKey] = { 12000, 3 } })
-  S.estimates = true
   S.minSaving = 0
   Browse.Invalidate()
 
@@ -3741,7 +3280,7 @@ do
   eq(e.reward.what, "Merchant's Favor", "named as such")
   eq(e.reward.fillItem, 4359, "the copper bolts are the cheapest fill")
   eq(e.reward.fillQty, 16, "sixteen of them")
-  eq(e.reward.fill, 16 * (P.MarketValue(4359)), "priced as the crate's own tooltip prices them")
+  eq(e.reward.fill, 16 * H.Market.Stats(Store.Get("4359")).market, "priced as the crate's own tooltip prices them")
   eq(e.reward.fill, 800, "8s")
   eq(e.cost, 2000, "the crate's floor and the fill")
   near(e.perGold, 50, 1e-9, "50 favor a gold")
@@ -3810,7 +3349,7 @@ do
   scan(Stub.now, { ["4371"] = { 1000, 5 }, ["4359"] = { 50, 100 }, [robeKey] = { 12000, 3 } })
   e = Browse.Evaluate(jParts)
   eq(e.reward.listed, nil, "the cache holds until a scan or a setting moves it")
-  H.Events:Fire("SETTINGS_CHANGED", "estimates")
+  H.Events:Fire("SETTINGS_CHANGED", "minSaving")
   e = Browse.Evaluate(jParts)
   eq(e.reward.listed, 5, "then only five listed")
   check(e.perGold ~= nil, "still a rate")
@@ -3818,11 +3357,11 @@ do
   lines = Browse.RewardLines(e)
   check(string.find(lines[1], "20 Merchant's Favor, ~", 1, true), "in the tooltip: " .. lines[1])
   check(string.find(lines[2], "8 Bronze Tube " .. H.Money(e.reward.fill) .. ", only 5 listed = ~", 1, true), "with the count: " .. lines[2])
-  -- an estimated fill carries its mark on the fill and the sum
+  -- a fill the house can sell whole carries no mark
   lines = Browse.RewardLines({ min = 100, cost = 600, perGold = 250, reward = {
-    kind = "writ", amount = 125, what = "reputation", fill = 500, fillItem = 10560, fillQty = 1, fillName = "Unstable Trigger", est = true } })
-  eq(lines[1], "125 reputation, ~250 a gold", "an estimate marks the rate")
-  eq(lines[2], "writ " .. H.Money(100) .. " + Unstable Trigger ~" .. H.Money(500) .. " = ~" .. H.Money(600), "and the fill and the sum")
+    kind = "writ", amount = 125, what = "reputation", fill = 500, fillItem = 10560, fillQty = 1, fillName = "Unstable Trigger" } })
+  eq(lines[1], "125 reputation, 250 a gold", "the rate, unmarked")
+  eq(lines[2], "writ " .. H.Money(100) .. " + Unstable Trigger " .. H.Money(500) .. " = " .. H.Money(600), "and the fill and the sum")
 
   -- the rate, as the cell writes it
   eq(Browse.Rate(150), "150", "whole numbers from ten")
@@ -4018,7 +3557,8 @@ end
 
 ------------------------------------------------------------------------
 -- Sales once inferred from an auction gone before its time are taken
--- out of the saved posts and the ledger, every market's, once
+-- out of the saved posts, every market's; the ledger, written and never
+-- read, goes with the settings of features since taken out
 ------------------------------------------------------------------------
 do
   local F = H.Fan
@@ -4049,16 +3589,23 @@ do
   eq(p3.sold, 2, "a sale that was not guessed stays")
   eq(p3.status, "sold", "as sold")
   eq(db.markets.B.posts[1].status, "active", "another market's live post is left alone")
-  eq(#db.ledger, 2, "the guessed lines leave the ledger, the rest stay")
-  eq(db.ledger[1].qty, 4, "the sale before the guess")
-  eq(db.ledger[2].kind, "buy", "and the purchase")
+  eq(#db.ledger, 3, "the guess found is taken out of the ledger")
+  eq(db.ledger[1].qty, 4, "the sale before the guess stays")
   eq(F.PurgeInferred(db), 0, "a second run finds nothing")
 
   -- at load, saying so once in chat
   local live = { key = "2770", itemID = 2770, unit = 99, qty = 3, sold = 3, soldAt = Stub.now, status = "sold", inferred = true, t = Stub.now }
   H.Store.AddPost(live)
+  AuctionHoundDB.ledger = { { t = Stub.now, key = "2770", unit = 99, qty = 3, kind = "sale", inferred = true } }
+  local S = AuctionHoundDB.settings
+  S.estimates, S.satHours, S.browseDepth, S.fanShape, S.fanSpread, S.laborPerHour = true, 1, true, "bell", "above", 50
   Stub.printed = {}
   H.InitDB()
+  eq(AuctionHoundDB.ledger, nil, "the ledger is dropped from the saved file")
+  check(S.estimates == nil and S.satHours == nil and S.browseDepth == nil and S.fanShape == nil
+    and S.fanSpread == nil and S.laborPerHour == nil, "and the settings of what was taken out")
+  eq(S.fanStep ~= nil and S.fanBatches ~= nil and S.fanPerBatch ~= nil and S.postDuration ~= nil, true, "the fan's own settings stay")
+  eq(AuctionHoundDB.version, 2, "the saved file is marked as cleaned")
   eq(live.sold, 0, "the saved post is purged as the addon loads")
   eq(live.status, "ended", "and reads ended")
   check(string.find(table.concat(Stub.printed, "\n"), "no longer count", 1, true), "chat says so: " .. table.concat(Stub.printed, " | "))

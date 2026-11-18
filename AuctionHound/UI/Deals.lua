@@ -12,16 +12,13 @@
 --     the last scan, every item the last full scan saw, at its floor
 --     then, house open or not.
 --   * Each row is read as the Buy tab reads it (Browse.lua): floor,
---     units, reference, discount, saving a unit, how long the floor
---     has been on offer, and with Depth on the units at or under the
---     deal limit.
+--     units, reference, discount and saving a unit.
 --   * The filters: the minimum a deal clears (the same setting as
 --     everywhere), deals only, history only, your own auctions left
 --     out, a cap on the floor, the lowest quality and the item class.
 --   * A double-click buys through Hound's own confirm (UI/Confirm.lua):
 --     the units of a commodity at or under the deal limit, or the
---     cheapest auction of an item, read with one search first when
---     Depth has not read them already.
+--     cheapest auction of an item, read with one search first.
 local ADDON, H = ...
 
 local UI = H.UI
@@ -71,10 +68,6 @@ local function classOf(itemID)
   return select(6, C_Item.GetItemInfoInstant(itemID))
 end
 
-local function depthOf(row)
-  return H.Settings().browseDepth and H.Depth.Get(row.raw) or nil
-end
-
 ------------------------------------------------------------------------
 -- Rows: a browse row (the house's, or one made from the last scan) and
 -- Hound's reading of it.
@@ -113,13 +106,10 @@ function D.Build()
   return rows
 end
 
--- A setting, a scan or a ladder moved the readings: every row is read
--- again, or only the rows of one history key.
-function D.Reread(key)
+-- A setting or a scan moved the readings: every row is read again.
+function D.Reread()
   for _, row in ipairs(D.rows or {}) do
-    if not key or row.e.key == key then
-      row.e = H.Browse.Evaluate(row.raw) or row.e
-    end
+    row.e = H.Browse.Evaluate(row.raw) or row.e
   end
 end
 
@@ -273,8 +263,10 @@ H.RegisterEvent("AUCTION_HOUSE_BROWSE_FAILURE", function()
 end)
 
 ------------------------------------------------------------------------
--- Buying: a double-click, through Hound's confirm.
+-- Buying: a double-click, through Hound's confirm. The row's listings
+-- are read with one search of the house first, through the throttle.
 ------------------------------------------------------------------------
+D.READ_TIMEOUT = 10     -- seconds the house gets to answer that search
 
 -- The units of a commodity's listings at or under a price, less your
 -- own, and what the cheapest n of them come to.
@@ -300,9 +292,10 @@ local function priceOf(listings, n)
   return left <= 0 and total or nil
 end
 
--- Offers what the listings hold. hw: called from the double-click, so
--- a commodity's price can be asked for at once.
-local function offer(row, listings, commodity, hw)
+-- Offers what the listings hold: a commodity's units at or under the
+-- deal limit, else those at the floor, or an item's cheapest auction
+-- not yours.
+local function offer(row, listings, commodity)
   local C = UI.Confirm
   local e = row.e
   if commodity == nil then commodity = H.CommodityStatus(e.itemID) end
@@ -310,23 +303,18 @@ local function offer(row, listings, commodity, hw)
   if commodity then
     local all = unitsUnder(listings, nil)
     if all <= 0 then return C.Fail("nothing there to buy: those are your own") end
-    local L = H.Ladder.Build(listings, e.key, e.itemID)
-    local qty = L and L.limit and unitsUnder(listings, L.limit) or 0
+    local limit = H.Browse.Limit(e)
+    local qty = limit and unitsUnder(listings, limit) or 0
     local note
     if qty <= 0 then
-      local floor = L and L.floor or listings[1].p
+      local floor
+      for _, l in ipairs(listings) do if not floor or l.p < floor then floor = l.p end end
       qty = unitsUnder(listings, floor)
       if qty <= 0 then qty = 1 end
       note = "none of these are a deal now"
     end
     local cost = function(n) return priceOf(listings, n) end
-    if hw then
-      local p = C.Commodity(e.itemID, qty, all, cost)
-      p.note = note
-      C.Text()
-    else
-      C.Offer({ kind = "commodity", qty = qty, max = all, priceOf = cost, estimate = cost(qty), note = note })
-    end
+    C.Offer({ kind = "commodity", qty = qty, max = all, priceOf = cost, estimate = cost(qty), note = note })
     return true
   end
   local best
@@ -334,37 +322,59 @@ local function offer(row, listings, commodity, hw)
     if not l.mine and l.auctionID and (l.p or 0) > 0 and (not best or l.p < best.p) then best = l end
   end
   if not best then return C.Fail("nothing there to buy: those are your own") end
-  if hw then
-    C.Item(row.itemKey, best.auctionID, best.p)
-  else
-    C.Offer({ kind = "item", auctionID = best.auctionID, total = best.p })
-  end
+  C.Offer({ kind = "item", auctionID = best.auctionID, total = best.p })
   return true
 end
 
--- Buys from a row: at once when its listings are read, else after one
--- search. Returns true, or false and why not.
+local function sortsByPrice()
+  return { { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false } }
+end
+
+-- Buys from a row: its listings are read, then offered in the confirm.
+-- Returns true, or false and why not.
 function D.Buy(row)
   if not H.atAH then return false, "open the auction house to buy" end
   if type(row) ~= "table" or (row.e.qty or 0) == 0 then return false, "none listed" end
-  local listings, commodity = H.Depth.Listings(row.raw)
-  if listings then return offer(row, listings, commodity, true) end
   local p = UI.Confirm.Reading(row.itemKey, row.e.key)
   p.row = row
-  H.Depth.Urgent(row.raw)
+  local r = { row = row, p = p, key = row.e.key, itemID = row.itemID, itemKey = row.itemKey }
+  if D.reading and D.reading.timer then D.reading.timer:Cancel() end
+  D.reading = r
+  r.timer = C_Timer.NewTimer(D.READ_TIMEOUT, function()
+    if D.reading ~= r then return end
+    D.reading = nil
+    if UI.Confirm.pending == p then
+      UI.Confirm.Fail(string.format("no answer from the house for %s; try again", H.ItemName(r.itemID)))
+    end
+  end)
+  H.Throttle.Send(function() AH.SendSearchQuery(r.itemKey, sortsByPrice(), false) end)
   return true
 end
 
-H.Events:On("DEPTH_UPDATED", function(key, L)
+-- The answer to the search: offered while the confirm still waits on it.
+local function read(listings, commodity)
+  local r = D.reading
+  D.reading = nil
+  if r.timer then r.timer:Cancel() end
   local p = UI.Confirm.pending
-  if p and p.stage == "reading" and p.row and key == p.key then
-    local listings, commodity = H.Depth.Listings(p.row.raw)
-    if listings then
-      offer(p.row, listings, commodity, false)
-    else
-      UI.Confirm.Fail(string.format("the house has no listings for %s now", H.ItemName(p.itemID)))
-    end
+  if not (p and p == r.p and p.stage == "reading") then return end
+  if #listings > 0 then
+    offer(r.row, listings, commodity)
+  else
+    UI.Confirm.Fail(string.format("the house has no listings for %s now", H.ItemName(r.itemID)))
   end
+end
+
+H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
+  local r = D.reading
+  if r and itemID and r.itemID == itemID then read(H.Scan.CommodityListings(itemID), true) end
+end)
+
+H.RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED", function(itemKey)
+  local r = D.reading
+  if not r or type(itemKey) ~= "table" then return end
+  if H.KeyFromItemKey(itemKey) ~= r.key and itemKey.itemID ~= r.itemID then return end
+  read(H.Scan.ItemListings(itemKey), false)
 end)
 
 ------------------------------------------------------------------------
@@ -408,7 +418,7 @@ local function rowTooltip(row, frame)
   else
     GameTooltip:SetItemByID(k.itemID)
   end
-  UI.Browse.ReadingLines(GameTooltip, row.raw, "on the Deals view", true)
+  UI.Browse.ReadingLines(GameTooltip, row.raw, "on the Deals view")
   if row.raw.fromScan then
     GameTooltip:AddLine("as the last full scan saw it", 0.6, 0.6, 0.6)
   end
@@ -419,7 +429,7 @@ end
 local function buildControls(v)
   local S = H.Settings()
 
-  -- the first row: the search, the source and Depth, and the count
+  -- the first row: the search, the source, and the count
   local search = UI.EditBox(v, 170)
   search:SetPoint("TOPLEFT", v, "TOPLEFT", 6, -1)
   search:SetScript("OnEnterPressed", function(self)
@@ -442,20 +452,9 @@ local function buildControls(v)
     "Last scan: every item the last full scan saw, at its floor then; works with the house closed.")
   v.source = source
 
-  local depth = UI.CheckButton(v, "Depth", function(checked)
-    H.Settings().browseDepth = checked and true or false
-    D.Reread()
-    D.Refresh()
-    H.Events:Fire("DEPTH_UPDATED")
-  end)
-  depth:SetPoint("LEFT", source, "RIGHT", 10, 0)
-  tip(depth, "Depth",
-    "Each row on screen gets one search of its own, one at a time: the units at or under the deal limit, the next price step, and a reference capped by the listings' own value.")
-  v.depth = depth
-
   v.status = UI.Text(v, "GameFontDisableSmall", "", "RIGHT")
   v.status:SetPoint("RIGHT", v, "TOPRIGHT", -4, -11)
-  v.status:SetPoint("LEFT", depth.label or depth, "RIGHT", 10, 0)
+  v.status:SetPoint("LEFT", source, "RIGHT", 10, 0)
 
   -- the second row: the filters
   local y = -27
@@ -534,7 +533,7 @@ local function buildControls(v)
   v.only = toggle("Deals only", "dealsOnly", class, "Deals only",
     "Only rows that clear the minimum: green on the Buy tab.")
   v.history = toggle("History only", "dealsHistory", v.only, "History only",
-    "Only rows judged against market history, not an estimate or the vendor price.")
+    "Only rows judged against market history, not the vendor price.")
   v.mine = toggle("Hide mine", "dealsHideMine", v.history, "Hide mine",
     "Leave out rows with an auction of yours among them.")
 end
@@ -553,7 +552,6 @@ function D.UpdateControls()
   v.source:SetValue(D.Source() == "scan" and "Last scan" or "House")
   v.quality:SetValue(labelOf(D.QUALITIES, S.dealsQuality or 0))
   v.class:SetValue(labelOf(D.CLASSES, S.dealsClass or -1))
-  v.depth:SetChecked(S.browseDepth and true or false)
   v.only:SetChecked(S.dealsOnly and true or false)
   v.history:SetChecked(S.dealsHistory and true or false)
   v.mine:SetChecked(S.dealsHideMine and true or false)
@@ -575,7 +573,6 @@ function D.StatusText()
       n, n == 1 and "" or "s", deals, deals == 1 and "" or "s", kept))
     if D.Paging() then table.insert(parts, "loading more") end
   end
-  if H.Depth.Reading() then table.insert(parts, "reading depth") end
   return table.concat(parts, ", ")
 end
 
@@ -630,22 +627,12 @@ function UI.BuildDealsView(parent)
     { key = "ref", title = "Reference", width = 84, align = "RIGHT", value = function(r) return r.e.ref end, desc = true,
       text = function(r, raw)
         if not raw then return "-" end
-        local mark = r.e.refSrc == "vendor" and "v " or ((r.e.history or r.e.capped) and "" or "~")
-        return mark .. H.MoneyShort(raw)
+        return (r.e.refSrc == "vendor" and "v " or "") .. H.MoneyShort(raw)
       end },
     { key = "disc", title = "Off", width = 50, align = "RIGHT", value = function(r) return r.e.disc end, desc = true,
       text = function(r, raw) return raw and H.Pct(-raw, true) or "-" end,
       color = function(r) return rgb(verdictColor(r.e)) end },
     { key = "saving", title = "Saves", width = 74, align = "RIGHT", kind = "money", value = function(r) return r.e.saving end, desc = true },
-    { key = "deal", title = "Deal units", width = 62, align = "RIGHT", kind = "int", desc = true,
-      value = function(r) local L = depthOf(r) return L and L.dealUnits or nil end },
-    { key = "age", title = "On offer", width = 64, align = "RIGHT", value = function(r) return r.e.age end,
-      text = function(r, raw)
-        if not raw then return "-" end
-        if raw == 0 then return "new" end
-        return H.Span(raw)
-      end,
-      color = function(r) if r.e.sat then return rgb(COLORS.under) end return 0.8, 0.8, 0.8 end },
   }
   local tbl = UI.CreateTable(v, cols, {
     sortKey = "disc", sortDesc = true,
@@ -653,13 +640,6 @@ function UI.BuildDealsView(parent)
     onDouble = function(row)
       local ok, why = D.Buy(row)
       if not ok and why then H.Print(why) end
-    end,
-    -- with Depth on, the rows on screen are the ones searched
-    onRefresh = function(_, rows)
-      if not H.atAH or not H.Settings().browseDepth or not shown() then return end
-      local raws = {}
-      for i, row in ipairs(rows) do raws[i] = row.raw end
-      H.Depth.SetWanted(raws)
     end,
   })
   tbl:SetPoint("TOPLEFT", v, "TOPLEFT", 0, -54)
@@ -673,26 +653,12 @@ function UI.BuildDealsView(parent)
     D.UpdateControls()
     D.Rebuild()
     D.More()
-    H.Depth.Tick()
   end)
   D.UpdateControls()
   D.Rebuild()
   return v
 end
 
--- Searches go out only while the list shows; a row about to be bought
--- goes out regardless (Depth.lua).
-H.Depth.SetGate(function() return shown() end)
-
-H.Events:On("DEPTH_UPDATED", function(key)
-  if not D.view then return end
-  D.Reread(key)
-  if D.view:IsShown() then
-    D.view.table:Filter(D.Passes)
-    D.UpdateStatus()
-  end
-end)
-H.Events:On("DEPTH_STATUS", D.UpdateStatus)
 H.Events:On("SETTINGS_CHANGED", function()
   if not D.view then return end
   D.Reread()
@@ -702,7 +668,8 @@ end)
 H.Events:On("SCAN_DONE", function() D.Refresh() end)
 -- A visit starts and ends with nothing of the house's held.
 local function forget()
-  D.houseRows, D.by, D.searched, D.waiting, D.asking, D.ask = {}, nil, nil, 0, nil, nil
+  if D.reading and D.reading.timer then D.reading.timer:Cancel() end
+  D.houseRows, D.by, D.searched, D.waiting, D.asking, D.ask, D.reading = {}, nil, nil, 0, nil, nil, nil
   D.Refresh()
 end
 H.Events:On("AH_OPENED", forget)

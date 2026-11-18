@@ -1,7 +1,7 @@
 -- Util.lua: small helpers shared by every module. No game state lives here.
 local ADDON, H = ...
 
-H.VERSION = "0.6.0"
+H.VERSION = "0.7.0"
 H.PREFIX = "|cffe6b800Hound|r: "
 
 ------------------------------------------------------------------------
@@ -44,14 +44,6 @@ function H.Ago(seconds)
   return string.format("%dd ago", math.floor(seconds / 86400 + 0.5))
 end
 
--- A duration, short: "45m", "1.5h", "3d".
-function H.Span(seconds)
-  seconds = seconds or 0
-  if seconds < 3600 then return string.format("%dm", math.floor(seconds / 60 + 0.5)) end
-  if seconds < 86400 then return string.format("%.1fh", seconds / 3600) end
-  return string.format("%dd", math.floor(seconds / 86400 + 0.5))
-end
-
 ------------------------------------------------------------------------
 -- Numbers
 ------------------------------------------------------------------------
@@ -63,23 +55,6 @@ function H.Clamp(x, lo, hi)
   if x < lo then return lo end
   if x > hi then return hi end
   return x
-end
-
-function H.Mean(arr)
-  local n = #arr
-  if n == 0 then return nil end
-  local s = 0
-  for i = 1, n do s = s + arr[i] end
-  return s / n
-end
-
-function H.StdDev(arr, mean)
-  local n = #arr
-  if n < 2 then return 0 end
-  mean = mean or H.Mean(arr)
-  local v = 0
-  for i = 1, n do v = v + (arr[i] - mean) ^ 2 end
-  return math.sqrt(v / n)
 end
 
 ------------------------------------------------------------------------

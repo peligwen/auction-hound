@@ -12,8 +12,9 @@
 --   quoting   the house was asked; waiting on its price
 --   ready     the price is in: the button buys
 --
--- A double-click that already knows the units asks for the price itself
--- and opens the confirm at quoting, so a buy is one click more. The
+-- A double-click on Blizzard's commodity list already knows the units:
+-- it asks for the price itself and opens the confirm at quoting, so a
+-- buy is one click more. The
 -- units box sets how many of a commodity to buy; a change asks for a
 -- new price. Cancel, Escape, or leaving the house calls it all off.
 local ADDON, H = ...
@@ -196,11 +197,6 @@ function C.Commodity(itemID, qty, max, priceOf)
   startPurchase(p)
   C.Text()
   return p
-end
-
--- One auction, with its buyout: the button bids it.
-function C.Item(itemKey, auctionID, buyout)
-  return C.Open({ kind = "item", itemID = itemKey.itemID, itemKey = itemKey, auctionID = auctionID, total = buyout, stage = "ready" })
 end
 
 -- The confirm while the listings it needs are read: kind is known or
