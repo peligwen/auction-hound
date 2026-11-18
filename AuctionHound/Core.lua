@@ -139,6 +139,7 @@ commands.help = function()
   H.Print("  /hound fan <link> [per batch] [step %] [batches] [start price, e.g. 1g20s] [12h|24h|48h]")
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
+  H.Print("  /hound vendor [count] <link, id or name>   at a vendor, buy any number at once (or Alt-click the item)")
   H.Print("  /hound cut <percent>        the house's cut, default 5")
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound overlay [on|off|test]  hold Shift with the bags or bank open to see what each slot is worth")
@@ -192,6 +193,11 @@ end
 
 commands.post = function()
   H.Fan.PostNext()
+end
+
+-- At a vendor: the bulk-buy box for an item, the count filled in.
+commands.vendor = function(rest)
+  H.UI.Vendor.Command(rest)
 end
 
 commands.scan = function()

@@ -1,8 +1,8 @@
 ## Interface: 16001
 ## Title: Auction Hound
-## Notes: A slim auction house companion for WoW Forever: price history, deals on the Buy tab and a deals list of its own, fanned auctions.
+## Notes: A slim auction house companion for WoW Forever: price history, deals on the Buy tab and a deals list of its own, fanned auctions, bulk buys at a vendor.
 ## Author: peligwen
-## Version: 0.7.0
+## Version: 0.8.0
 ## SavedVariables: AuctionHoundDB
 ## IconTexture: Interface\Icons\Ability_Tracking
 
@@ -20,6 +20,7 @@ Fan.lua
 Buy.lua
 Crate.lua
 Writ.lua
+Vendor.lua
 Tooltip.lua
 UI\Widgets.lua
 UI\Frame.lua
@@ -30,3 +31,4 @@ UI\Deals.lua
 UI\QuickBuy.lua
 UI\Auctions.lua
 UI\Bags.lua
+UI\Vendor.lua

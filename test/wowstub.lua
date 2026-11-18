@@ -80,6 +80,7 @@ Enum = {
   AuctionHouseTimeLeftBand = { Short = 0, Medium = 1, Long = 2, VeryLong = 3 },
   AuctionStatus = { Active = 0, Sold = 1 },
   TooltipDataType = { Item = 0 },
+  BagIndex = { Backpack = 0, ReagentBag = 5 },
 }
 
 ------------------------------------------------------------------------
@@ -171,6 +172,7 @@ function Stub.DefineItem(id, name, opts)
 end
 
 C_Item = {
+  GetItemCount = function(id) return Stub.BagCount(tonumber(string.match(tostring(id), "(%d+)"))) end,
   GetItemInfo = function(id)
     id = tonumber(string.match(tostring(id), "(%d+)"))
     local it = Stub.items[id]
@@ -477,6 +479,9 @@ function CreateFromMixins(...)
 end
 
 function IsShiftKeyDown() return Stub.shift == true end
+function IsAltKeyDown() return Stub.alt == true end
+function IsControlKeyDown() return Stub.ctrl == true end
+function IsModifiedClick() return Stub.shift == true or Stub.alt == true or Stub.ctrl == true end
 Stub.cursor = { 500, 300 }   -- screen pixels, from the bottom left
 function GetCursorPosition() return Stub.cursor[1], Stub.cursor[2] end
 function InCombatLockdown() return Stub.combat == true end
@@ -1021,6 +1026,157 @@ function Stub.NewItemBuyFrame()
       function() return true end)
   end
   return frame
+end
+
+------------------------------------------------------------------------
+-- A vendor: its items, its window and buttons, and what a purchase
+-- does to the bags and the purse. The server's answer lands at once,
+-- or Stub.merchant.lag seconds later (a timer). It refuses a purchase
+-- the gold or the bags cannot take, with the game's error, as the
+-- client's does. Every call is kept in Stub.merchant.calls, and a call
+-- for more than one purchase may hold in Stub.merchant.over.
+------------------------------------------------------------------------
+ERR_INV_FULL = "Inventory is full."
+ERR_NOT_ENOUGH_MONEY = "You don't have enough money."
+
+-- items[i] = { itemID, price (a purchase), bundle, stock, max, extended }
+Stub.merchant = { open = false, items = {}, calls = {}, over = {} }
+
+function Stub.OpenMerchant(items)
+  Stub.merchant.items = items
+  Stub.merchant.open = true
+  Stub.merchant.calls = {}
+  Stub.merchant.over = {}
+  MerchantFrame.selectedTab = 1
+  MerchantFrame:Show()
+  Stub.FireEvent("MERCHANT_SHOW")
+end
+
+function Stub.CloseMerchant()
+  Stub.merchant.open = false
+  MerchantFrame:Hide()
+  Stub.FireEvent("MERCHANT_CLOSED")
+end
+
+local function merchantItem(i)
+  return Stub.merchant.open and Stub.merchant.items[i] or nil
+end
+
+function GetMerchantNumItems() return Stub.merchant.open and #Stub.merchant.items or 0 end
+function GetMerchantItemID(i) local m = merchantItem(i) return m and m.itemID or nil end
+function GetMerchantItemLink(i)
+  local m = merchantItem(i)
+  if not m then return nil end
+  return stackLink({ itemID = m.itemID, suffix = 0 })
+end
+function GetMerchantItemMaxStack(i)
+  local m = merchantItem(i)
+  if not m then return 0 end
+  return m.max or (Stub.items[m.itemID] and Stub.items[m.itemID].stack) or 1
+end
+local function merchantInfo(i)
+  local m = merchantItem(i)
+  if not m then return nil end
+  local it = Stub.items[m.itemID]
+  return {
+    name = it and it.name or "?", texture = 134400, price = m.price, stackCount = m.bundle or 1,
+    numAvailable = m.stock or -1, isPurchasable = m.purchasable ~= false, isUsable = true,
+    hasExtendedCost = m.extended or false,
+  }
+end
+C_MerchantFrame = { GetItemInfo = merchantInfo }
+function GetMerchantItemInfo(i)
+  local t = merchantInfo(i)
+  if not t then return nil end
+  return t.name, t.texture, t.price, t.stackCount, t.numAvailable, t.isPurchasable, t.isUsable, t.hasExtendedCost
+end
+
+-- Puts units in the bags, own stacks first, then empty slots of the
+-- four bags and the backpack; all or nothing. Returns true when placed.
+function Stub.AddToBags(itemID, units)
+  local stack = Stub.items[itemID] and Stub.items[itemID].stack or 1
+  local room = 0
+  for bag = 0, NUM_BAG_SLOTS do
+    for slot = 1, Stub.bagSlots do
+      local s = Stub.bags[bag] and Stub.bags[bag][slot]
+      if not s then room = room + stack elseif s.itemID == itemID then room = room + math.max(0, stack - s.count) end
+    end
+  end
+  if room < units then return false end
+  local left = units
+  for pass = 1, 2 do
+    for bag = 0, NUM_BAG_SLOTS do
+      for slot = 1, Stub.bagSlots do
+        if left > 0 then
+          local s = Stub.bags[bag] and Stub.bags[bag][slot]
+          if pass == 1 and s and s.itemID == itemID and s.count < stack then
+            local n = math.min(left, stack - s.count)
+            s.count = s.count + n
+            left = left - n
+          elseif pass == 2 and not s then
+            local n = math.min(left, stack)
+            Stub.SetBag(bag, slot, itemID, n)
+            left = left - n
+          end
+        end
+      end
+    end
+  end
+  return true
+end
+
+-- A bundle's item takes no count: one call buys one bundle. A count
+-- given for one is kept as a call over what one purchase holds.
+function BuyMerchantItem(i, qty)
+  local m = merchantItem(i)
+  if not m then return end
+  local bundle = m.bundle or 1
+  local units
+  if bundle > 1 then
+    if qty ~= nil then table.insert(Stub.merchant.over, { i, qty }) end
+    units = bundle
+  else
+    units = qty or 1
+    if units > GetMerchantItemMaxStack(i) then table.insert(Stub.merchant.over, { i, qty }) end
+  end
+  table.insert(Stub.merchant.calls, units)
+  local function land()
+    local cost = (units / bundle) * m.price
+    if GetMoney() < cost then
+      Stub.FireEvent("UI_ERROR_MESSAGE", 3, ERR_NOT_ENOUGH_MONEY)
+      return
+    end
+    if not Stub.AddToBags(m.itemID, units) then
+      Stub.FireEvent("UI_ERROR_MESSAGE", 2, ERR_INV_FULL)
+      return
+    end
+    if m.stock then m.stock = m.stock - units / bundle end
+    Stub.money = GetMoney() - cost
+    Stub.merchant.landed = (Stub.merchant.landed or 0) + 1
+  end
+  if Stub.merchant.lag then C_Timer.After(Stub.merchant.lag, land) else land() end
+end
+
+-- Blizzard's vendor window: ten item buttons whose modified click goes
+-- to the handler the addon hooks. Shift opens the split box, capped at
+-- what one purchase holds.
+MerchantFrame = CreateFrame("Frame", "MerchantFrame")
+MerchantFrame.selectedTab = 1
+MerchantFrame:Hide()
+function MerchantItemButton_OnModifiedClick(self, button)
+  Stub.Blizzard("MerchantItemButton_OnModifiedClick")
+  if IsShiftKeyDown() then Stub.merchant.split = GetMerchantItemMaxStack(self:GetID()) end
+end
+for i = 1, 10 do
+  local b = CreateFrame("Button", "MerchantItem" .. i .. "ItemButton", MerchantFrame)
+  b:SetID(i)
+  b:SetScript("OnClick", function(self, button)
+    if IsModifiedClick() then
+      MerchantItemButton_OnModifiedClick(self, button)
+    elseif button == "RightButton" then
+      BuyMerchantItem(self:GetID())
+    end
+  end)
 end
 
 ------------------------------------------------------------------------

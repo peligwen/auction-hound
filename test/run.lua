@@ -3615,6 +3615,287 @@ do
 end
 
 ------------------------------------------------------------------------
+-- A vendor: Alt-click an item for Hound's box, buy any number in one
+-- go. The purchases go one at a time, each waiting on the last; a stop
+-- of any kind leaves at most one on the way, and the count bought is
+-- read from the bags
+------------------------------------------------------------------------
+do
+  Stub.DefineItem(3857, "Coal", { sell = 125, stack = 20 })
+  Stub.DefineItem(2512, "Rough Arrow", { sell = 1, stack = 200 })
+  Stub.DefineItem(3466, "Strong Flux", { sell = 50, stack = 20 })
+  Stub.DefineItem(5500, "Iridescent Pearl", { sell = 100, stack = 20 })
+  Stub.DefineItem(6219, "Arclight Spanner", { sell = 10, stack = 1 })
+  local V, D = H.Vendor, H.UI.Vendor
+  local savedBags, savedSlots = Stub.bags, Stub.bagSlots
+  Stub.bags = {}
+  Stub.money = 50000000
+  local function lastLine()
+    return (string.gsub(Stub.printed[#Stub.printed] or "", "^|cffe6b800Hound|r: ", ""))
+  end
+  local function click(i, mouse)
+    local b = _G["MerchantItem" .. i .. "ItemButton"]
+    b.scripts.OnClick(b, mouse or "RightButton")
+  end
+  local function altClick(i)
+    Stub.alt = true
+    click(i)
+    Stub.alt = false
+  end
+  local function type_(n)
+    D.frame.units:SetText(tostring(n))
+    D.frame.units.scripts.OnTextChanged(D.frame.units)
+  end
+  local function run(seconds)
+    for _ = 1, seconds or 40 do
+      if not V.job then return end
+      Stub.Advance(1)
+    end
+  end
+
+  -- nothing at a vendor's back
+  Stub.printed = {}
+  H.SlashCommand("vendor 300 coal")
+  check(string.find(lastLine(), "talk to a vendor first", 1, true), "/hound vendor away from a vendor says so: " .. lastLine())
+
+  Stub.OpenMerchant({
+    { itemID = 3857, price = 500 },                              -- coal, 5s, 20 a purchase
+    { itemID = 2512, price = 10, bundle = 200 },                 -- arrows by the 200
+    { itemID = 3466, price = 2000, stock = 2 },                  -- two flux left
+    { itemID = 5500, price = 0, extended = true },               -- costs a token
+    { itemID = 6219, price = 100 },                              -- a spanner, one a stack
+  })
+
+  -- a plain or shifted click is Blizzard's; only Alt opens Hound's box
+  click(1)
+  check(not (D.frame and D.frame.shown), "a right-click opens no box")
+  eq(#Stub.merchant.calls, 1, "and buys one purchase as always")
+  Stub.shift = true
+  click(1)
+  Stub.shift = false
+  eq(Stub.merchant.split, 20, "a shift-click opens Blizzard's split box, capped at 20")
+  check(not (D.frame and D.frame.shown), "and no box of Hound's")
+  Stub.bags = {}
+  Stub.merchant.calls = {}
+
+  altClick(1)
+  local f = D.frame
+  check(f and f.shown, "an Alt-click opens Hound's box")
+  eq(f.title.text, "Buy Coal", "the box names the item")
+  eq(f.each.text, H.Money(500) .. " each", "and its price")
+  eq(f.units.text, "20", "the count starts at one stack")
+  eq(f.total.text, "20 for " .. H.Money(10000), "what it comes to")
+  check(f.buy:IsEnabled(), "Buy is ready")
+  eq(#Stub.merchant.calls, 0, "opening the box buys nothing")
+
+  -- 300 coal: fifteen purchases of 20, one at a time
+  type_(300)
+  eq(f.total.text, "300 for " .. H.Money(150000), "300 for 15g")
+  eq(f.note.text, "", "no note: the gold and the bags allow it")
+  local before = GetMoney()
+  Stub.printed = {}
+  f.buy.scripts.OnClick(f.buy)
+  eq(#Stub.merchant.calls, 1, "the first purchase goes with the click")
+  eq(f.buy.text, "Buying", "the button says it is buying")
+  eq(f.cancel.text, "Stop", "and Cancel becomes Stop")
+  run()
+  check(V.job == nil, "the run ended")
+  eq(Stub.BagCount(3857), 300, "300 coal in the bags")
+  eq(#Stub.merchant.calls, 15, "in fifteen purchases")
+  local all20 = true
+  for _, n in ipairs(Stub.merchant.calls) do if n ~= 20 then all20 = false end end
+  check(all20, "each of 20, what one purchase holds")
+  eq(#Stub.merchant.over, 0, "none asked for more than one purchase holds")
+  eq(before - GetMoney(), 150000, "15g spent")
+  eq(lastLine(), "bought 300 x Coal for " .. H.Money(150000), "chat says what was bought: " .. lastLine())
+  check(not f.shown, "the box closes when it is done")
+
+  -- the count is remembered, and Enter in the box buys
+  altClick(1)
+  eq(f.units.text, "300", "the box remembers 300 for coal")
+  type_(40)
+  Stub.merchant.calls = {}
+  f.units.scripts.OnEnterPressed(f.units)
+  run()
+  eq(#Stub.merchant.calls, 2, "Enter in the count buys: two purchases for 40")
+  eq(Stub.BagCount(3857), 340, "340 coal now")
+  eq(AuctionHoundDB.vendorQty[3857], 40, "and 40 is remembered")
+
+  -- a slow server: never more than one purchase on its way
+  Stub.bags = {}
+  Stub.merchant.lag = 2
+  Stub.merchant.calls = {}
+  Stub.merchant.landed = 0
+  altClick(1)
+  type_(100)
+  f.buy.scripts.OnClick(f.buy)
+  local ahead = 0
+  for _ = 1, 40 do
+    if not V.job then break end
+    ahead = math.max(ahead, #Stub.merchant.calls - Stub.merchant.landed)
+    Stub.Advance(1)
+  end
+  eq(ahead, 1, "at most one purchase on its way at a time")
+  eq(Stub.BagCount(3857), 100, "and all 100 arrived")
+
+  -- Stop with one on its way: that one lands, nothing more is asked
+  Stub.bags = {}
+  Stub.merchant.calls = {}
+  Stub.merchant.landed = 0
+  altClick(1)
+  type_(200)
+  f.buy.scripts.OnClick(f.buy)
+  Stub.printed = {}
+  f.cancel.scripts.OnClick(f.cancel)
+  check(not f.shown, "Stop closes the box")
+  check(V.job ~= nil, "the run waits on the purchase on its way")
+  run()
+  eq(#Stub.merchant.calls, 1, "nothing more was asked after Stop")
+  eq(Stub.BagCount(3857), 20, "the one on its way landed")
+  eq(lastLine(), "bought 20 of 200 x Coal for " .. H.Money(10000) .. "; stopped: you stopped it", "chat says so: " .. lastLine())
+
+  -- the vendor's window closing ends it the same way
+  Stub.bags = {}
+  Stub.merchant.calls = {}
+  altClick(1)
+  type_(200)
+  f.buy.scripts.OnClick(f.buy)
+  Stub.printed = {}
+  Stub.CloseMerchant()
+  check(not f.shown, "the box goes with the vendor's window")
+  run()
+  eq(#Stub.merchant.calls, 1, "nothing asked once the window closed")
+  check(string.find(lastLine(), "stopped: the vendor's window closed", 1, true), "chat says why: " .. lastLine())
+  Stub.merchant.lag = nil
+  Stub.OpenMerchant(Stub.merchant.items)
+
+  -- a purchase never answered ends the run; another error does not
+  Stub.bags = {}
+  Stub.merchant.lag = 30
+  Stub.merchant.calls = {}
+  altClick(1)
+  type_(100)
+  f.buy.scripts.OnClick(f.buy)
+  Stub.FireEvent("UI_ERROR_MESSAGE", 50, "Spell is not ready yet.")
+  check(V.job ~= nil, "an error of some other kind leaves the run going")
+  Stub.printed = {}
+  Stub.Advance(V.TIMEOUT + 1)
+  check(V.job == nil, "a purchase unanswered for a while ends it")
+  eq(#Stub.merchant.calls, 1, "with nothing more asked")
+  check(string.find(lastLine(), "stopped: the vendor stopped answering", 1, true), "chat says why: " .. lastLine())
+  Stub.Advance(30)
+  Stub.merchant.lag = nil
+
+  -- bags that fill up: a warning, and the game's error ends the run
+  Stub.bags = {}
+  Stub.bagSlots = 1     -- five slots across the backpack and four bags
+  altClick(1)
+  type_(300)
+  eq(f.note.text, "your bags hold about 100 more", "the bags are a warning: " .. tostring(f.note.text))
+  check(f.buy:IsEnabled(), "and Buy still tries")
+  f.max.scripts.OnClick(f.max)
+  eq(f.units.text, "100", "Max asks for what the bags hold")
+  type_(300)
+  Stub.merchant.calls = {}
+  Stub.printed = {}
+  f.buy.scripts.OnClick(f.buy)
+  run()
+  eq(Stub.BagCount(3857), 100, "100 coal fit")
+  eq(#Stub.merchant.calls, 6, "the sixth purchase was refused")
+  eq(lastLine(), "bought 100 of 300 x Coal for " .. H.Money(50000) .. "; stopped: your bags are full", "chat says why: " .. lastLine())
+  Stub.bagSlots = savedSlots
+
+  -- the gold: a hard stop before anything is bought
+  Stub.bags = {}
+  Stub.money = 2500
+  altClick(1)
+  type_(20)
+  eq(f.note.text, "you can afford 5", "the gold caps it: " .. tostring(f.note.text))
+  check(not f.buy:IsEnabled(), "Buy is off")
+  Stub.merchant.calls = {}
+  check(not D.Buy(), "and buys nothing")
+  eq(#Stub.merchant.calls, 0, "nothing asked of the vendor")
+  f.max.scripts.OnClick(f.max)
+  eq(f.units.text, "5", "Max asks for what the gold buys")
+  D.Close()
+  Stub.money = 50000000
+
+  -- arrows by the 200: a count rounds up to whole bundles, a bundle a purchase
+  Stub.bags = {}
+  Stub.merchant.calls = {}
+  altClick(2)
+  eq(f.each.text, "sold in 200s at " .. H.Money(10), "the bundle and its price")
+  eq(f.units.text, "200", "one stack is one bundle")
+  type_(450)
+  eq(f.total.text, "600 for " .. H.Money(30) .. ", in 200s", "450 rounds up to three bundles: " .. tostring(f.total.text))
+  f.buy.scripts.OnClick(f.buy)
+  run()
+  eq(Stub.BagCount(2512), 600, "600 arrows")
+  eq(#Stub.merchant.calls, 3, "three purchases")
+  eq(#Stub.merchant.over, 0, "each a plain purchase, no count, as a right-click makes")
+
+  -- the vendor's stock
+  altClick(3)
+  type_(5)
+  eq(f.note.text, "the vendor has 2", "the stock caps it")
+  check(not f.buy:IsEnabled(), "Buy is off")
+  type_(2)
+  f.buy.scripts.OnClick(f.buy)
+  run()
+  eq(Stub.BagCount(3466), 2, "both flux bought")
+
+  -- one that costs a token is left to the vendor's window
+  Stub.printed = {}
+  altClick(4)
+  check(not f.shown, "no box for an item that costs more than gold")
+  check(string.find(lastLine(), "costs more than gold", 1, true), "chat says why: " .. lastLine())
+
+  -- an item that does not stack: one a purchase
+  Stub.merchant.calls = {}
+  altClick(5)
+  eq(f.units.text, "1", "one stack of a spanner is one")
+  type_(3)
+  f.buy.scripts.OnClick(f.buy)
+  run()
+  eq(Stub.BagCount(6219), 3, "three spanners")
+  eq(#Stub.merchant.calls, 3, "one a purchase")
+
+  -- the buyback tab's buttons are not the vendor's items
+  MerchantFrame.selectedTab = 2
+  altClick(1)
+  check(not f.shown, "no box on the buyback tab")
+  MerchantFrame.selectedTab = 1
+
+  -- from chat
+  H.SlashCommand("vendor 60 coal")
+  check(f.shown, "/hound vendor by name opens the box")
+  eq(f.units.text, "60", "with the count")
+  D.Close()
+  H.SlashCommand("vendor 3857")
+  check(f.shown and f.units.text == "300", "by item id, with the count last bought: " .. tostring(f.units.text))
+  D.Close()
+  H.SlashCommand("vendor 25 |cffffffff|Hitem:3466::::::::60:::::|h[Strong Flux]|h|r")
+  check(f.shown and f.title.text == "Buy Strong Flux", "by link")
+  D.Close()
+  Stub.printed = {}
+  H.SlashCommand("vendor 10 r")
+  check(string.find(lastLine(), "which one:", 1, true), "a name matching several asks which: " .. lastLine())
+  H.SlashCommand("vendor 10 copper ore")
+  eq(lastLine(), "this vendor does not sell that", "an item it does not sell")
+
+  -- the older call for an item's details reads the same
+  local modern = C_MerchantFrame
+  C_MerchantFrame = nil
+  local info = V.Info(2)
+  C_MerchantFrame = modern
+  check(info and info.bundle == 200 and info.price == 10 and info.gold, "GetMerchantItemInfo read alike")
+
+  Stub.CloseMerchant()
+  Stub.bags = savedBags
+  Stub.money = nil
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

@@ -1,7 +1,7 @@
 -- Util.lua: small helpers shared by every module. No game state lives here.
 local ADDON, H = ...
 
-H.VERSION = "0.7.0"
+H.VERSION = "0.8.0"
 H.PREFIX = "|cffe6b800Hound|r: "
 
 ------------------------------------------------------------------------

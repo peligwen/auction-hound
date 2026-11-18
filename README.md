@@ -1,9 +1,10 @@
 # Auction Hound
 
 A slim auction house companion for World of Warcraft: Forever. It keeps
-price history, finds listings that are actually deals, and shows how
-items connect through crafting. Built for one flipper's taste, with a
-classic look, on the modern auction house API.
+price history, finds listings that are actually deals, posts fanned
+auctions, and buys any number of an item from a vendor in one go.
+Built for one flipper's taste, with a classic look, on the modern
+auction house API.
 
 Status: solo prototype. The logic is covered by a headless test suite.
 The client integration was checked in the beta one step at a time. The
@@ -157,6 +158,23 @@ launch is listed at its head.
   a bag addon that replaces them gets no figures. `/hound overlay`
   says what it can see right now, and `/hound overlay off` turns it
   off.
+- **Vendor bulk buy.** At a vendor, Alt-click an item to buy any number
+  of it at once: 300 coal is one box, not fifteen trips through the
+  split box, which stops at what one purchase holds. Hound's box gives
+  the count (the last count bought of that item, else one stack), what
+  it comes to, and a note when the gold or the vendor's stock falls
+  short, which holds Buy back, or when the bags look too full, which
+  only warns. Max fills in the most all three allow. Buy, or Enter in
+  the count, makes the purchases one after another, each waiting until
+  the last has landed in the bags, and chat says what was bought and
+  for how much. It stops on the game's own error (bags full, out of
+  gold), on Stop or Escape, when the vendor's window closes, or when a
+  purchase goes five seconds unanswered, with no more than the one on
+  its way still to land. An item sold in bundles, arrows by the 200,
+  is bought a bundle a purchase, as a right-click buys it, and a count
+  rounds up to whole bundles. Anything priced in a currency or another
+  item is left to the vendor's own window. `/hound vendor 300 coal`
+  opens the same box from chat, by name, item id or link.
 - **Waylaid Crates.** A crate's own tooltip lists the bundles that fill
   it, twenty copper ore or twenty tin ore say, and any one of them
   does. Hound adds a header naming the Merchant's Favor the crate pays
@@ -634,6 +652,20 @@ below are still the real test. What did change around the addon:
     chat should say "full scan (another addon's): N listings, ...",
     and Hound's own scan timer should start its fifteen minutes from
     it, with no "no answer to the full scan" line after.
+35. **Vendor bulk buy.** Open, and new. At a vendor that sells coal,
+    Alt-click it: Hound's box opens under the cursor with "Buy Coal",
+    the price each, and a count of one stack. Type 300 and press
+    Enter: chat should say "bought 300 x Coal for ..." within a few
+    seconds, with 300 more coal in the bags and the gold gone to
+    match. Report what Blizzard's split box caps a shift-click at (20
+    is what the box's purchases assume), any purchase the vendor
+    refuses, and how long the 300 took. Then: a count your bags
+    cannot take (chat should stop on "your bags are full"), Stop
+    partway, closing the vendor partway, and arrows or anything else
+    sold in bundles. Alt-click on the buyback tab should do nothing.
+    A chat line saying the vendor window has no handler for Alt-click
+    means the hook found nothing; `/hound vendor 300 coal` should
+    still work.
 
 ## Taint
 
@@ -682,7 +714,11 @@ list of Hound's own), and the Auctions tab keeps its Bid column. The panel sits 
 tab rather than hiding it, and the confirm dialog is Hound's own. The
 bag overlay keeps the same rules: its figures are Hound's own frames,
 set on the bag and bank buttons as children that take no mouse, and no
-field is written on a bag frame, the bank or a button.
+field is written on a bag frame, the bank or a button. So does the
+vendor's bulk buy: the Alt-click is met by a secure hook on the
+vendor's own handler for a modified click, which reads the button's
+index and the window's tab and nothing else, and the box is Hound's
+own.
 
 The tests hold the code to these rules (see Tests): a write on a
 Blizzard object, or Blizzard's own code run, with the addon's code on
@@ -701,6 +737,8 @@ left in a field of Blizzard's.
 /hound fan <link> [per batch] [step %] [batches] [start price] [12h|24h|48h]
                        plan a fan for an item in your bags; alone, show the plan
 /hound post            post the next batch of the fan (bind it to a key)
+/hound vendor [count] <link, id or name>
+                       at a vendor, the bulk-buy box for an item (or Alt-click it)
 /hound cut <pct>       auction house cut, default 5
 /hound discount [pct] [money]  the minimum a deal clears: a percentage off the reference, default 25,
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
@@ -738,6 +776,7 @@ Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdic
              the deal limit; what a crate or writ pays a gold of its floor and fill
 Fan.lua      fan plans at a price interval, posting, own sales from the mail
 Buy.lua      purchases noted from the house's calls, for the History view
+Vendor.lua   buying any number of an item from a vendor, a purchase at a time
 Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
 Writ.lua     the item a Craftsman's Writ asks for, priced the same way
 Tooltip.lua  tooltip lines
@@ -747,7 +786,8 @@ UI/          table, graph, sparkline; panel, views, AH tab, window;
              (Deals.lua), the double-click on the buy frames
              (QuickBuy.lua), Hound's own buy confirm (Confirm.lua), the
              Auctions tab total; the Shift overlay on the bags and bank
-             (Bags.lua)
+             (Bags.lua); the vendor's bulk-buy box and its Alt-click
+             (Vendor.lua)
 Data/        the Waylaid Crates, the favor each pays and the bundles
              that fill them; the Craftsman's Writs and the item each
              asks for
@@ -806,7 +846,9 @@ Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
 tab, a full scan the house does
 not answer, another addon's full scan, floors noted between scans,
 sales counted from mail alone and the old inferred ones purged, the
-house closing twice, and UI construction paths. Where the beta has
+house closing twice, buying from a vendor in bulk (a modelled vendor
+whose answers can lag, run out or be refused), and UI construction
+paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.
