@@ -93,7 +93,10 @@ function B.ReadingLines(tooltip, rowData, title)
   end
   local cleared = H.Market.ClearedLine(e.st)
   if e.ref then
-    tooltip:AddLine(string.format("reference %s  (%s)", H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
+    -- at a neutral house the history is your faction's house's, the
+    -- floor this house's own
+    local what = (H.Neutral() and e.refSrc == "market") and "your faction's reference" or "reference"
+    tooltip:AddLine(string.format("%s %s  (%s)", what, H.Money(e.ref), H.ReferenceSource(e.refSrc, e.st)), 0.8, 0.8, 0.8, true)
   else
     tooltip:AddLine(H.NoReferenceLine(), 0.8, 0.8, 0.8, true)
   end

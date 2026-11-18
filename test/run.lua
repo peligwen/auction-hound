@@ -849,6 +849,67 @@ do
   table.insert(list, 1, { t = Stub.now - 40 * 86400, key = "2770", itemID = 2770, qty = 1, unit = 1, status = "active", sold = 0 })
   H.Store.PrunePosts(Stub.now)
   eq(#list, before + 1, "old resolved post pruned, old open post kept")
+
+  -- Reported on live: checking auctions or mail on another character
+  -- marked this one's auctions expired or sold. Every character of a
+  -- realm and faction shares the posts; each post is its character's,
+  -- and another character's list and mailbox leave it alone.
+  local keptPosts = H.market.posts
+  H.market.posts = {}
+  local MK = C_AuctionHouse.MakeItemKey
+  local function listed(id, qty, unit) return { auctionID = id, itemKey = MK(2770), status = 0, quantity = qty, buyoutAmount = unit } end
+  local ravka, tolm = "Ravka-ClassicBetaPvP2", "Tolm-ClassicBetaPvP2"
+  eq(H.Who(), ravka, "the character playing, by name and realm")
+  local mine = { id = "w1", t = Stub.now, key = "2770", itemID = 2770, name = "Copper Ore", qty = 5, unit = 777, dur = 48 * 3600, status = "active", sold = 0, auctionID = 9101 }
+  H.Store.AddPost(mine)
+  eq(mine.who, ravka, "a post is kept as its character's")
+  check(F.HasOpenPosts(), "Ravka has an open post")
+  Stub.player = "Tolm"
+  check(not F.HasOpenPosts(), "Tolm has none")
+  Stub.printed = {}
+  F.Reconcile({ listed(9102, 3, 555) }, Stub.now + F.SETTLE)
+  eq(mine.status, "active", "another character's list leaves the post up")
+  local tolms = F.PostForAuction(9102)
+  check(tolms ~= nil, "Tolm's own auction joins the posts")
+  eq(tolms and tolms.who, tolm, "as Tolm's")
+  Stub.mail = { { invoiceType = "seller", itemName = "Copper Ore", bid = 777 * 5, count = 5 } }
+  eq(F.ScanMail(Stub.now), 0, "another character's mail sells none of it")
+  eq(mine.sold, 0, "nothing sold")
+  eq(mine.status, "active", "still up")
+  -- well past its time no house holds it: any character's list lets it
+  -- expire, without a word, and the owner's mail can still sell it
+  F.Reconcile({ listed(9102, 3, 555) }, Stub.now + 48 * 3600 + F.OTHERS_GRACE - 1)
+  eq(mine.status, "active", "within the grace past its time it stays up")
+  F.Reconcile({ listed(9102, 3, 555) }, Stub.now + 48 * 3600 + F.OTHERS_GRACE)
+  eq(mine.status, "expired", "well past its time it expires")
+  check(not string.find(table.concat(Stub.printed, "\n"), "expired", 1, true), "and Tolm's chat hears nothing of it: " .. table.concat(Stub.printed, " | "))
+  Stub.player = "Ravka"
+  eq(F.ScanMail(Stub.now), 1, "Ravka's mail matches it")
+  eq(mine.status, "sold", "and sells it")
+  Stub.mail = {}
+  -- a post saved before posts were kept by character is no one's: a
+  -- list that lacks it leaves it alone, the list that shows it claims it
+  local old = { id = "w3", t = Stub.now, key = "2770", itemID = 2770, name = "Copper Ore", qty = 2, unit = 333, dur = 48 * 3600, status = "active", sold = 0, auctionID = 9103 }
+  table.insert(H.market.posts, old)
+  Stub.player = "Tolm"
+  F.Reconcile({ listed(9102, 3, 555) }, Stub.now + F.SETTLE)
+  eq(old.who, nil, "an unclaimed post missing from a list stays unclaimed")
+  eq(old.status, "active", "and up")
+  Stub.player = "Ravka"
+  F.Reconcile({ listed(9103, 2, 333) }, Stub.now + F.SETTLE)
+  eq(old.who, ravka, "the list that shows it claims it")
+  eq(old.status, "active", "still up")
+  -- and the mail that sells one claims it
+  local old2 = { id = "w4", t = Stub.now, key = "2770", itemID = 2770, name = "Copper Ore", qty = 2, unit = 444, dur = 48 * 3600, status = "ended", sold = 0, auctionID = 9104 }
+  table.insert(H.market.posts, old2)
+  Stub.player = "Tolm"
+  Stub.mail = { { invoiceType = "seller", itemName = "Copper Ore", bid = 444 * 2, count = 2 } }
+  eq(F.ScanMail(Stub.now), 1, "an unclaimed post matches any character's mail")
+  eq(old2.who, tolm, "which claims it")
+  eq(old2.status, "sold", "and sells it")
+  Stub.mail = {}
+  Stub.player = "Ravka"
+  H.market.posts = keptPosts
 end
 
 ------------------------------------------------------------------------
@@ -2320,6 +2381,10 @@ do
   eq(rr.cells[8].text, "bought", "status cell reads bought")
   check(rr.cells[7].text ~= "0", "a purchase has no sold count")
   eq(rr.cells[5].text, H.MoneyExact(60000), "total cell shows what was paid")
+  GameTooltip.lines = {}
+  rr.scripts.OnEnter(rr)
+  check(string.find(table.concat(GameTooltip.lines, "\n"), "bought by Ravka", 1, true),
+    "the row's tooltip says whose purchase it was: " .. table.concat(GameTooltip.lines, " | "))
   hv.filter:SetValue("Sold")
   hv:Refresh()
   for _, row in ipairs(hv.table.data) do check(row.p.status ~= "bought", "sold filter leaves purchases out") end
@@ -2380,11 +2445,9 @@ do
   check(row.scripts.OnDoubleClick ~= nil, "commodity rows answer a double-click")
   eq(House.RowInfo(row).kind, "commodity", "Hound knows the row's list")
   eq(LU.UnitsUpTo(2770, row.rowData), 45, "units up to the row, less your own")
-  -- Reported on live: the second double-click offered strange, high
-  -- quantities. A row's auction can be gone from the results while the
-  -- row still shows it, after a purchase when the house reads the
-  -- listings again; counting on to the end offered every unit listed.
-  -- The row's price bounds it now.
+  -- The count goes by the row's price, as Blizzard's click counts it,
+  -- so a row whose auction is gone from the results, after a purchase,
+  -- still counts up to its price and not to the end of the list.
   local stale = { auctionID = 99999, unitPrice = 95, quantity = 20, itemID = 2770 }
   eq(LU.UnitsUpTo(2770, stale), 45, "a row whose auction is gone counts up to its price, not every unit")
   eq(LU.UnitsUpTo(2770, { auctionID = 99999, itemID = 2770 }), 0, "with no price either, it selects nothing")
@@ -2465,6 +2528,53 @@ do
   check(not conf.shown and H.UI.Confirm.pending == nil, "no price: the confirm goes")
   check(string.find(Stub.printed[#Stub.printed], "has no price", 1, true), "and chat says so")
   Stub.ah.commodityPrice[2770] = 95
+  -- Reported on live again: the first click set the right count, the
+  -- second offered a strange, high one. Blizzard's first click selects
+  -- the row and scrolls the list to show six rows past it, so the second
+  -- click lands on a dearer row. The double-click buys what the first
+  -- click selected.
+  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30 }, { 95, 20, own = 5 }, { 200, 500 }, { 250, 40 }, { 300, 60 } } }
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
+  r = cf.ItemList:Render()
+  row = r.rowFrames[2]
+  Stub.scrollOnSelect = 2
+  row.scripts.OnClick(row, "LeftButton")
+  eq(cf.BuyDisplay:GetQuantity(), 45, "the first click selects the units up to the row")
+  eq(row.rowData.unitPrice, 250, "and the list scrolls: a dearer row is under the cursor now")
+  eq(House.RowInfo(row).rowData.unitPrice, 250, "Hound's note of the row follows the scroll")
+  eq(LU.UnitsUpTo(2770, row.rowData), 585, "up to that row would be 585")
+  row.scripts.OnDoubleClick(row, "LeftButton")
+  eq(Stub.ah.started and Stub.ah.started.qty, 45, "the double-click asks for the units the first click selected")
+  eq(conf.title.text, "Buy 45 x Copper Ore", "and the confirm names them")
+  conf.cancel:Click()
+  -- a right double-click is Blizzard's favorites menu, not a purchase
+  Stub.ah.started = nil
+  row.scripts.OnDoubleClick(row, "RightButton")
+  eq(Stub.ah.started, nil, "a right double-click buys nothing")
+  check(not conf.shown, "and opens no confirm")
+  -- Shift's first click links the item and selects nothing, so the list
+  -- stays put and the row under the cursor is the one meant
+  r = cf.ItemList:Render()
+  row = r.rowFrames[1]
+  Stub.shift = true
+  row.scripts.OnClick(row, "LeftButton")
+  eq(row.rowData.unitPrice, 90, "Shift's click leaves the list where it was")
+  row.scripts.OnDoubleClick(row, "LeftButton")
+  Stub.shift = false
+  eq(Stub.ah.started and Stub.ah.started.qty, 30, "and buys up to the row under the cursor")
+  conf.cancel:Click()
+  -- a selection left from another item is not this row's
+  cf.ItemList.selectedRowData = { itemID = 2771, unitPrice = 999 }
+  row.scripts.OnDoubleClick(row, "LeftButton")
+  eq(Stub.ah.started and Stub.ah.started.itemID, 2770, "a selection of another item is passed over")
+  eq(Stub.ah.started and Stub.ah.started.qty, 30, "for the row under the cursor")
+  conf.cancel:Click()
+  -- equal prices count together, as Blizzard's own click counts them
+  Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30 }, { 95, 20 }, { 95, 10 }, { 200, 500 } } }
+  eq(LU.UnitsUpTo(2770, { itemID = 2770, unitPrice = 95, auctionID = 2 }), 60, "every unit at the row's price joins it")
+  Stub.scrollOnSelect = nil
+  cf.ItemList.selectedRowData = nil
+
   -- a row of nothing but your own units
   Stub.ah.currentSearch = { commodity = true, listings = { { 90, 30, own = 30 }, { 95, 20 } } }
   Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
@@ -3893,6 +4003,120 @@ do
   Stub.CloseMerchant()
   Stub.bags = savedBags
   Stub.money = nil
+end
+
+------------------------------------------------------------------------
+-- The neutral house. Reported on live: its listings went into the
+-- faction's history and confused the numbers. At a neutral house Hound
+-- keeps nothing and shows the faction's numbers beside its listings.
+------------------------------------------------------------------------
+do
+  local F, Scan = H.Fan, H.Scan
+  local function lastLine() return (string.gsub(Stub.printed[#Stub.printed] or "", "^|cffe6b800Hound|r: ", "")) end
+  local function visit(npc, subzone)
+    Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+    Stub.npc, Stub.subzone = npc, subzone
+    Stub.printed = {}
+    Stub.FireEvent("AUCTION_HOUSE_SHOW")
+  end
+
+  -- told by the auctioneer, else by the town
+  visit({ faction = "Horde" })
+  eq(H.house, "faction", "a Horde auctioneer keeps a faction house")
+  check(not H.Neutral(), "not neutral")
+  check(not string.find(table.concat(Stub.printed, " "), "neutral", 1, true), "and nothing is said of it")
+  visit(nil, "Gadgetzan")
+  eq(H.house, "neutral", "no auctioneer named, in Gadgetzan: neutral")
+  visit(nil, "Valley of Strength")
+  eq(H.house, "faction", "no auctioneer named, in a city: the faction's")
+  visit({ faction = nil, name = "Auctioneer Beardo" })
+  eq(H.house, "neutral", "an auctioneer of neither faction keeps a neutral house")
+  check(H.Neutral(), "neutral")
+  check(string.find(table.concat(Stub.printed, " "), "keeps nothing from here", 1, true), "chat says so on opening: " .. table.concat(Stub.printed, " | "))
+
+  -- no full scan, nor someone else's taken in
+  local ready, why = Scan.FullScanReady()
+  check(not ready and string.find(why or "", "neutral", 1, true), "no full scan at a neutral house: " .. tostring(why))
+  eq(Scan.StartFull(), false, "and none starts")
+  check(not Scan.Foreign(), "another addon's scan landing here is not read")
+  check(string.find(H.UI.StatusLine(), "neutral house: nothing kept", 1, true), "the status line says so: " .. H.UI.StatusLine())
+  check(not string.find(H.UI.StatusLine(), "full scan ready", 1, true), "and offers no scan")
+
+  -- no floors from its listings
+  local rec = H.Store.Get("2770")
+  local seenBefore = rec.seen and rec.seen.min
+  eq(Scan.NoteBrowse({ { itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = 1, totalQuantity = 50 } }, Stub.now + 10), 0, "a Buy tab row notes no floor")
+  Stub.ah.currentSearch = { commodity = true, listings = { { 1, 50 } } }
+  Stub.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 2770)
+  eq(rec.seen and rec.seen.min, seenBefore, "nor does a search")
+  eq(H.Store.NoteFloor("2770", Stub.now + 20, 1), nil, "the store refuses one, whoever asks")
+  eq(H.Store.AddScanSample("2770", Stub.now + 20, { { p = 1, q = 5 } }), nil, "and a scan sample")
+
+  -- its figures: the neutral floor against the faction's reference
+  local e = H.Browse.Evaluate({ itemKey = C_AuctionHouse.MakeItemKey(2770), minPrice = 40, totalQuantity = 50 })
+  check(e and e.ref and e.ref > 0, "the row is judged against the faction's reference")
+  check(string.find(H.Browse.FloorLine(e), "neutral floor", 1, true), "the floor is named the neutral house's: " .. H.Browse.FloorLine(e))
+  check(string.find(H.UI.Deals.StatusText(), "against your faction's prices", 1, true), "the Deals view says what it compares: " .. H.UI.Deals.StatusText())
+
+  -- the cut is the neutral house's
+  eq(H.Cut(), 0.15, "the neutral cut")
+  local _, cut = H.UI.Auctions.Figures({ buyoutAmount = 1000, quantity = 1 })
+  eq(cut, 150, "an auction's figures take it")
+
+  -- no purchase kept
+  local buys = #H.Store.Buys()
+  Stub.ah.commodityPrice[2770] = 95
+  C_AuctionHouse.StartCommoditiesPurchase(2770, 5)
+  Stub.Advance(1) Stub.Pump()
+  C_AuctionHouse.ConfirmCommoditiesPurchase(2770, 5)
+  Stub.Advance(1) Stub.Pump()
+  eq(#H.Store.Buys(), buys, "a purchase here is not kept")
+  check(string.find(table.concat(Stub.printed, " "), "bought 5 x Copper Ore", 1, true), "though chat still says it")
+
+  -- the faction house's posts are left alone: this house's list is its own
+  local keptPosts, keptOwned = H.market.posts, Stub.ah.owned
+  H.market.posts, Stub.ah.owned = {}, {}
+  Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+  Stub.npc = { faction = "Horde" }
+  Stub.FireEvent("AUCTION_HOUSE_SHOW")
+  local home = { id = "n1", t = Stub.now - 600, key = "2770", itemID = 2770, name = "Copper Ore", qty = 5, unit = 777, dur = 48 * 3600, status = "active", sold = 0, auctionID = 9201 }
+  H.Store.AddPost(home)
+  eq(#H.market.posts, 1, "a post at home is kept")
+  visit({})
+  Stub.FireEvent("OWNED_AUCTIONS_UPDATED")
+  eq(home.status, "active", "the neutral house's owned list ends none of them")
+  eq(F.RefreshOwned(true), false, "nor is it asked for")
+  H.Store.AddPost({ id = "n2", t = Stub.now, key = "2770", itemID = 2770, qty = 1, unit = 5, status = "active", sold = 0 })
+  eq(#H.market.posts, 1, "and no post made here is kept")
+  -- its sales come by mail with its cut, and sell nothing at home
+  check(F.NeutralSale(1000, 150), "a 15% cut is the neutral house's")
+  check(not F.NeutralSale(1000, 50), "a 5% cut is the faction's")
+  check(not F.NeutralSale(1000, 0), "no cut given: not told")
+  Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+  Stub.mail = { { invoiceType = "seller", itemName = "Copper Ore", bid = 777 * 5, count = 5, consignment = H.Round(777 * 5 * 0.15) } }
+  eq(F.ScanMail(Stub.now), 0, "a neutral sale's mail matches no post")
+  eq(home.status, "active", "and sells nothing at home")
+  Stub.mail[1].consignment = H.Round(777 * 5 * 0.05)
+  eq(F.ScanMail(Stub.now), 1, "the same sale at home does")
+  eq(home.status, "sold", "and sells it")
+  Stub.mail = {}
+  H.market.posts, Stub.ah.owned = keptPosts, keptOwned
+
+  -- /hound house says which, and sets it for the visit
+  visit({})
+  H.SlashCommand("house")
+  check(string.find(lastLine(), "keeps nothing", 1, true), "/hound house names a neutral house: " .. lastLine())
+  H.SlashCommand("house faction")
+  check(not H.Neutral(), "set to the faction's house")
+  check(string.find(lastLine(), "keeps its prices", 1, true), "and says so: " .. lastLine())
+  eq(H.Cut(), H.Settings().cut, "with the faction's cut")
+  H.SlashCommand("house bogus")
+  check(string.find(lastLine(), "usage", 1, true), "a bad word gets the usage")
+  Stub.FireEvent("AUCTION_HOUSE_CLOSED")
+  eq(H.house, nil, "leaving forgets the house")
+  H.SlashCommand("house")
+  eq(lastLine(), "not at an auction house", "away from one, /hound house says so")
+  Stub.npc, Stub.subzone = nil, nil
 end
 
 ------------------------------------------------------------------------

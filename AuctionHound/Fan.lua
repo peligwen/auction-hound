@@ -23,6 +23,7 @@ Fan.pending = nil     -- batch in flight, waiting for AUCTION_HOUSE_AUCTION_CREA
 Fan.DURATIONS = { 12 * 3600, 24 * 3600, 48 * 3600 }   -- index is the API duration value
 Fan.POST_TIMEOUT = 10     -- seconds before a post with no reply counts as failed
 Fan.SETTLE = 120          -- seconds before a missing auction counts as gone
+Fan.OTHERS_GRACE = 3600   -- seconds past its time before another character's post expires
 
 ------------------------------------------------------------------------
 -- Plan math. Pure, no game state.
@@ -69,7 +70,7 @@ function Fan.Plan(o)
   end
   plan.units = units
   plan.gross = gross
-  plan.net = H.Round(gross * (1 - ((H.Settings and H.Settings().cut) or 0)))
+  plan.net = H.Round(gross * (1 - (H.Cut and H.Cut() or 0)))
   plan.low = n > 0 and plan.batches[1].unit or nil
   plan.high = n > 0 and plan.batches[n].unit or nil
   return plan
@@ -358,9 +359,21 @@ end)
 ------------------------------------------------------------------------
 function Fan.HasOpenPosts()
   for _, p in ipairs(H.Store.Posts() or {}) do
-    if p.status == "active" or p.status == "pending" then return true end
+    if (p.status == "active" or p.status == "pending") and Fan.Mine(p) then return true end
   end
   return false
+end
+
+-- Whose a post is. The characters of a realm and faction share the
+-- market's posts, and each sees only its own auctions and its own
+-- mail, so what one sees settles only its own posts: another's
+-- auctions are missing from its list, and another's sales are not in
+-- its mailbox. A post saved before posts were kept by character has no
+-- one (p.who is nil), and is claimed by the first character whose list
+-- or mail shows it.
+function Fan.Mine(p, who)
+  who = who or H.Who()
+  return p.who == who
 end
 
 local function markSold(p, soldTotal, now)
@@ -533,6 +546,7 @@ end
 -- in it may simply be on a later page.
 function Fan.Reconcile(owned, now, partial)
   now = now or H.Now()
+  local me = H.Who()
   local posts = H.Store.Posts() or {}
   owned = owned or {}
   local byID = {}
@@ -554,9 +568,10 @@ function Fan.Reconcile(owned, now, partial)
         for _, p in ipairs(posts) do
           local sum = a.status == SOLD and p.unit * (p.qty or 1) or p.unit
           if not p.auctionID and (p.status == "failed" or p.status == "pending") and p.key == key
-            and sum == a.buyoutAmount and now - p.t <= 3600 then
+            and sum == a.buyoutAmount and now - p.t <= 3600 and (p.who == nil or p.who == me) then
             p.auctionID = a.auctionID
             p.status = "active"
+            p.who = me
             matched = true
             break
           end
@@ -569,11 +584,24 @@ function Fan.Reconcile(owned, now, partial)
   -- Off the house: the list says sold, or the auction is gone. Neither
   -- is a sale until its mail is seen. Gone before its time it may have
   -- sold, been cancelled elsewhere or run out early: ended. Gone after
-  -- its time it expired.
+  -- its time it expired. Only this character's own posts are missing
+  -- for a reason: another's auctions are never on this list, and its
+  -- posts are left alone until well past their time, when no house
+  -- still holds them; they expire then, quietly, and the owner's mail
+  -- can still make them sales.
   for _, p in ipairs(posts) do
     if p.status == "active" and p.auctionID then
       local a = byID[p.auctionID]
-      if a then
+      if a and p.who == nil and me then
+        p.who = me
+        changed = changed + 1
+      end
+      if p.who ~= me then
+        if now >= p.t + (p.dur or 0) + Fan.OTHERS_GRACE then
+          p.status = "expired"
+          changed = changed + 1
+        end
+      elseif a then
         if a.status == SOLD then
           p.status = "ended"
           changed = changed + 1
@@ -595,8 +623,10 @@ function Fan.Reconcile(owned, now, partial)
   return changed
 end
 
+-- A neutral house's owned list holds its own auctions, none of the
+-- faction house's: read against the posts it would end them all.
 H.RegisterEvent("OWNED_AUCTIONS_UPDATED", function()
-  if not (AH and AH.GetOwnedAuctions) then return end
+  if not (AH and AH.GetOwnedAuctions) or H.Neutral() then return end
   local full = true
   if AH.HasFullOwnedAuctionResults then full = AH.HasFullOwnedAuctionResults() end
   Fan.Reconcile(AH.GetOwnedAuctions(), nil, not full)
@@ -626,7 +656,7 @@ end
 
 -- Ask for the owned auction list. force skips the open-posts check.
 function Fan.RefreshOwned(force, retries)
-  if not H.atAH or not (AH and AH.QueryOwnedAuctions) then return false end
+  if not H.atAH or H.Neutral() or not (AH and AH.QueryOwnedAuctions) then return false end
   if not force and not Fan.HasOpenPosts() then return false end
   if AH.IsThrottledMessageSystemReady and not AH.IsThrottledMessageSystemReady() then
     retries = retries or 0
@@ -661,26 +691,49 @@ local function named(p, itemName)
   return p.name == itemName or (p.itemID ~= nil and H.ItemName(p.itemID) == itemName)
 end
 
+-- The post an invoice is for: this character's own, latest first, else
+-- one no character has claimed yet (Fan.Mine), which it then claims.
+-- Another character's posts are never matched: the mailbox is this
+-- character's alone.
+local function invoicePost(posts, seen, itemName, unit, me)
+  local unclaimed
+  for j = #posts, 1, -1 do
+    local p = posts[j]
+    if p.status ~= "cancelled" and math.abs(p.unit - unit) < 1 and named(p, itemName)
+      and (seen[p] or 0) < p.qty then
+      if p.who == me then return p end
+      if p.who == nil and not unclaimed then unclaimed = p end
+    end
+  end
+  if unclaimed then unclaimed.who = me end
+  return unclaimed
+end
+
+-- A sale at a neutral house, told by its cut: the neutral houses take
+-- 15% (H.NEUTRAL_CUT), a faction's house 5%. Hound keeps no post from a
+-- neutral house, and its sales are matched to none, so one there of an
+-- item at a price also posted at home sells nothing at home.
+function Fan.NeutralSale(total, cut)
+  if not cut or cut <= 0 or not total or total <= 0 then return false end
+  return cut / total > (H.NEUTRAL_CUT + H.DEFAULTS.cut) / 2
+end
+
 function Fan.ScanMail(now)
   if not (GetInboxNumItems and GetInboxInvoiceInfo) then return 0 end
   local posts = H.Store.Posts()
   if not posts or #posts == 0 then return 0 end
   now = now or H.Now()
+  local me = H.Who()
   local n = GetInboxNumItems() or 0
   local seen, matched = {}, 0
   for i = 1, n do
-    local invoiceType, itemName, _, bid, buyout, _, _, _, _, _, count = GetInboxInvoiceInfo(i)
-    if invoiceType == "seller" and itemName and count and count > 0 then
-      local total = (bid and bid > 0) and bid or (buyout or 0)
-      local unit = total / count
-      for j = #posts, 1, -1 do
-        local p = posts[j]
-        if p.status ~= "cancelled" and math.abs(p.unit - unit) < 1 and named(p, itemName)
-          and (seen[p] or 0) < p.qty then
-          seen[p] = (seen[p] or 0) + count
-          matched = matched + 1
-          break
-        end
+    local invoiceType, itemName, _, bid, buyout, _, cut, _, _, _, count = GetInboxInvoiceInfo(i)
+    local total = (bid and bid > 0) and bid or (buyout or 0)
+    if invoiceType == "seller" and itemName and count and count > 0 and not Fan.NeutralSale(total, cut) then
+      local p = invoicePost(posts, seen, itemName, total / count, me)
+      if p then
+        seen[p] = (seen[p] or 0) + count
+        matched = matched + 1
       end
     end
   end

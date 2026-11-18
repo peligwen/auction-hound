@@ -25,7 +25,7 @@ function A.Figures(rowData)
   if not buyout or buyout <= 0 then return nil end
   local sold = SOLD ~= nil and rowData.status == SOLD or false
   local total = sold and buyout or buyout * (rowData.quantity or 1)
-  local cut = H.Round(total * (H.Settings().cut or 0))
+  local cut = H.Round(total * H.Cut())
   return total, cut, total - cut, sold
 end
 
@@ -84,7 +84,7 @@ function A.TooltipLines(tooltip, r)
   tooltip:AddLine(" ")
   tooltip:AddLine("|cffe6b800Hound|r total", 1, 1, 1)
   tooltip:AddDoubleLine(sold and "sold, the whole auction" or "buyout x units", H.Money(total), 0.8, 0.8, 0.8, 1, 1, 1)
-  tooltip:AddDoubleLine(string.format("cut %d%%", H.Round((H.Settings().cut or 0) * 100)), "-" .. H.Money(cut), 0.8, 0.8, 0.8, 1, 1, 1)
+  tooltip:AddDoubleLine(string.format("cut %d%%", H.Round(H.Cut() * 100)), "-" .. H.Money(cut), 0.8, 0.8, 0.8, 1, 1, 1)
   local post = H.Fan.PostForAuction and H.Fan.PostForAuction(r.auctionID)
   if post and post.deposit then
     tooltip:AddDoubleLine("deposit paid", H.Money(post.deposit), 0.8, 0.8, 0.8, 1, 1, 1)

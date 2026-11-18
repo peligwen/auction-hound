@@ -206,7 +206,15 @@ end
 -- Ingest one scan sample for a key.
 -- listings: array of { p = unit price, q = quantity }
 ------------------------------------------------------------------------
+-- Nothing from a neutral house is kept (H.Neutral). Every write below
+-- refuses there, whatever the caller: the history, the floors, the
+-- posts and the purchases are this faction's house's alone.
+local function neutral()
+  return H.Neutral and H.Neutral()
+end
+
 function Store.AddScanSample(key, t, listings)
+  if neutral() then return nil end
   local mv, min, qty, n = H.Market.ValueFromListings(listings)
   if not mv then return nil end
   local rec = Store.GetOrCreate(key)
@@ -251,7 +259,7 @@ end
 -- latest scan is older than it replaces the scan's, so a price that
 -- has dropped since reads as it is now, not as it was.
 function Store.NoteFloor(key, t, min)
-  if not key or not min or min <= 0 then return nil end
+  if not key or not min or min <= 0 or neutral() then return nil end
   local rec = Store.Get(key)
   if not rec then return nil end
   local last = rec.pts[#rec.pts]
@@ -267,7 +275,7 @@ end
 -- Units seen to go to buyers between two scans, and what they went
 -- for, added to the day's fills.
 function Store.AddFills(key, t, units, value)
-  if not units or units <= 0 then return nil end
+  if not units or units <= 0 or neutral() then return nil end
   local rec = Store.GetOrCreate(key)
   rec.fills = rec.fills or {}
   local day = H.DayIndex(t)
@@ -348,7 +356,7 @@ end
 
 function Store.LogScan(entry)
   local m = market()
-  if not m then return end
+  if not m or neutral() then return end
   table.insert(m.scans, entry)
   while #m.scans > 50 do table.remove(m.scans, 1) end
 end
@@ -416,12 +424,14 @@ function Store.PrunePosts(now)
   while #list > Store.KEEP_POSTS do table.remove(list, 1) end
 end
 
+-- A post is kept as the character's who made it (H.Who).
 function Store.AddPost(post)
   local list = postList()
-  if not list then return end
+  if not list or neutral() then return end
   for _, p in ipairs(list) do
     if p == post then return end
   end
+  post.who = post.who or H.Who()
   table.insert(list, post)
   Store.PrunePosts(post.t)
 end
@@ -465,7 +475,7 @@ end
 
 function Store.AddBuy(b)
   local list = buyList()
-  if not list then return end
+  if not list or neutral() then return end
   table.insert(list, b)
   Store.PruneBuys(b.t)
 end

@@ -93,7 +93,10 @@ function House.Overlay(cell, build)
   return o
 end
 
-local function onDoubleClick(row)
+-- Left button only: the rows take the right button too, for Blizzard's
+-- favorites menu.
+local function onDoubleClick(row, button)
+  if button and button ~= "LeftButton" then return end
   local t = House.rows[row]
   local fn = t and House.doubles[t.kind]
   if fn then fn(t.rowData, row) end

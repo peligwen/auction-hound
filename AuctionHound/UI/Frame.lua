@@ -29,6 +29,7 @@ local statusText
 local function statusLine()
   local S = H.Scan
   local parts = {}
+  if H.Neutral() then table.insert(parts, "neutral house: nothing kept") end
   if S.state == "replicating" then
     table.insert(parts, "waiting for the full listing")
   elseif S.state == "processing" then
@@ -42,7 +43,7 @@ local function statusLine()
     else
       table.insert(parts, "no full scan yet")
     end
-    if H.atAH then
+    if H.atAH and not H.Neutral() then
       local wait = S.FullScanWait()
       if wait > 0 then
         table.insert(parts, string.format("next in %d:%02d", math.floor(wait / 60), wait % 60))
@@ -528,7 +529,11 @@ local function buildHistoryView(parent)
   filter:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
   v.filter = filter
   local refreshBtn = UI.Button(v, "Refresh", 70, 22, function()
-    if not H.Fan.RefreshOwned(true) then H.Print("open the auction house to check your auctions") end
+    if H.Neutral() then
+      H.Print("a neutral house's auctions are not kept; check yours at your faction's house")
+    elseif not H.Fan.RefreshOwned(true) then
+      H.Print("open the auction house to check your auctions")
+    end
   end)
   refreshBtn:SetPoint("LEFT", filter, "RIGHT", 6, 0)
   local summary = UI.Text(v, "GameFontDisableSmall", "", "LEFT")
@@ -556,6 +561,11 @@ local function buildHistoryView(parent)
       if not GameTooltip then return end
       GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
       GameTooltip:SetItemByID(row.itemID)
+      -- the characters of a realm and faction share the history: whose
+      local who = type(row.p.who) == "string" and string.match(row.p.who, "^[^-]+")
+      if who then
+        GameTooltip:AddLine((row.p.status == "bought" and "bought by " or "posted by ") .. who, 0.7, 0.7, 0.7)
+      end
       GameTooltip:Show()
     end,
   })
@@ -689,6 +699,8 @@ function UI.EnsurePanel()
   H.Events:On("SCAN_STATUS", UI.UpdateStatus)
   H.Events:On("SCAN_DONE", UI.UpdateStatus)
   H.Events:On("SETTINGS_CHANGED", UI.UpdateStatus)
+  H.Events:On("HOUSE_CHANGED", UI.UpdateStatus)
+  H.Events:On("AH_OPENED", UI.UpdateStatus)
   panel.ticker = C_Timer.NewTicker(5, function() if panel:IsShown() then UI.UpdateStatus() end end)
   panel:SetScript("OnShow", UI.UpdateStatus)
 

@@ -163,7 +163,7 @@ end
 
 -- The floor as the tooltip reads it: the price and the units.
 function Browse.FloorLine(e)
-  return string.format("floor %s, %d units listed", H.Money(e.min), e.qty)
+  return string.format("%s %s, %d units listed", H.Neutral() and "neutral floor" or "floor", H.Money(e.min), e.qty)
 end
 
 -- The dearest price a deal sits at, for a row read by Evaluate: the

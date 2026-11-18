@@ -67,7 +67,28 @@ date = function(fmt, t) return os.date(fmt, t) end
 
 function GetCurrentRegion() return 1 end
 function GetNormalizedRealmName() return "ClassicBetaPvP2" end
-function UnitFactionGroup() return "Horde" end
+-- the player, and the NPC the player is dealing with: Stub.npc =
+-- { faction = "Horde" | "Alliance" | nil } while one is, nil otherwise
+Stub.player = "Ravka"
+function UnitName(unit)
+  if unit == "player" then return Stub.player end
+  if unit == "npc" and Stub.npc then return Stub.npc.name or "Auctioneer" end
+  return nil
+end
+function UnitExists(unit)
+  if unit == "player" then return true end
+  if unit == "npc" then return Stub.npc ~= nil end
+  return false
+end
+function UnitFactionGroup(unit)
+  if unit == "npc" then return Stub.npc and Stub.npc.faction or nil end
+  return "Horde", "Horde"
+end
+Stub.zone = "Orgrimmar"
+function GetZoneText() return Stub.zone end
+function GetRealZoneText() return Stub.zone end
+function GetSubZoneText() return Stub.subzone or "" end
+function GetMinimapZoneText() return Stub.subzone or Stub.zone end
 
 Enum = {
   AuctionHouseSortOrder = { Price = 0, Name = 1, Level = 2, Bid = 3, Buyout = 4, TimeRemaining = 5 },
@@ -481,7 +502,13 @@ end
 function IsShiftKeyDown() return Stub.shift == true end
 function IsAltKeyDown() return Stub.alt == true end
 function IsControlKeyDown() return Stub.ctrl == true end
-function IsModifiedClick() return Stub.shift == true or Stub.alt == true or Stub.ctrl == true end
+-- the client's default bindings: Shift links and splits, Ctrl dresses up
+local MODIFIED = { CHATLINK = "shift", SPLITSTACK = "shift", DRESSUP = "ctrl" }
+function IsModifiedClick(action)
+  local key = action and MODIFIED[action]
+  if key then return Stub[key] == true end
+  return Stub.shift == true or Stub.alt == true or Stub.ctrl == true
+end
 Stub.cursor = { 500, 300 }   -- screen pixels, from the bottom left
 function GetCursorPosition() return Stub.cursor[1], Stub.cursor[2] end
 function InCombatLockdown() return Stub.combat == true end
@@ -760,11 +787,13 @@ C_AuctionHouse = {
   GetNumCommoditySearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
   GetCommoditySearchResultInfo = function(itemID, i)
     local l = Stub.ah.currentSearch.listings[i]
+    if not l then return nil end
     return { itemID = itemID, unitPrice = l[1], quantity = l[2], auctionID = l[3] or i, timeLeftSeconds = 3600, containsOwnerItem = (l.mine or (l.own or 0) > 0) and true or false, numOwnerItems = l.own or 0 }
   end,
   GetNumItemSearchResults = function() return Stub.ah.currentSearch and #Stub.ah.currentSearch.listings or 0 end,
   GetItemSearchResultInfo = function(itemKey, i)
     local l = Stub.ah.currentSearch.listings[i]
+    if not l then return nil end
     return { itemKey = itemKey, buyoutAmount = l[1], quantity = l[2] or 1, auctionID = l[3] or i, timeLeft = 2, owners = { "Someone" }, containsOwnerItem = l.mine or false }
   end,
 
@@ -831,6 +860,31 @@ function Stub.NewItemList()
   end
   function list:SetTableBuilderLayout(fn) Stub.Blizzard("ItemList:SetTableBuilderLayout") self.tableBuilderLayoutFunction = fn end
   function list:DirtyScrollFrame() Stub.Blizzard("ItemList:DirtyScrollFrame") self.dirty = true end
+  -- a row's left click selects it, unless the frame's callback says no
+  -- (Shift's click links the item instead)
+  function list:SetSelectionCallback(fn) self.selectionCallback = fn end
+  function list:SetSelectedEntry(rowData)
+    Stub.Blizzard("ItemList:SetSelectedEntry")
+    if self.selectionCallback and not self.selectionCallback(rowData) then return end
+    self.selectedRowData = rowData
+    self:DirtyScrollFrame()
+  end
+  -- The scroll box moving by n rows: each row frame of the last render
+  -- shows the entry n further on, its cells filled again, the way the
+  -- client's scroll box reuses its frames.
+  function list:ScrollBy(n)
+    Stub.Blizzard("ItemList:ScrollBy")
+    for i, row in ipairs(self.lastRows or {}) do
+      local rowData = self.getEntry(i + n)
+      if rowData then
+        row.rowData = rowData
+        for _, cell in ipairs(row.cells) do
+          cell.rowData = rowData
+          if cell.Populate then cell:Populate(rowData, i + n) end
+        end
+      end
+    end
+  end
   -- Every column the layout adds gets a header frame the way the
   -- client's AddColumnInternal builds one: a sortable column carries
   -- its sort order, an unsortable one its text. Rows are buttons with
@@ -880,6 +934,10 @@ function Stub.NewItemList()
           end
           GameTooltip:Show()
         end
+      end
+      row.scripts.OnClick = function(r, button)
+        Stub.Blizzard("a list row's OnClick")
+        if button == "LeftButton" then list:SetSelectedEntry(r.rowData) end
       end
       row.scripts.OnLeave = function(r)
         Stub.Blizzard("a list row's OnLeave")
@@ -980,6 +1038,21 @@ function Stub.NewCommoditiesBuyFrame()
   list:SetTableBuilderLayout(function(tb)
     tb:AddFixedWidthColumn(list, 0, 150, 10, 0, nil, "AuctionHouseTableCellUnitPriceTemplate")
     tb:AddFillColumn(list, 0, 1.0, 0, 10, nil, "AuctionHouseTableCellCommoditiesQuantityTemplate")
+  end)
+  -- the client's selection: Shift links, else the display takes every
+  -- unit at the row's price or under, and the list scrolls to show six
+  -- rows past the last of them (Stub.scrollOnSelect, the rows it moves)
+  list:SetSelectionCallback(function(rowData)
+    if IsModifiedClick("CHATLINK") then return false end
+    local units = 0
+    for i = 1, C_AuctionHouse.GetNumCommoditySearchResults(frame.itemID) do
+      local r = C_AuctionHouse.GetCommoditySearchResultInfo(frame.itemID, i)
+      if not r or r.unitPrice > rowData.unitPrice then break end
+      units = units + r.quantity - r.numOwnerItems
+    end
+    frame.BuyDisplay:SetQuantity(units)
+    if (Stub.scrollOnSelect or 0) > 0 then list:ScrollBy(Stub.scrollOnSelect) end
+    return true
   end)
   function frame:SetItemIDAndPrice(itemID, price)
     Stub.Blizzard("CommoditiesBuyFrame:SetItemIDAndPrice")

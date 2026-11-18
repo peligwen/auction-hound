@@ -95,9 +95,12 @@ launch is listed at its head.
 - **Quick buyout.** Clicking a Buy tab row opens Blizzard's buy frame
   for that item. Double-click a listing there to buy it: an item is
   bought out on the spot, and a commodity row asks the house for a
-  price on every unit up to it, less your own, and Hound's own confirm
-  opens under the cursor with the total, for one more click. Hound
-  draws nothing on those frames.
+  price on every unit at its price or under, less your own (the count
+  Blizzard's own click puts in its box), and Hound's own confirm opens
+  under the cursor with the total, for one more click. The row is the
+  one the double-click's first click selected, even when Blizzard's
+  list scrolls under the cursor between the two clicks. Hound draws
+  nothing on those frames.
 - **History.** Every auction of yours the addon has seen, with what
   became of it: active, sold, ended, expired or cancelled, units and
   gold. Fan batches and auctions posted from Blizzard's own Sell tab
@@ -131,7 +134,20 @@ launch is listed at its head.
   its time, and those were as often expiries: they are taken out of
   the saved history when the addon loads, saying so once in chat. The
   result is a sold / unsold bracket per item, shown in the Item view,
-  the tooltip and `/hound stats`.
+  the tooltip and `/hound stats`. The characters of a realm and faction
+  share the history, and each auction is its character's: another
+  character's auction list and mailbox leave it alone, and the History
+  view's tooltip names whose it is. One no house can still hold, an
+  hour past its time, expires whoever looks.
+- **Neutral house.** The goblin towns' houses (Booty Bay, Gadgetzan,
+  Everlook) are known by their auctioneer, and Hound keeps nothing
+  from one: no scan, no floor, no post, no purchase, and the owned list
+  there ends none of your faction house's auctions. Chat says so when
+  it opens and the status line reads "neutral house: nothing kept".
+  Its figures are the neutral house's listings against your faction's
+  history: the Buy tab's reference and discount, the Deals view, the
+  "neutral floor" in a row's tooltip. The cut there is 15%. A sale's
+  mail with the neutral cut matches none of your posts.
 - **Tooltips.** One line by default: the latest floor seen, with its
   age when that is more than two hours: "AH floor 5s 89c". The floor is
   the latest full scan's, or the one the house has shown since, on a Buy
@@ -227,8 +243,8 @@ and thirty-day means and the swing, Depth on the Deals view, the
 listings block on Blizzard's buy frames, the "sat" rule, and the
 fan's bell spacing, spreads and centering on past sales.
 
-Deferred on purpose: guild sync, the neutral auction house, disenchant
-tables.
+Deferred on purpose: guild sync, the neutral auction house as a market
+of its own, disenchant tables.
 
 ## Install
 
@@ -484,14 +500,17 @@ below are still the real test. What did change around the addon:
     double-click and the purchase from the Buy click, both hardware
     events). New: the confirm has a units box; change it and the
     button reads "Get price" again, a click asking the house anew.
-    Fixed in 0.7, reported on live: a second double-click on the
-    commodity list, after a purchase say, offered a strange, high
-    number of units. The row's auction was gone from the house's
-    listings, and the count ran on to every unit listed. It now stops
-    at the row's price, and the item is the row's own. Double-click a
-    row, buy, then double-click another: the units must be those up to
-    that row. Report a count that is still more than the rows above
-    and including the one clicked.
+    Fixed in 0.8.1, reported on live twice: the first click set the
+    right count, and the second offered a strange, high one. The fix in
+    0.7 guessed at the cause and missed it. Blizzard's first click
+    selects the row and then scrolls the list to show six rows past it,
+    so the second click landed on a dearer row, and Hound counted up to
+    that one. Hound now counts up to the row the first click selected,
+    as Blizzard's quantity box does, every unit at that price or under.
+    Double-click a row low in the list, where the list moves: the
+    confirm's units must match Blizzard's box. A right double-click
+    does nothing now; Shift-double-click still buys up to the row
+    under the cursor, since Shift's click links and selects nothing.
 22. **Latest scan.** Open, and new. Find an item whose price has
     fallen and stayed down, with plenty of units at the new low. Its
     Buy tab row should read grey or amber at that price, and the row's
@@ -666,6 +685,27 @@ below are still the real test. What did change around the addon:
     A chat line saying the vendor window has no handler for Alt-click
     means the hook found nothing; `/hound vendor 300 coal` should
     still work.
+36. **Another character's auctions.** Open, and new. Reported on live:
+    checking auctions or mail on a second character marked the first
+    one's auctions expired or sold. Post something on one character,
+    log onto another of the same realm and faction, open the house and
+    the mailbox: the first character's auctions must still read active
+    in the History view, and its tooltip should say "posted by" the
+    first. Back on the first, its own list and mail settle them as
+    before. Auctions from before 0.8.1 belong to no one until a
+    character's list or mail shows them; on a character that does not
+    own them they stay active until an hour past their time.
+37. **Neutral house.** Open, and new. At Booty Bay, Gadgetzan or
+    Everlook, open the house: chat should say "a neutral house: Hound
+    keeps nothing from here ...", and the status line "neutral house:
+    nothing kept". Full Scan should refuse, the Buy tab's figures
+    should read against your faction's prices, and a row's tooltip
+    should say "neutral floor". Posting, buying and opening your
+    auctions there must leave the History view as it was. `/hound
+    house` says how Hound told; report a faction house it calls
+    neutral, or the other way round, with that line. `/hound house
+    faction` (or `neutral`) sets it for the visit. Report the cut the
+    neutral house takes if it is not 15%.
 
 ## Taint
 
@@ -748,6 +788,8 @@ left in a field of Blizzard's.
 /hound debug rep [n]   print raw full-scan rows
 /hound debug buy [n]   print the Buy tab's first rows: the house's item level, the history key, the reference
 /hound markets         list the markets stored: each region, realm and faction played
+/hound house [faction|neutral]  which house is open and how Hound told; a neutral house keeps
+                       nothing. With a word, sets it until you leave
 /hound wipe [market]   erase this market's history (your own posts are kept); with another
                        market's name, drop that market whole
 ```
@@ -800,7 +842,8 @@ items by `id:level:suffix` so suffix variants never share a record. An
 item key from the house (a Buy tab row, a search, an owned auction) is
 read by the same rule, whatever item level it carries. Your
 own posts live in the same market record, as plain tables, for 30 days
-after they resolve.
+after they resolve, each with the character who posted it. A neutral
+house is no market: nothing from one is stored.
 
 ### Cleared
 
@@ -845,8 +888,9 @@ auction adoption and history, purchases and the quick buyout, the
 Waylaid Crate and Craftsman's Writ lines and their rows on the Buy
 tab, a full scan the house does
 not answer, another addon's full scan, floors noted between scans,
-sales counted from mail alone and the old inferred ones purged, the
-house closing twice, buying from a vendor in bulk (a modelled vendor
+sales counted from mail alone and the old inferred ones purged, posts
+kept by character, the neutral house keeping nothing, the commodity
+list scrolling between a double-click's clicks, the house closing twice, buying from a vendor in bulk (a modelled vendor
 whose answers can lag, run out or be refused), and UI construction
 paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake

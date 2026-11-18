@@ -35,7 +35,8 @@ function H.Settings()
 end
 
 -- One history per region, ruleset and faction. Forever is realmless, so
--- the realm name is the ruleset name; the neutral AH is deferred.
+-- the realm name is the ruleset name. A neutral house keeps none
+-- (H.Neutral).
 function H.MarketKey()
   local region = "XX"
   if GetCurrentRegion then
@@ -47,6 +48,64 @@ function H.MarketKey()
   local faction = (UnitFactionGroup and UnitFactionGroup("player")) or "Neutral"
   return region .. "-" .. realm .. "-" .. faction
 end
+
+-- The character playing, as "Name-Realm": the one whose auctions the
+-- owned list shows and whose mail the mailbox holds. Every character of
+-- a realm and faction shares the market and its posts, and each post
+-- notes whose it is. Nil while the client has no name for the player.
+function H.Who()
+  local name = UnitName and UnitName("player")
+  if type(name) ~= "string" or name == "" then return nil end
+  local realm = (GetNormalizedRealmName and GetNormalizedRealmName()) or (GetRealmName and GetRealmName()) or ""
+  return name .. "-" .. string.gsub(realm, "[%s%-]", "")
+end
+
+------------------------------------------------------------------------
+-- Which house is open. The goblin towns' houses, in Booty Bay,
+-- Gadgetzan and Everlook, are neutral: both factions' goods, at prices
+-- of their own, for a cut of 15%. Taking their listings into this
+-- faction's history confused its numbers, so at a neutral house Hound
+-- keeps nothing: no scan, no floor, no post and no purchase is saved
+-- (Store.lua drops any that gets that far). What it shows there is this
+-- faction's numbers beside the neutral house's own listings: the
+-- figures on the Buy tab and in the Deals view are the neutral price
+-- against this faction's history.
+--
+-- Known by the auctioneer: a faction house's are the city's, Alliance
+-- or Horde, and a neutral house's are neither. When the client names no
+-- auctioneer, by the town. /hound house says which, and can set it for
+-- the visit.
+------------------------------------------------------------------------
+H.NEUTRAL_TOWNS = { ["Booty Bay"] = true, ["Gadgetzan"] = true, ["Everlook"] = true }
+H.NEUTRAL_CUT = 0.15
+
+-- "faction" or "neutral", and how that was told.
+function H.DetectHouse()
+  if UnitExists and UnitExists("npc") and UnitFactionGroup then
+    local f = UnitFactionGroup("npc")
+    if f == "Alliance" or f == "Horde" then return "faction", "the auctioneer is " .. f end
+    return "neutral", "the auctioneer is neither Alliance nor Horde"
+  end
+  for _, fn in ipairs({ GetSubZoneText, GetMinimapZoneText, GetZoneText }) do
+    local zone = type(fn) == "function" and fn() or nil
+    if zone and H.NEUTRAL_TOWNS[zone] then return "neutral", "the house is in " .. zone end
+  end
+  return "faction", "no auctioneer named, and not in a neutral town"
+end
+
+-- True at a neutral house.
+function H.Neutral()
+  return H.atAH and H.house == "neutral" or false
+end
+
+-- The house's cut of a sale: the neutral house's there, else the
+-- setting.
+function H.Cut()
+  if H.Neutral() then return H.NEUTRAL_CUT end
+  return H.Settings().cut or 0
+end
+
+H.NEUTRAL_NOTE = "a neutral house: Hound keeps nothing from here, and its figures are this house's listings against your faction's prices (/hound house)"
 
 function H.InitDB()
   if type(AuctionHoundDB) ~= "table" then AuctionHoundDB = {} end
@@ -106,12 +165,15 @@ H.RegisterEvent("PLAYER_LOGOUT", function()
 end)
 
 H.RegisterEvent("AUCTION_HOUSE_SHOW", function()
+  H.house, H.houseWhy = H.DetectHouse()
   H.atAH = true
+  if H.house == "neutral" then H.Print(H.NEUTRAL_NOTE) end
   H.Events:Fire("AH_OPENED")
 end)
 
 H.RegisterEvent("AUCTION_HOUSE_CLOSED", function()
   H.atAH = false
+  H.house, H.houseWhy = nil, nil
   H.Events:Fire("AH_CLOSED")
 end)
 
@@ -146,6 +208,7 @@ commands.help = function()
   H.Print("  /hound debug rep [n]        print raw full-scan rows")
   H.Print("  /hound debug buy [n]        print the Buy tab's first rows: the house's key, the history key, the reference")
   H.Print("  /hound markets    list the markets stored: each region, realm and faction played")
+  H.Print("  /hound house [faction|neutral]   which house this is; a neutral one keeps nothing")
   H.Print("  /hound wipe [market]   erase this market's history (your own posts are kept), or another market whole")
 end
 
@@ -355,6 +418,29 @@ commands.wipe = function(rest)
   end
   H.Store.Wipe()
   H.Printf("history for %s erased", H.marketKey)
+end
+
+-- Which house is open and how Hound told; with "faction" or "neutral",
+-- that is what it is until you leave, should the auctioneer mislead.
+commands.house = function(rest)
+  local v = string.lower(rest or "")
+  if v ~= "" and v ~= "faction" and v ~= "neutral" then
+    H.Print("usage: /hound house [faction|neutral]")
+    return
+  end
+  if not H.atAH then
+    H.Print("not at an auction house")
+    return
+  end
+  if v ~= "" and v ~= H.house then
+    H.house, H.houseWhy = v, "you said so, until you leave"
+    H.Events:Fire("HOUSE_CHANGED")
+  end
+  if H.house == "neutral" then
+    H.Printf("%s (%s)", H.NEUTRAL_NOTE, H.houseWhy or "")
+  else
+    H.Printf("your faction's house: Hound keeps its prices (%s)", H.houseWhy or "")
+  end
 end
 
 commands.debug = function(rest)

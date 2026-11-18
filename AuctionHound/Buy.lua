@@ -24,6 +24,7 @@ local function record(b, now)
   b.t = now
   b.status = "bought"
   b.name = b.name or H.ItemName(b.itemID)
+  b.who = H.Who()
   H.Store.AddBuy(b)
   if b.qty > 1 then
     H.Printf("bought %d x %s for %s (%s each)", b.qty, b.name, H.Money(b.total), H.Money(b.unit))

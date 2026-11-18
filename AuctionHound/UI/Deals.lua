@@ -567,8 +567,9 @@ function D.StatusText()
       H.Ago(H.Now() - last), n, n == 1 and "" or "s", deals, deals == 1 and "" or "s", kept))
   else
     if not H.atAH then return "open the auction house: the results of its searches show here" end
-    if (D.waiting or 0) > 0 then return "searching" end
-    if n == 0 and not D.by then return "search here or on the Buy tab" end
+    if H.Neutral() then table.insert(parts, "neutral house, against your faction's prices") end
+    if (D.waiting or 0) > 0 then table.insert(parts, "searching") return table.concat(parts, ", ") end
+    if n == 0 and not D.by then table.insert(parts, "search here or on the Buy tab") return table.concat(parts, ", ") end
     table.insert(parts, string.format("%d row%s, %d deal%s, %d shown",
       n, n == 1 and "" or "s", deals, deals == 1 and "" or "s", kept))
     if D.Paging() then table.insert(parts, "loading more") end
@@ -673,4 +674,5 @@ local function forget()
   D.Refresh()
 end
 H.Events:On("AH_OPENED", forget)
+H.Events:On("HOUSE_CHANGED", function() D.UpdateStatus() end)
 H.Events:On("AH_CLOSED", forget)

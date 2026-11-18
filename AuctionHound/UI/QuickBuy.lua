@@ -72,32 +72,43 @@ function QB.BuyItem(rowData)
   return true
 end
 
--- The units a click on a commodity row selects: everything listed up
--- to and including that row, less your own, which the house will not
--- sell you. With no row, every unit listed.
---
--- The row is found by its auction, and failing that by its price: the
--- results run cheapest first, so it ends where the price passes the
--- row's. A row's auction can be gone from the results while the row
--- still shows it, after a purchase say, when the house reads the
--- listings again; counting on to the end then offered every unit
--- listed. A row with neither selects nothing.
+-- The units a click on a commodity row selects, counted the way
+-- Blizzard's own click counts them: every unit listed at the row's
+-- price or under, less your own, which the house will not sell you.
+-- With no row, every unit listed; a row with no price selects nothing.
 function QB.UnitsUpTo(itemID, rowData)
   if not itemID then return 0 end
   local row = type(rowData) == "table" and rowData or nil
-  if row and not row.auctionID and not row.unitPrice then return 0 end
+  if row and not row.unitPrice then return 0 end
   local n = AH.GetNumCommoditySearchResults and AH.GetNumCommoditySearchResults(itemID) or 0
   local units = 0
   for i = 1, n do
     local r = AH.GetCommoditySearchResultInfo(itemID, i)
     if r then
-      if row and row.unitPrice and r.unitPrice and r.unitPrice > row.unitPrice then return units end
+      if row and r.unitPrice and r.unitPrice > row.unitPrice then break end
       units = units + math.max(0, (r.quantity or 0) - (r.numOwnerItems or 0))
-      if row and row.auctionID and r.auctionID == row.auctionID then return units end
     end
   end
-  if row and not row.unitPrice then return 0 end
   return units
+end
+
+-- The row a double-click on the commodity list meant. Its first click
+-- is Blizzard's: the list selects the row and then scrolls to show six
+-- rows past it. The second click lands on whatever row the scroll
+-- brought under the cursor, a dearer one whenever the list moved, and
+-- counting up to that row offered the strange, high counts. So the row
+-- is the one the list selected, read from the list, when it is of the
+-- same item. The row under the cursor stands when the list selected
+-- none, or when Shift is held: Shift's first click links the item and
+-- selects nothing, so the list neither moved nor holds this row.
+function QB.Meant(rowData)
+  local list = QB.commodityFrame and QB.commodityFrame.ItemList
+  local sel = type(list) == "table" and list.selectedRowData or nil
+  if type(sel) ~= "table" or not sel.unitPrice then return rowData end
+  if type(IsModifiedClick) == "function" and IsModifiedClick("CHATLINK") then return rowData end
+  local id = type(rowData) == "table" and rowData.itemID
+  if id and sel.itemID and sel.itemID ~= id then return rowData end
+  return sel
 end
 
 -- What the cheapest n units listed come to, less your own: the
@@ -136,7 +147,7 @@ House.OnDoubleClick("item", function(rowData)
 end)
 
 House.OnDoubleClick("commodity", function(rowData)
-  local ok, why = QB.BuyCommodity(rowData)
+  local ok, why = QB.BuyCommodity(QB.Meant(rowData))
   if not ok and why then H.Print(why) end
 end)
 

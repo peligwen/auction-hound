@@ -180,6 +180,7 @@ end
 
 function Scan.FullScanReady()
   if not H.atAH then return false, "not at the auction house" end
+  if H.Neutral() then return false, "a neutral house: Hound keeps no prices from it; scan at your faction's house" end
   if Scan.state ~= "idle" then return false, "scan in progress" end
   local wait = Scan.FullScanWait()
   if wait > 0 then
@@ -208,7 +209,7 @@ end
 Scan.FOREIGN_GAP = 10 * 60
 
 function Scan.Foreign()
-  return Scan.state == "idle" and H.atAH and H.Now() - Scan.LastFull() >= Scan.FOREIGN_GAP
+  return Scan.state == "idle" and H.atAH and not H.Neutral() and H.Now() - Scan.LastFull() >= Scan.FOREIGN_GAP
 end
 
 H.RegisterEvent("REPLICATE_ITEM_LIST_UPDATE", function()
@@ -393,6 +394,7 @@ end
 -- scan. Nothing is asked of the house for it.
 ------------------------------------------------------------------------
 function Scan.NoteBrowse(rows, now)
+  if H.Neutral() then return 0 end
   now = now or H.Now()
   local n = 0
   for _, r in ipairs(type(rows) == "table" and rows or {}) do
@@ -414,7 +416,7 @@ H.RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED", function(added)
 end)
 
 H.RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED", function(itemID)
-  if not itemID then return end
+  if not itemID or H.Neutral() then return end
   local min
   for _, l in ipairs(Scan.CommodityListings(itemID)) do
     if not min or l.p < min then min = l.p end
