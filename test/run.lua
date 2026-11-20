@@ -4120,6 +4120,290 @@ do
 end
 
 ------------------------------------------------------------------------
+-- Recipe costs: Hound's panel beside the profession window prices the
+-- recipe picked, each reagent at the house or a vendor, what a craft
+-- sells for less the cut and the profit; its list holds every recipe of
+-- the profession, the most profitable first
+------------------------------------------------------------------------
+do
+  local Craft, P = H.Craft, H.UI.Craft
+  local S = H.Settings()
+  local function lastLine()
+    return (string.gsub(Stub.printed[#Stub.printed] or "", "^|cffe6b800Hound|r: ", ""))
+  end
+  Stub.DefineItem(2589, "Linen Cloth", { sell = 13, commodity = true })
+  Stub.DefineItem(2996, "Bolt of Linen Cloth", { sell = 40, commodity = true })
+  Stub.DefineItem(2320, "Coarse Thread", { sell = 2, commodity = true })
+  Stub.DefineItem(2835, "Rough Stone", { sell = 2, commodity = true })
+  Stub.DefineItem(2862, "Rough Sharpening Stone", { sell = 2, commodity = true })
+  Stub.DefineItem(7026, "Linen Belt", { sell = 30, commodity = false, stack = 1, equip = "INVTYPE_WAIST", ilvl = 9 })
+  Stub.DefineItem(10940, "Strange Dust", { sell = 25, commodity = true })
+  Stub.DefineItem(2838, "Heavy Stone", { sell = 15, commodity = true })
+  Stub.DefineItem(3486, "Heavy Grinding Stone", { sell = 50, commodity = true })
+  Stub.DefineItem(4357, "Rough Blasting Powder", { sell = 4, commodity = true })
+  Stub.DefineItem(2458, "Elixir of Minor Fortitude", { sell = 20, commodity = true })
+  Stub.DefineItem(2449, "Earthroot", { sell = 5, commodity = true })
+  Stub.DefineItem(765, "Silverleaf", { sell = 5, commodity = true })
+  Stub.DefineItem(3371, "Empty Vial", { sell = 1, commodity = true })
+  Stub.DefineItem(4470, "Simple Wood", { sell = 1, commodity = true, loaded = false })
+  Stub.DefineItem(4364, "Coarse Blasting Powder", { sell = 8, commodity = true })
+
+  -- the house as the last scan saw it; no thread on it
+  local samples = {
+    ["2589"] = { 50, 500 }, ["2996"] = { 160, 100 }, ["2835"] = { 20, 200 }, ["2862"] = { 10, 50 },
+    ["7026:9:0"] = { 1000, 3 }, ["10940"] = { 80, 100 }, ["2838"] = { 100, 40 }, ["3486"] = { 900, 10 },
+    ["4357"] = { 15, 100 }, ["2458"] = { 300, 20 }, ["2449"] = { 40, 50 }, ["765"] = { 25, 1 }, ["3371"] = { 10, 30 },
+    ["4364"] = { 70, 60 },
+  }
+  for key, l in pairs(samples) do H.Store.AddScanSample(key, Stub.now, { { p = l[1], q = l[2] } }) end
+  H.Store.LogScan({ t = Stub.now, kind = "full", rows = 0, keys = 0, secs = 0, skipped = 0 })
+
+  local recipes = {
+    { recipeID = 2963, name = "Bolt of Linen Cloth", out = 2996, reagents = { { 2, 2589 } } },
+    { recipeID = 2660, name = "Rough Sharpening Stone", out = 2862, reagents = { { 1, 2835 } } },
+    { recipeID = 8776, name = "Linen Belt", out = 7026, reagents = { { 6, 2589 }, { 1, 2320 } } },
+    { recipeID = 7418, name = "Enchant Bracer - Minor Health", reagents = { { 1, 10940 } } },
+    { recipeID = 3326, name = "Heavy Grinding Stone", out = 3486, learned = false, reagents = { { 2, 2838 } } },
+    { recipeID = 3918, name = "Rough Blasting Powder", out = 4357, min = 1, max = 3, reagents = { { 1, 2835 } } },
+    { recipeID = 2330, name = "Elixir of Minor Fortitude", out = 2458,
+      reagents = { { 2, 2449, 765 }, { 1, 3371 } }, optional = { { 1, 2589 } } },
+    { recipeID = 9001, name = "Bolt of Tokens", out = 2996, reagents = { { 1, 2589 } }, currency = true },
+    { recipeID = 9002, name = "Salvage Cloth", salvage = true, reagents = { { 5, 2589 } } },
+  }
+  local function row(id)
+    for _, r in ipairs(P.rows or {}) do if r.recipeID == id then return r end end
+  end
+  local function order()
+    local ids = {}
+    for _, r in ipairs(P.table.view) do table.insert(ids, r.recipeID) end
+    return table.concat(ids, ",")
+  end
+  local function lines()
+    local out = {}
+    for _, l in ipairs(P.frame.lines) do
+      if l.left.text ~= "" or l.right.text ~= "" then table.insert(out, l.left.text .. " | " .. l.right.text) end
+    end
+    return out
+  end
+
+  check(Craft.Available(), "this client reads recipes")
+  eq(#Craft.Recipes(), 0, "no profession open, no recipes")
+  eq(ProfessionsFrame, nil, "the window's addon has yet to load")
+
+  Stub.OpenProfession(recipes)
+  check(P.installed, "the window is met once its addon loads")
+  local f = P.frame
+  check(f and f.shown, "Hound's panel opens beside the window")
+  eq(f.parent, ProfessionsFrame, "a child of the window, so it goes with it")
+  local pt = f.points[1]
+  check(pt and pt[1] == "TOPLEFT" and pt[2] == ProfessionsFrame and pt[3] == "TOPRIGHT", "hung off the window's right edge")
+  eq(P.tab, nil, "no tab while the panel is up")
+
+  -- the bolt, picked by the window
+  eq(P.recipeID, 2963, "the window's pick reaches Hound through its form")
+  local r = P.picked
+  eq(r.cost, 100, "two linen at 50c")
+  eq(r.lines[1].src, "market", "from the house")
+  eq(r.sells, 152, "a bolt at 1s 60c, less the 5% cut")
+  eq(r.profit, 52, "52c over the materials")
+  near(r.margin, 0.52, 1e-9, "52% on them")
+  local L = lines()
+  eq(L[1], "Bolt of Linen Cloth | makes 1", "the panel names the recipe and what it makes")
+  eq(L[2], "  2 Linen Cloth, " .. H.Money(50) .. " each | " .. H.Money(100), "a reagent a line: units, the price of one, the total")
+  eq(L[3], "materials | " .. H.Money(100), "what the materials come to")
+  eq(L[4], "sells, " .. H.Money(160) .. " less 5% cut | " .. H.Money(152), "what a craft sells for")
+  eq(L[5], "profit | +52c (+52%)", "and the profit")
+  local pl = P.frame.lines[5].right.color
+  check(pl and pl[2] > pl[1], "a profit in green")
+
+  -- the list: learned recipes, salvage left out, the most profitable first
+  eq(#P.rows, 8, "every recipe read but the salvage")
+  eq(string.sub(order(), 1, 19), "2330,2963,3918,2660", "learned ones, sorted by profit")
+  local tail = {}
+  for i = 5, #P.table.view do tail[P.table.view[i].recipeID] = P.table.view[i].profit == nil end
+  check(#P.table.view == 7 and tail[8776] and tail[7418] and tail[9001], "and those with no profit last")
+  eq(P.frame.status.text, "7 recipes, 5 priced, 3 at a profit", "the status counts them")
+  eq(P.table.rows[1].row.recipeID, 2330, "the elixir heads the list on screen")
+
+  -- a slot taking either of two herbs is priced at the cheaper, a
+  -- reagent the last scan saw too few of says so, and an optional
+  -- reagent costs nothing
+  local e = row(2330)
+  eq(e.lines[1].itemID, 765, "silverleaf is the cheaper herb")
+  eq(e.lines[1].total, 50, "two at 25c")
+  eq(e.lines[1].listed, 1, "only one listed")
+  check(string.find(Craft.ReagentLine(e.lines[1])[1], "only 1 listed", 1, true), "the line says so")
+  eq(#e.lines, 2, "the optional reagent is no line")
+  eq(e.cost, 60, "and no part of the cost")
+  eq(e.profit, 225, "the elixir sells for 2s 85c after the cut")
+
+  -- a range of units made is priced at its mean
+  local b = row(3918)
+  eq(b.made, 2, "one to three, priced at two")
+  eq(Craft.MadeText(b), "makes 1-3", "and says so")
+  eq(b.sells, 28.5, "two at 15c, less the cut")
+  -- a loss in red
+  eq(row(2660).profit, -10.5, "the sharpening stone loses money")
+  local lc = { P.COLUMNS[4].color(row(2660)) }
+  check(lc[1] > lc[2], "a loss reads red")
+  -- an enchant makes no item: a cost and no profit
+  local en = row(7418)
+  eq(en.itemID, nil, "an enchant makes no item")
+  eq(en.cost, 80, "its dust is priced")
+  eq(en.profit, nil, "and it has no profit")
+  eq(Craft.SummaryLines(en)[2][2], "makes no item", "it says so")
+  -- a currency is not priced, so the total is not known
+  local tok = row(9001)
+  eq(tok.cost, nil, "a currency leaves the cost open")
+  eq(tok.partial, 50, "with what is priced so far")
+
+  -- the window's own pick: thread has no price yet, so no total
+  Stub.PickRecipe(8776)
+  eq(P.recipeID, 8776, "picked in the window, priced in the panel")
+  eq(P.table.selectedKey, 8776, "and marked in Hound's list")
+  r = P.picked
+  eq(r.unpriced, 1, "the thread is never on the house")
+  eq(r.cost, nil, "so no total")
+  eq(r.partial, 300, "only what the linen comes to")
+  eq(r.profit, nil, "and no profit")
+  L = lines()
+  eq(L[3], "  1 Coarse Thread | no price", "the thread says so")
+  eq(L[4], "materials, 1 without a price | at least " .. H.Money(300), "the materials are a floor")
+  eq(L[5], "sells, " .. H.Money(1000) .. " less 5% cut | " .. H.Money(950), "the belt is found by its item ID, gear as it is")
+  eq(L[6], nil, "no profit line")
+
+  -- Unlearned too: the grinding stone comes in at the top
+  f.unlearned:SetChecked(true)
+  f.unlearned.scripts.OnClick(f.unlearned)
+  eq(S.craftUnlearned, true, "the setting is kept")
+  eq(string.sub(order(), 1, 4), "3326", "the unlearned grinding stone is the best of them")
+  eq(P.frame.status.text, "8 recipes, 6 priced, 4 at a profit", "and counted")
+  f.unlearned:SetChecked(false)
+  f.unlearned.scripts.OnClick(f.unlearned)
+  eq(S.craftUnlearned, false, "and off again")
+
+  -- any header sorts by its column
+  P.table.headers[2].scripts.OnClick(P.table.headers[2])
+  eq(P.table.sortKey, "cost", "a header sorts")
+  eq(string.sub(order(), 1, 4), "2660", "the cheapest materials first")
+  P.table:SetSort("profit", true)
+
+  -- a row clicked is priced above; hovering it shows the lines; a
+  -- double-click asks the client to open it in the window
+  local first = P.table.rows[1]
+  first.scripts.OnClick(first)
+  eq(P.recipeID, 2330, "a row clicked is the one priced above")
+  L = lines()
+  check(string.find(L[2], "only 1 listed", 1, true), "the panel shows the short herb: " .. tostring(L[2]))
+  first.scripts.OnEnter(first)
+  local tip = table.concat(GameTooltip.lines, "\n")
+  eq(GameTooltip.itemID, 2458, "the row's tooltip is the item it makes")
+  check(string.find(tip, "materials | " .. H.Money(60), 1, true), "with its materials: " .. tip)
+  check(string.find(tip, "profit | +2s 25c", 1, true), "and its profit")
+  first.scripts.OnLeave(first)
+  P.table.rows[2].scripts.OnClick(P.table.rows[2])
+  eq(P.recipeID, 2963, "another row, another recipe")
+  first.scripts.OnDoubleClick(first)
+  eq(Stub.trade.asked, 2330, "a double-click asks the client for the recipe")
+  Stub.Advance(1)
+  eq(ProfessionsFrame.CraftingPage.SchematicForm.currentRecipeInfo.recipeID, 2330, "which the window picks itself")
+  eq(P.recipeID, 2330, "and hands back to Hound")
+
+  -- a vendor window shows thread and vials: their prices are noted
+  -- and used wherever they are cheaper than the house
+  Stub.OpenMerchant({
+    { itemID = 2320, price = 10 },                 -- thread, 10c
+    { itemID = 3371, price = 4 },                  -- vials, under the house's 10c
+    { itemID = 2835, price = 30 },                 -- rough stone, dearer than the house
+    { itemID = 2512, price = 10, bundle = 200 },   -- arrows by the 200
+    { itemID = 2838, price = 5, stock = 3 },       -- a few heavy stones: no steady supply
+    { itemID = 5500, price = 0, extended = true }, -- a token's worth
+  })
+  eq(H.VendorBuy(2320), 10, "the thread's price is noted")
+  eq(H.VendorBuy(2512), 10 / 200, "a bundle's price a unit")
+  eq(H.VendorBuy(2838), nil, "a good the vendor runs out of is not")
+  eq(H.VendorBuy(5500), nil, "nor one that costs a token")
+  eq(H.VendorBuy(2589), nil, "nor anything the vendor does not sell")
+  Stub.CloseMerchant()
+  local asked = Stub.trade.schematics
+  local price, src = Craft.ReagentPrice(3371)
+  check(price == 4 and src == "vendor", "a vial at the vendor's 4c, under the house")
+  price, src = Craft.ReagentPrice(2835)
+  check(price == 20 and src == "market", "rough stone at the house's 20c, under the vendor")
+  Stub.FireEvent("TRADE_SKILL_LIST_UPDATE")
+  Stub.Advance(1)
+  eq(Stub.trade.schematics, asked, "an update prices again without reading a schematic again")
+  local belt = row(8776)
+  eq(belt.cost, 310, "the belt's thread is priced now")
+  eq(belt.lines[2].src, "vendor", "at the vendor")
+  check(string.find(Craft.ReagentLine(belt.lines[2])[1], "vendor", 1, true), "and its line says so")
+  eq(belt.profit, 640, "6s 40c a belt")
+  eq(string.sub(order(), 1, 4), "8776", "now the best of the list")
+  eq(row(2330).cost, 54, "the elixir's vial at the vendor's price")
+  eq(P.frame.status.text, "7 recipes, 6 priced, 4 at a profit", "the status follows")
+
+  -- the cut is the setting's
+  S.cut = 0.15
+  eq(Craft.Read(2963).sells, 136, "a 15% cut takes more")
+  S.cut = 0.05
+
+  -- a reagent's name the client has yet to load is asked for, and the
+  -- panel reads it again a moment later
+  Stub.trade.recipes[#Stub.trade.recipes + 1] = { recipeID = 3919, name = "Coarse Blasting Powder", out = 4364, reagents = { { 1, 4470 } } }
+  Stub.loadRequests = 0
+  asked = Stub.trade.schematics
+  Stub.FireEvent("TRADE_SKILL_LIST_UPDATE")
+  Stub.Advance(1)
+  eq(Stub.trade.schematics, asked + 1, "a recipe learned is the one schematic read")
+  eq(row(3919).lines[1].name, "item:4470", "the wood has no name yet")
+  check(Stub.loadRequests > 0, "so it is asked for")
+  Stub.Advance(2)
+  eq(row(3919).lines[1].name, "Simple Wood", "and named once loaded")
+
+  -- the close button puts the panel away, for every profession; the
+  -- tab on the window's edge brings it back
+  f.close.scripts.OnClick(f.close)
+  eq(S.craftPanel, false, "closed, the setting is off")
+  check(not f.shown, "the panel goes")
+  check(P.tab and P.tab.shown, "and a Hound tab sits on the window's edge")
+  eq(P.tab.parent, ProfessionsFrame, "its child too")
+  Stub.CloseProfession()
+  Stub.OpenProfession(recipes)
+  check(not f.shown, "it stays put away when a profession opens")
+  P.tab.scripts.OnClick(P.tab)
+  check(f.shown and S.craftPanel, "the tab brings it back")
+  check(not P.tab.shown, "and goes itself")
+  Stub.printed = {}
+  H.SlashCommand("craft off")
+  check(not f.shown, "/hound craft off puts it away")
+  check(string.find(lastLine(), "recipe costs are off", 1, true), "and says so: " .. lastLine())
+  H.SlashCommand("craft")
+  check(f.shown, "/hound craft alone toggles it back")
+  check(string.find(lastLine(), "recipe costs are on", 1, true), "and says so: " .. lastLine())
+  H.SlashCommand("craft bogus")
+  check(string.find(lastLine(), "usage", 1, true), "a bad word gets the usage")
+
+  -- another profession: its own recipes
+  Stub.CloseProfession()
+  Stub.FireEvent("TRADE_SKILL_LIST_UPDATE")
+  eq(P.pending, false, "nothing is rebuilt with the window shut")
+  Stub.OpenProfession({ recipes[2], recipes[6] }, 3918)
+  eq(order(), "3918,2660", "the panel lists the profession open")
+  eq(P.recipeID, 3918, "and its pick")
+  Stub.CloseProfession()
+
+  -- a client whose profession window Hound cannot read says so, once
+  local T = C_TradeSkillUI
+  C_TradeSkillUI, P.installed, P.said = nil, false, nil
+  Stub.printed = {}
+  Stub.FireEvent("TRADE_SKILL_SHOW")
+  Stub.FireEvent("TRADE_SKILL_SHOW")
+  eq(#Stub.printed, 1, "one line")
+  check(string.find(lastLine(), "not one Hound can read", 1, true), "naming it: " .. lastLine())
+  C_TradeSkillUI, P.installed = T, true
+end
+
+------------------------------------------------------------------------
 -- Logout flush
 ------------------------------------------------------------------------
 do

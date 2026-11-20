@@ -2,7 +2,8 @@
 
 A slim auction house companion for World of Warcraft: Forever. It keeps
 price history, finds listings that are actually deals, posts fanned
-auctions, and buys any number of an item from a vendor in one go.
+auctions, buys any number of an item from a vendor in one go, and
+prices a recipe's materials and profit at the profession window.
 Built for one flipper's taste, with a classic look, on the modern
 auction house API.
 
@@ -227,6 +228,32 @@ launch is listed at its head.
   crate plus fill, before the usual reference and floor lines. A crate
   whose favor is not known yet, or whose fill has no price, reads like
   any other row.
+- **Recipe costs.** Open a profession and Hound's panel hangs off the
+  window's right edge. At its top, the recipe picked in the window:
+  each reagent with the units a craft takes, the price of one and the
+  total, then what the materials come to, what a craft sells for less
+  the house's cut, and the profit, green or red, with its margin on
+  the materials. Under it, every recipe of the profession in a list of
+  Hound's own with its cost, sale and profit, the most profitable
+  first; any header sorts by its column, and "Unlearned too" adds the
+  recipes not learned yet. Click a row to price it at the top, hover
+  it for the same lines on the item it makes, double-click it to open
+  it in the window. A reagent is priced at its market value, as a
+  crate's goods are, or at what a vendor sells it for when that is
+  cheaper: every vendor window opened notes the gold price of what it
+  always has in stock, thread, vials, flux, for every character. A
+  slot that takes any of several items is priced at the cheapest; an
+  optional reagent is no part of the cost. The product is priced the
+  same way, gear found by its item ID; a recipe that makes a range of
+  units (1-3) is priced at the mean. A reagent with no price, thread
+  before any vendor has shown it say, leaves the total open: the panel
+  gives what is priced so far ("at least") and no profit. A reagent
+  the last scan saw too few of for one craft says so. An enchant makes
+  no item, so it has a cost and no profit. The deposit is not counted.
+  Blizzard's list keeps its own order: sorting it would mean writing
+  on it (see Taint). The close button puts the panel away for every
+  profession; a small Hound tab on the window's edge, or `/hound
+  craft`, brings it back.
 - **UI.** A tab inside the Blizzard auction house frame (or `/hound` for
   a window) with five views. Markets lists every item with history.
   Deals is the buy list above. Item is one item in depth: stats, the
@@ -237,7 +264,9 @@ launch is listed at its head.
   floor and volume, sparklines per row.
 
 Taken out in 0.7, to keep the addon slim: crafted-cost and
-input-value estimates and the recipe connections behind them, the
+input-value estimates and the recipe connections behind them (recipe
+costs came back in 0.9, read from the profession window rather than
+kept as data, and never standing in for an item's market value), the
 confidence score, the units-moved estimate, the ledger, the three-day
 and thirty-day means and the swing, Depth on the Deals view, the
 listings block on Blizzard's buy frames, the "sat" rule, and the
@@ -706,6 +735,34 @@ below are still the real test. What did change around the addon:
     neutral, or the other way round, with that line. `/hound house
     faction` (or `neutral`) sets it for the visit. Report the cut the
     neutral house takes if it is not 15%.
+38. **Recipe costs.** Open, and new. Built against the modern
+    profession window (`ProfessionsFrame`, `C_TradeSkillUI`), which the
+    client's bags and bank say it has; none of it has been seen in
+    game. After a full scan, open a profession: Hound's panel should
+    hang off the window's right edge, the same height, with nothing of
+    the window under it. If chat says "this client's profession window
+    is not one Hound can read" instead, report which window the
+    profession opens in (one small window with the list above the
+    reagents is the classic one). Pick a recipe in the window's own
+    list: the top of the panel names it and lists its reagents line
+    for line as the window does, each with its units, the price of one
+    and the total, then materials, sells and profit. Hover a reagent
+    in the window and compare its "AH floor"; the panel uses the
+    market value (Shift on the tooltip). A recipe with a choice of
+    reagents, or optional ones, is the case to watch: report a
+    required reagent missing from the panel or an optional one in it.
+    The list below should hold the profession's learned recipes, the
+    most profitable first; tick "Unlearned too" and the rest come in,
+    grey. Click a header: it sorts. Click a row: the top follows.
+    Double-click a row: the window should open that recipe (report
+    if nothing happens). Visit a vendor that sells thread or vials,
+    come back: a recipe that read "at least" for want of thread should
+    now have its total, the thread marked "vendor". Craft something
+    and learn a recipe with the panel up: it should follow within a
+    second, with no stutter. Close it with its x: a small Hound tab
+    sits on the window's right edge, and brings it back. Report an
+    error in chat, a panel that overlaps the window or runs off the
+    screen, or figures that disagree with the item's tooltip.
 
 ## Taint
 
@@ -758,7 +815,11 @@ field is written on a bag frame, the bank or a button. So does the
 vendor's bulk buy: the Alt-click is met by a secure hook on the
 vendor's own handler for a modified click, which reads the button's
 index and the window's tab and nothing else, and the box is Hound's
-own.
+own. So does the recipe costs panel: the profession window is met by
+`HookScript` on its show and a secure hook on its recipe form's `Init`,
+the panel and its tab are Hound's own frames, children of the window,
+and a double-click asks `C_TradeSkillUI.OpenRecipe` rather than
+running the window's code.
 
 The tests hold the code to these rules (see Tests): a write on a
 Blizzard object, or Blizzard's own code run, with the addon's code on
@@ -779,6 +840,7 @@ left in a field of Blizzard's.
 /hound post            post the next batch of the fan (bind it to a key)
 /hound vendor [count] <link, id or name>
                        at a vendor, the bulk-buy box for an item (or Alt-click it)
+/hound craft [on|off]  the recipe costs panel beside the profession window; alone, toggles it
 /hound cut <pct>       auction house cut, default 5
 /hound discount [pct] [money]  the minimum a deal clears: a percentage off the reference, default 25,
                        and copper a unit under it, e.g. 25 5s; whichever is more; 0c for no copper floor
@@ -818,9 +880,12 @@ Browse.lua   the Buy tab's read of each row: reference, discount, saving, verdic
              the deal limit; what a crate or writ pays a gold of its floor and fill
 Fan.lua      fan plans at a price interval, posting, own sales from the mail
 Buy.lua      purchases noted from the house's calls, for the History view
-Vendor.lua   buying any number of an item from a vendor, a purchase at a time
+Vendor.lua   buying any number of an item from a vendor, a purchase at a time; the
+             prices vendors sell their steady stock at, for recipe costs
 Crate.lua    a Waylaid Crate's favor and bundles, each priced; the cheapest the house can fill
 Writ.lua     the item a Craftsman's Writ asks for, priced the same way
+Craft.lua    a recipe from the profession window: its reagents priced, the sale
+             less the cut, the profit
 Tooltip.lua  tooltip lines
 UI/          table, graph, sparkline; panel, views, AH tab, window;
              House.lua: how Hound sits on the house's lists without
@@ -829,7 +894,8 @@ UI/          table, graph, sparkline; panel, views, AH tab, window;
              (QuickBuy.lua), Hound's own buy confirm (Confirm.lua), the
              Auctions tab total; the Shift overlay on the bags and bank
              (Bags.lua); the vendor's bulk-buy box and its Alt-click
-             (Vendor.lua)
+             (Vendor.lua); the recipe costs panel beside the profession
+             window (Craft.lua)
 Data/        the Waylaid Crates, the favor each pays and the bundles
              that fill them; the Craftsman's Writs and the item each
              asks for
@@ -891,8 +957,10 @@ not answer, another addon's full scan, floors noted between scans,
 sales counted from mail alone and the old inferred ones purged, posts
 kept by character, the neutral house keeping nothing, the commodity
 list scrolling between a double-click's clicks, the house closing twice, buying from a vendor in bulk (a modelled vendor
-whose answers can lag, run out or be refused), and UI construction
-paths. Where the beta has
+whose answers can lag, run out or be refused), recipe costs beside a
+modelled profession window (its pick, a choice of reagents, optional
+ones, a currency, vendor prices noted, the profit sort, unlearned
+recipes, names loading late), and UI construction paths. Where the beta has
 corrected a call's signature, the stub enforces it, so the mistake
 cannot come back quietly; the client's 32-bit `%d`, which a price near
 the gold cap overflows, is enforced the same way.

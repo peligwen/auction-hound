@@ -102,6 +102,7 @@ Enum = {
   AuctionStatus = { Active = 0, Sold = 1 },
   TooltipDataType = { Item = 0 },
   BagIndex = { Backpack = 0, ReagentBag = 5 },
+  CraftingReagentType = { Modifying = 0, Basic = 1, Finishing = 2 },
 }
 
 ------------------------------------------------------------------------
@@ -1250,6 +1251,103 @@ for i = 1, 10 do
       BuyMerchantItem(self:GetID())
     end
   end)
+end
+
+------------------------------------------------------------------------
+-- The profession window: Blizzard's own addon, loaded the first time a
+-- profession opens, and the client's recipe calls. A test gives the
+-- recipes, each
+--   recipeID, name, learned (default true), out (the item made, nil for
+--   an enchant), min and max (units made), reagents { { qty, itemID,
+--   another itemID that fills the slot as well, ... } }, optional (the
+--   same, slots the craft goes without), currency (a slot asking for a
+--   currency), salvage
+-- The recipe form's Init is the window's own pick; the addon hooks it.
+------------------------------------------------------------------------
+Stub.trade = { recipes = {}, open = false }
+
+local function recipeByID(id)
+  for _, r in ipairs(Stub.trade.recipes) do
+    if r.recipeID == id then return r end
+  end
+  return nil
+end
+
+local function slotsOf(list, required, kind, out)
+  for _, g in ipairs(list or {}) do
+    local reagents = {}
+    for j = 2, #g do table.insert(reagents, { itemID = g[j] }) end
+    table.insert(out, { reagents = reagents, quantityRequired = g[1], reagentType = kind, required = required, slotIndex = #out + 1 })
+  end
+end
+
+C_TradeSkillUI = {
+  GetAllRecipeIDs = function()
+    local out = {}
+    if not Stub.trade.open then return out end
+    for _, r in ipairs(Stub.trade.recipes) do table.insert(out, r.recipeID) end
+    return out
+  end,
+  GetRecipeInfo = function(id)
+    local r = recipeByID(id)
+    if not r then return nil end
+    return { recipeID = id, name = r.name, icon = 136243, learned = r.learned ~= false,
+      isRecraft = false, isSalvageRecipe = r.salvage or false, isGatheringRecipe = false, isDummyRecipe = false }
+  end,
+  GetRecipeSchematic = function(id, isRecraft)
+    Stub.trade.schematics = (Stub.trade.schematics or 0) + 1
+    local r = recipeByID(id)
+    if not r then return nil end
+    local slots = {}
+    slotsOf(r.reagents, true, Enum.CraftingReagentType.Basic, slots)
+    slotsOf(r.optional, false, Enum.CraftingReagentType.Modifying, slots)
+    if r.currency then
+      table.insert(slots, { reagents = { { currencyID = 1 } }, quantityRequired = 1, reagentType = Enum.CraftingReagentType.Basic, required = true, slotIndex = #slots + 1 })
+    end
+    return { recipeID = id, name = r.name, outputItemID = r.out, quantityMin = r.min or 1, quantityMax = r.max or r.min or 1,
+      recipeType = r.out and 1 or 3, isRecraft = isRecraft or false, reagentSlotSchematics = slots }
+  end,
+  -- the client answers with an event the window handles, picking it
+  OpenRecipe = function(id)
+    Stub.trade.asked = id
+    C_Timer.After(0, function() if Stub.trade.open and recipeByID(id) then Stub.PickRecipe(id) end end)
+  end,
+}
+
+function Stub.LoadProfessions()
+  if ProfessionsFrame then return end
+  ProfessionsFrame = CreateFrame("Frame", "ProfessionsFrame")
+  ProfessionsFrame:Hide()
+  ProfessionsFrame.CraftingPage = CreateFrame("Frame", nil, ProfessionsFrame)
+  local form = CreateFrame("Frame", nil, ProfessionsFrame.CraftingPage)
+  function form:Init(recipeInfo)
+    Stub.Blizzard("the recipe form's Init")
+    self.currentRecipeInfo = recipeInfo
+  end
+  ProfessionsFrame.CraftingPage.SchematicForm = form
+  Stub.FireEvent("ADDON_LOADED", "Blizzard_Professions")
+end
+
+function Stub.PickRecipe(id)
+  ProfessionsFrame.CraftingPage.SchematicForm:Init(C_TradeSkillUI.GetRecipeInfo(id))
+end
+
+-- Opens a profession with these recipes; the window picks the first,
+-- or the one given, unless pick is false.
+function Stub.OpenProfession(recipes, pick)
+  Stub.LoadProfessions()
+  Stub.trade.recipes = recipes
+  Stub.trade.open = true
+  Stub.FireEvent("TRADE_SKILL_SHOW")
+  ProfessionsFrame:Show()
+  Stub.FireEvent("TRADE_SKILL_LIST_UPDATE")
+  if pick ~= false and (pick or recipes[1]) then Stub.PickRecipe(pick or recipes[1].recipeID) end
+end
+
+function Stub.CloseProfession()
+  Stub.trade.open = false
+  ProfessionsFrame:Hide()
+  Stub.FireEvent("TRADE_SKILL_CLOSE")
 end
 
 ------------------------------------------------------------------------

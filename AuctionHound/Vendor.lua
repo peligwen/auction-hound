@@ -320,7 +320,40 @@ function V.IsOpen()
   return type(MerchantFrame) == "table" and MerchantFrame.IsShown and MerchantFrame:IsShown() and true or false
 end
 
-H.RegisterEvent("MERCHANT_SHOW", function() V.open = true end)
+------------------------------------------------------------------------
+-- What vendors sell for: a reagent a vendor always has (thread, a vial,
+-- flux, salt) is priced at that in a recipe's materials (Craft.lua),
+-- whenever it is cheaper than the house. Noted from every vendor
+-- window opened, copper a unit, for every character: only gold prices,
+-- and only goods the vendor never runs out of, since a limited one is
+-- no steady supply. The latest price seen stands.
+------------------------------------------------------------------------
+function V.NotePrices()
+  if not H.db then return 0 end
+  H.db.vendorBuy = H.db.vendorBuy or {}
+  local n = 0
+  for i = 1, V.Count() do
+    local info = V.Info(i)
+    if info and info.gold and not info.stock and info.price > 0 then
+      H.db.vendorBuy[info.itemID] = info.price / info.bundle
+      n = n + 1
+    end
+  end
+  return n
+end
+
+-- Copper a unit a vendor sells the item for, or nil when no vendor
+-- window has shown it.
+function H.VendorBuy(itemID)
+  local t = H.db and H.db.vendorBuy
+  return t and itemID and t[itemID] or nil
+end
+
+H.RegisterEvent("MERCHANT_SHOW", function()
+  V.open = true
+  V.NotePrices()
+end)
+H.RegisterEvent("MERCHANT_UPDATE", function() if V.open then V.NotePrices() end end)
 
 H.RegisterEvent("MERCHANT_CLOSED", function()
   V.open = false

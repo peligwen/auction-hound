@@ -16,6 +16,8 @@ H.DEFAULTS = {
   plainMoney = false,    -- text money instead of coin icons
   tooltip = true,        -- add Hound lines to item tooltips
   overlay = true,        -- hold Shift with the bags or bank open: each slot's worth, at the house or the vendor
+  craftPanel = true,     -- Hound's panel beside the profession window: recipe costs and profit
+  craftUnlearned = false, -- that panel's list: the recipes not learned yet too
   keepDays = 90,         -- daily history retention
   keepPoints = 120,      -- scan-level points kept per item
   fanPerBatch = 5,       -- units per batch when fanning a listing
@@ -202,6 +204,7 @@ commands.help = function()
   H.Print("                    plan a fan of auctions for an item in your bags; alone, show the current plan")
   H.Print("  /hound post       post the next batch of the fan (bind it to a key)")
   H.Print("  /hound vendor [count] <link, id or name>   at a vendor, buy any number at once (or Alt-click the item)")
+  H.Print("  /hound craft [on|off]       recipe costs and profit beside the profession window")
   H.Print("  /hound cut <percent>        the house's cut, default 5")
   H.Print("  /hound discount [percent] [copper a unit]   the minimum a deal clears, e.g. 25 5s")
   H.Print("  /hound overlay [on|off|test]  hold Shift with the bags or bank open to see what each slot is worth")
@@ -261,6 +264,11 @@ end
 -- At a vendor: the bulk-buy box for an item, the count filled in.
 commands.vendor = function(rest)
   H.UI.Vendor.Command(rest)
+end
+
+-- The panel of recipe costs beside the profession window, on or off.
+commands.craft = function(rest)
+  H.UI.Craft.Command(rest)
 end
 
 commands.scan = function()
