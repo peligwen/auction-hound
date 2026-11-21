@@ -4178,10 +4178,18 @@ do
     for _, r in ipairs(P.table.view) do table.insert(ids, r.recipeID) end
     return table.concat(ids, ",")
   end
+  -- the top of the panel as it reads: the recipe, a line per reagent
+  -- (name | each | total), then the sums
   local function lines()
-    local out = {}
-    for _, l in ipairs(P.frame.lines) do
-      if l.left.text ~= "" or l.right.text ~= "" then table.insert(out, l.left.text .. " | " .. l.right.text) end
+    local f = P.frame
+    local out = { f.head.name.text .. " | " .. f.head.made.text }
+    for i, l in ipairs(f.reagents) do
+      if i <= P.lines and l.name.text ~= "" then
+        table.insert(out, l.name.text .. " | " .. l.each.text .. " | " .. l.total.text)
+      end
+    end
+    for _, t in ipairs(f.totals) do
+      if t.left.text ~= "" then table.insert(out, t.left.text .. " | " .. t.right.text) end
     end
     return out
   end
@@ -4197,7 +4205,11 @@ do
   eq(f.parent, ProfessionsFrame, "a child of the window, so it goes with it")
   local pt = f.points[1]
   check(pt and pt[1] == "TOPLEFT" and pt[2] == ProfessionsFrame and pt[3] == "TOPRIGHT", "hung off the window's right edge")
+  eq(pt and pt[4], H.UI.Craft.EDGE_GAP, "clear of the profession tabs hanging off it")
+  eq(#f.points, 2, "as tall as the window")
   eq(P.tab, nil, "no tab while the panel is up")
+  eq(P.lines, 2, "room for two reagents, the most any of these recipes takes")
+  check(f.reagents[2].button.shown and not f.reagents[3].button.shown, "and no more lines than that")
 
   -- the bolt, picked by the window
   eq(P.recipeID, 2963, "the window's pick reaches Hound through its form")
@@ -4209,12 +4221,20 @@ do
   near(r.margin, 0.52, 1e-9, "52% on them")
   local L = lines()
   eq(L[1], "Bolt of Linen Cloth | makes 1", "the panel names the recipe and what it makes")
-  eq(L[2], "  2 Linen Cloth, " .. H.Money(50) .. " each | " .. H.Money(100), "a reagent a line: units, the price of one, the total")
-  eq(L[3], "materials | " .. H.Money(100), "what the materials come to")
-  eq(L[4], "sells, " .. H.Money(160) .. " less 5% cut | " .. H.Money(152), "what a craft sells for")
-  eq(L[5], "profit | +52c (+52%)", "and the profit")
-  local pl = P.frame.lines[5].right.color
+  eq(L[2], "2 Linen Cloth | 50c | 1s", "a reagent a line: units and name, the price of one, the total")
+  eq(L[3], "Materials | 1s", "what the materials come to")
+  eq(L[4], "Sells at 1s 60c, less 5% cut | 1s 52c", "what a craft sells for")
+  eq(L[5], "Profit | +52c (+52%)", "and the profit")
+  eq(#L, 5, "and nothing else")
+  local pl = P.frame.totals[3].right.color
   check(pl and pl[2] > pl[1], "a profit in green")
+  check(f.head.icon.shown, "with the recipe's icon")
+  -- a reagent line is the reagent: hovering it shows its tooltip
+  local rb = f.reagents[1].button
+  rb.scripts.OnEnter(rb)
+  eq(GameTooltip.itemID, 2589, "hovering a reagent shows it")
+  eq(GameTooltip.owner, rb, "over its line")
+  rb.scripts.OnLeave(rb)
 
   -- the list: learned recipes, salvage left out, the most profitable first
   eq(#P.rows, 8, "every recipe read but the salvage")
@@ -4267,9 +4287,9 @@ do
   eq(r.partial, 300, "only what the linen comes to")
   eq(r.profit, nil, "and no profit")
   L = lines()
-  eq(L[3], "  1 Coarse Thread | no price", "the thread says so")
-  eq(L[4], "materials, 1 without a price | at least " .. H.Money(300), "the materials are a floor")
-  eq(L[5], "sells, " .. H.Money(1000) .. " less 5% cut | " .. H.Money(950), "the belt is found by its item ID, gear as it is")
+  eq(L[3], "1 Coarse Thread |  | no price", "the thread says so")
+  eq(L[4], "Materials (1 without a price) | at least 3s", "the materials are a floor")
+  eq(L[5], "Sells at 10s, less 5% cut | 9s 50c", "the belt is found by its item ID, gear as it is")
   eq(L[6], nil, "no profit line")
 
   -- Unlearned too: the grinding stone comes in at the top
@@ -4339,6 +4359,8 @@ do
   check(string.find(Craft.ReagentLine(belt.lines[2])[1], "vendor", 1, true), "and its line says so")
   eq(belt.profit, 640, "6s 40c a belt")
   eq(string.sub(order(), 1, 4), "8776", "now the best of the list")
+  Stub.PickRecipe(8776)
+  eq(lines()[3], "1 Coarse Thread | v 10c | 10c", "the thread at the vendor's price, marked v")
   eq(row(2330).cost, 54, "the elixir's vial at the vendor's price")
   eq(P.frame.status.text, "7 recipes, 6 priced, 4 at a profit", "the status follows")
 
@@ -4367,6 +4389,8 @@ do
   check(not f.shown, "the panel goes")
   check(P.tab and P.tab.shown, "and a Hound tab sits on the window's edge")
   eq(P.tab.parent, ProfessionsFrame, "its child too")
+  local tp = P.tab.points[1]
+  check(tp and tp[2] == ProfessionsFrame and tp[4] == P.EDGE_GAP, "clear of the profession tabs as well")
   Stub.CloseProfession()
   Stub.OpenProfession(recipes)
   check(not f.shown, "it stays put away when a profession opens")
@@ -4391,6 +4415,62 @@ do
   eq(order(), "3918,2660", "the panel lists the profession open")
   eq(P.recipeID, 3918, "and its pick")
   Stub.CloseProfession()
+
+  -- tabs hanging further off the edge push the panel further out, and
+  -- a frame far off to the right is no tab and moves nothing
+  for _, tab in ipairs(ProfessionsFrame.SideTabs.children) do tab.geom = { 950, 1030 } end
+  Stub.OpenProfession({ recipes[1] })
+  eq(P.frame.points[1][4], 76, "measured: the panel clears the wider tabs")
+  local stray = CreateFrame("Frame", nil, ProfessionsFrame)
+  stray.geom = { 1400, 1500 }
+  eq(P.Gap(), 76, "a frame far off is not counted")
+  stray:Hide()
+  for _, tab in ipairs(ProfessionsFrame.SideTabs.children) do tab.geom = { 954, 1006 } end
+  Stub.CloseProfession()
+
+  -- the block is as tall as the profession's longest recipe needs, and
+  -- a recipe past eight reagents folds the rest into one line
+  local many = { recipeID = 9100, name = "Everything Bagel", out = 2996, reagents = {} }
+  for i = 1, 10 do many.reagents[i] = { 1, 2589 } end
+  Stub.OpenProfession({ many, recipes[2] })
+  eq(P.lines, 8, "eight lines at most")
+  L = lines()
+  eq(L[9], "and 3 more |  | 1s 50c", "the last says how many more and what they come to")
+  eq(L[10], "Materials | 5s", "the sums follow")
+  Stub.CloseProfession()
+  Stub.OpenProfession({ recipes[2] })
+  eq(P.lines, 1, "a profession of one-reagent recipes has one line")
+  check(not P.frame.reagents[2].button.shown, "and no empty ones under it")
+  Stub.CloseProfession()
+
+  -- nothing picked yet
+  Stub.OpenProfession({ recipes[2] }, false)
+  P.Pick(nil)
+  eq(lines()[1], "Pick a recipe to price it | ", "with nothing picked the panel says what to do")
+  check(not P.frame.head.icon.shown, "with no icon")
+  Stub.CloseProfession()
+
+  -- the window's pick scrolls Hound's list to it when it is off screen
+  local long = {}
+  for i = 1, 40 do
+    long[i] = { recipeID = 9200 + i, name = "Bolt " .. i, out = 2996, reagents = { { 1 + (i % 7), 2589 } } }
+  end
+  Stub.OpenProfession(long, false)
+  local n = P.table:NumVisible()
+  check(#P.table.view > n, "more recipes than rows")
+  local last = P.table.view[#P.table.view].recipeID
+  Stub.PickRecipe(last)
+  check(P.table.offset > 0, "the list scrolled")
+  local onScreen = false
+  for _, rw in ipairs(P.table.rows) do
+    if rw.shown and rw.row and rw.row.recipeID == last then onScreen = true end
+  end
+  check(onScreen, "to the recipe picked")
+  local before = P.table.offset
+  Stub.PickRecipe(P.table.view[before + 2].recipeID)
+  eq(P.table.offset, before, "one already on screen leaves it be")
+  Stub.CloseProfession()
+  eq(P.frame.close.template, "UIPanelCloseButton", "the client's own close button")
 
   -- a client whose profession window Hound cannot read says so, once
   local T = C_TradeSkillUI

@@ -425,6 +425,10 @@ function Frame:SetHeight(h) self.height = h end
 function Frame:GetWidth() return self.width end
 function Frame:GetHeight() return self.height end
 function Frame:SetParent(p) self.parent = p end
+-- where a frame sits on the screen, when a test has said: geom = { left, right }
+function Frame:GetLeft() return self.geom and self.geom[1] end
+function Frame:GetRight() return self.geom and self.geom[2] end
+function Frame:GetChildren() return unpack(self.children) end
 function Frame:GetParent() return self.parent end
 function Frame:SetPoint(...) table.insert(self.points, { ... }) end
 function Frame:ClearAllPoints() self.points = {} self.allPoints = nil end
@@ -471,6 +475,7 @@ function CreateFrame(kind, name, parent, template)
   f.name = name
   f.parent = parent
   f.template = template
+  if type(parent) == "table" and type(rawget(parent, "children")) == "table" then table.insert(parent.children, f) end
   table.insert(Stub.frames, f)
   if template == "UIPanelButtonTemplate" then f.fontString = newObject("FontString") end
   local t = template and Stub.templates[template]
@@ -1318,6 +1323,13 @@ function Stub.LoadProfessions()
   if ProfessionsFrame then return end
   ProfessionsFrame = CreateFrame("Frame", "ProfessionsFrame")
   ProfessionsFrame:Hide()
+  -- the window and, hanging 48 off its right edge, its profession tabs
+  ProfessionsFrame.geom = { 16, 958 }
+  ProfessionsFrame.SideTabs = CreateFrame("Frame", nil, ProfessionsFrame)
+  for i = 1, 4 do
+    local tab = CreateFrame("Button", nil, ProfessionsFrame.SideTabs)
+    tab.geom = { 954, 1006 }
+  end
   ProfessionsFrame.CraftingPage = CreateFrame("Frame", nil, ProfessionsFrame)
   local form = CreateFrame("Frame", nil, ProfessionsFrame.CraftingPage)
   function form:Init(recipeInfo)

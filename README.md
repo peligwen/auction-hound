@@ -229,18 +229,24 @@ launch is listed at its head.
   whose favor is not known yet, or whose fill has no price, reads like
   any other row.
 - **Recipe costs.** Open a profession and Hound's panel hangs off the
-  window's right edge. At its top, the recipe picked in the window:
-  each reagent with the units a craft takes, the price of one and the
-  total, then what the materials come to, what a craft sells for less
-  the house's cut, and the profit, green or red, with its margin on
-  the materials. Under it, every recipe of the profession in a list of
+  window's right edge, clear of the profession tabs the window hangs
+  there itself. At its top, the recipe picked in the window, with its
+  icon and what it makes, and its reagents in a small table: the units
+  and name, the price of one ("v" before a vendor's) and the total;
+  hover a reagent for its own tooltip. Under a rule, what the
+  materials come to, what a craft sells for less the house's cut, and
+  the profit, green or red, with its margin on the materials. The
+  block is as tall as the profession's longest recipe needs, so it
+  stays put from one recipe to the next; past eight reagents the rest
+  fold into one line. Money reads as text, "2s 32c", as in Hound's
+  tables. Under it, every recipe of the profession in a list of
   Hound's own with its cost, sale and profit, the most profitable
   first; any header sorts by its column, and "Unlearned too" adds the
-  recipes not learned yet. Click a row to price it at the top, hover
-  it for the same lines on the item it makes, double-click it to open
-  it in the window. A reagent is priced at its market value, as a
-  crate's goods are, or at what a vendor sells it for when that is
-  cheaper: every vendor window opened notes the gold price of what it
+  recipes not learned yet. Picking a recipe in the window scrolls the
+  list to it. Click a row to price it at the top, hover it for the
+  same lines on the item it makes, double-click it to open it in the
+  window. A reagent is priced at its market value, as a crate's goods
+  are, or at what a vendor sells it for when that is cheaper: every vendor window opened notes the gold price of what it
   always has in stock, thread, vials, flux, for every character. A
   slot that takes any of several items is priced at the cheapest; an
   optional reagent is no part of the cost. The product is priced the
@@ -735,12 +741,24 @@ below are still the real test. What did change around the addon:
     neutral, or the other way round, with that line. `/hound house
     faction` (or `neutral`) sets it for the visit. Report the cut the
     neutral house takes if it is not 15%.
-38. **Recipe costs.** Open, and new. Built against the modern
-    profession window (`ProfessionsFrame`, `C_TradeSkillUI`), which the
-    client's bags and bank say it has; none of it has been seen in
-    game. After a full scan, open a profession: Hound's panel should
-    hang off the window's right edge, the same height, with nothing of
-    the window under it. If chat says "this client's profession window
+38. **Recipe costs.** Open, and in part seen on live: the modern
+    profession window (`ProfessionsFrame`, `C_TradeSkillUI`) is there,
+    and the panel, its prices and the profit list came up. Found on
+    live: the window's profession tabs hang off its right edge and sat
+    over the panel, the reagent lines and the top of the list under
+    them; the panel's money mixed coin icons with text; the reagent
+    lines were one long string each; and a block sized for eight
+    reagents left a gap under the sums. Now: the panel sits clear of
+    whatever hangs off the window's edge, read from where the window's
+    pieces sit, and at least `P.EDGE_GAP` (56) out, set at the top of
+    `AuctionHound/UI/Craft.lua` should the tabs still cover it; every
+    profession tab must be clickable and show its tooltip with the
+    panel up. The reagents read as a small table under "Reagents,
+    each, total", in text money like the list; hovering one shows it.
+    The block is as tall as the profession's longest recipe needs.
+    After a full scan, open a profession: Hound's panel should hang off
+    the window's right edge, the same height, with nothing of the
+    window under it. If chat says "this client's profession window
     is not one Hound can read" instead, report which window the
     profession opens in (one small window with the list above the
     reagents is the classic one). Pick a recipe in the window's own
@@ -754,10 +772,12 @@ below are still the real test. What did change around the addon:
     The list below should hold the profession's learned recipes, the
     most profitable first; tick "Unlearned too" and the rest come in,
     grey. Click a header: it sorts. Click a row: the top follows.
+    Pick a recipe far down the window's own list: Hound's list should
+    scroll to it, marked.
     Double-click a row: the window should open that recipe (report
     if nothing happens). Visit a vendor that sells thread or vials,
     come back: a recipe that read "at least" for want of thread should
-    now have its total, the thread marked "vendor". Craft something
+    now have its total, the thread's price marked "v". Craft something
     and learn a recipe with the panel up: it should follow within a
     second, with no stutter. Close it with its x: a small Hound tab
     sits on the window's right edge, and brings it back. Report an

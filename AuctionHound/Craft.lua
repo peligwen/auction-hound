@@ -221,44 +221,62 @@ function Craft.MadeText(r)
   return string.format("makes %d", r.made)
 end
 
+-- The price of one reagent, "v " before a vendor's, in the money form
+-- given (H.Money by default); nil when it has none.
+function Craft.EachText(e, money)
+  if not e.unit then return nil end
+  return (e.src == "vendor" and "v " or "") .. (money or H.Money)(e.unit)
+end
+
+-- After a reagent's name when the last scan saw too few for a craft.
+function Craft.ListedNote(e)
+  if not e.listed then return "" end
+  if e.listed > 0 then return string.format(" |cffd9cc73(only %d listed)|r", e.listed) end
+  return " |cffd9cc73(none listed)|r"
+end
+
 function Craft.ReagentLine(e)
   local left = string.format("%d %s", e.qty, e.name)
   if not e.unit then return { left, "no price", Craft.COLORS.none } end
   local each = H.Money(e.unit)
   if e.src == "vendor" then each = "vendor " .. each end
-  left = left .. ", " .. each .. (e.qty > 1 and " each" or "")
-  if e.listed then
-    left = left .. (e.listed > 0 and string.format(", |cffd9cc73only %d listed|r", e.listed) or ", |cffd9cc73none listed|r")
-  end
+  left = left .. ", " .. each .. (e.qty > 1 and " each" or "") .. Craft.ListedNote(e)
   return { left, H.Money(e.total), Craft.COLORS.price }
 end
 
-function Craft.ProfitText(r)
+function Craft.ProfitText(r, money)
   if not r.profit then return nil end
-  local text = (r.profit >= 0 and "+" or "") .. H.MoneyExact(r.profit)
+  local text = (r.profit >= 0 and "+" or "") .. (money or H.MoneyExact)(r.profit)
   if r.margin then text = text .. " (" .. H.Pct(r.margin, true) .. ")" end
   return text
 end
 
-function Craft.SummaryLines(r)
+-- The materials, the sale and the profit, in the money form given.
+function Craft.SummaryLines(r, money)
+  money = money or H.Money
   local C = Craft.COLORS
   local lines = {}
   if r.cost then
-    lines[1] = { "materials", H.Money(r.cost), C.price }
+    lines[1] = { "materials", money(r.cost), C.price }
   elseif r.partial then
-    lines[1] = { string.format("materials, %d without a price", r.unpriced), "at least " .. H.Money(r.partial), C.none }
+    lines[1] = { string.format("materials (%d without a price)", r.unpriced), "at least " .. money(r.partial), C.none }
   else
     lines[1] = { "materials", "no price", C.none }
   end
   if not r.itemID then
     lines[2] = { "sells", "makes no item", C.none }
   elseif r.sells then
-    local made = r.made == 1 and "" or (r.madeMax > r.madeMin and string.format("~%g x ", r.made) or string.format("%d x ", r.made))
-    lines[2] = { string.format("sells, %s%s less %s cut", made, H.Money(r.value), H.Pct(H.Cut())), H.Money(r.sells), C.price }
+    local made = ""
+    if r.madeMax > r.madeMin then
+      made = string.format("~%g ", r.made)
+    elseif r.made > 1 then
+      made = string.format("%d ", r.made)
+    end
+    lines[2] = { string.format("sells %sat %s, less %s cut", made, money(r.value), H.Pct(H.Cut())), money(r.sells), C.price }
   else
     lines[2] = { "sells", "no price", C.none }
   end
-  local p = Craft.ProfitText(r)
+  local p = Craft.ProfitText(r, money == H.Money and H.MoneyExact or money)
   if p then
     lines[3] = { "profit", p, r.profit >= 0 and C.gain or C.loss }
   end
